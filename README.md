@@ -5,22 +5,37 @@ overlay patcher, mod manager, registry, and a KiroCrew-driven release-tracking
 "Forge" — covering both the Amazon-internal Toolbox edition and the public
 open-source edition.
 
-Status: **kickoff / spec review.** Nothing here is installed into any KiroCrew yet.
+Status: **package 1 (spikes and infrastructure).** Nothing here is installed
+into any KiroCrew yet.
+
+## Layout
+
+One repository, one shared core, two thin edition adapters (design DR-3).
 
 | Path | What |
 |---|---|
-| `.kiro/specs/floofycrew-modding-ecosystem/requirements.md` | Requirements (EARS acceptance criteria) |
-| `.kiro/specs/floofycrew-modding-ecosystem/design.md` | Decision records (DR-1..4) + system design |
-| `.kiro/specs/floofycrew-modding-ecosystem/tasks.md` | Phased implementation plan with spikes |
-| `research/` | The four investigation reports, prompts, reconciled discrepancies |
-| `tools/agent-run.sh` | Research/repair agent runner with retry + model fallback |
-| `forge/bootstrap-desk.sh` | Idempotent bootstrap of the build desk `***REMOVED***-4sx` (Node 24, Python 3.12, uv, kiro-cli, durable tmux, ***REMOVED*** via toolbox) |
-| `forge/build-public.sh` | Clone `kirodotdev/KiroCrew` and run one timestamped `make build` on the build desk (diagnosis only) |
-| `forge/build-internal.sh` | ***REMOVED*** workspace with `***REMOVED***` and one timestamped `***REMOVED***-build release` on the build desk (diagnosis only; needs ***REMOVED***) |
-| `research/build-notes.md` | Measured build times, artefact facts and blockers from the first source builds |
-| `docs/build-desk.md` | Build desk facts, what the bootstrap installed, and the owner-only steps still pending |
-| `.kiro/specs/floofycrew-modding-ecosystem/BLOCKERS.md` | Sub-tasks waiting on something only the owner can do |
+| `floofy-core/` | Shared core (`floofy_core`): manifest, resolver, Patcher engine, registry client, compat, Loader runtime, SPA host. Edition-neutral; CI enforces it |
+| `editions/toolbox/` | Internal edition adapter (`floofy_edition_toolbox`): Toolbox payloads, `BUILD_VERSION`, user-site shim, systemd timer, ***REMOVED*** registry, ***REMOVED*** |
+| `editions/public/` | External edition adapter (`floofy_edition_public`): pipx/venv/desktop payloads, `kiro_crew.__version__` + channel, venv-site shim, PATH wrapper, GitHub registry |
+| `loader-app/` | The Loader packaged as a KiroCrew App (`app.json`, `ui/`) — task 4.1 |
+| `spa-host/` | Dashboard-side ES modules: always-on host, `window.floofy`, boot script, reporter |
+| `registry-tools/` | Build, sign and validate registry indexes; emit `app-registry.json` |
+| `forge/` | Release tracking: watchers (`watch-internal.sh`), build-desk scripts, `docs/build-desk.md` (internal-only notes) |
+| `docs/` | Public documentation (manifest reference, seams, APIs, trust model) |
+| `research/` | Kickoff research reports, prompts, transcripts, `build-notes.md`, spike artefacts (`spikes/`), and `agent-run.sh` (the research/repair agent runner with retry + model fallback) |
+| `scripts/` | Repository tooling: `check_no_internal_identifiers.py` (+ `de-amazon-allow.txt`), run by CI |
+| `.github/workflows/ci.yml` | CI: de-Amazon check of the shared core, `pytest` via `uv` |
+| `pyproject.toml` | Project metadata (Python ≥ 3.12, no runtime dependencies), dev group, pytest config |
+| `.kiro/specs/floofycrew-modding-ecosystem/` | `requirements.md`, `design.md` (decision records + spike outcomes), `tasks.md`, `BLOCKERS.md` |
 | `.kiro/agents/floofy-researcher.json` | Read-only research agent template (per-model variants are derived by the runner) |
+
+## Development
+
+```bash
+uv sync                                        # dev tools (pytest, hypothesis, playwright)
+uv run pytest                                  # tests
+python scripts/check_no_internal_identifiers.py  # what CI's de-amazon job runs
+```
 
 Related: ***REMOVED***'s existing `***REMOVED***KiroCrewThemePatcher` is the direct ancestor of
 the Patcher component and the first mod to be ported.

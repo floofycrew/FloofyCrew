@@ -1,0 +1,27 @@
+[project]
+name = "floofycrew"
+version = "0.0.0"
+description = "Unofficial modding ecosystem for KiroCrew: manifest, loader, patcher, manager, registry, Forge."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+# Runtime code is standard-library only (Requirement 7.2): the CLI and the Loader
+# run on the host's own interpreter. Do not add runtime dependencies here.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "hypothesis",
+    "playwright",
+]
+
+[tool.uv]
+# The repository holds several distributions (floofy-core, the edition adapters);
+# packaging is defined per package later. `uv sync` only manages the dev group.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["floofy-core/tests"]
+pythonpath = ["floofy-core", "editions/toolbox", "editions/public", "scripts"]
+addopts = "-ra"
