@@ -195,11 +195,11 @@
       }
     },
     "relativePath": {
-      "description": "A path relative to the mod root: no leading '/', no '..' segment, no backslashes (Requirement 1.6, 1.8).",
+      "description": "A path relative to the mod root: no leading '/', no '..' segment, no backslashes or control characters (Requirement 1.6, 1.8).",
       "type": "string",
       "minLength": 1,
       "maxLength": 1024,
-      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))[^\\\\]+$"
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))[^\\\\\\u0000-\\u001f]+$"
     },
     "hostPattern": {
       "description": "A DNS name, optionally with a port, where a label may be '*' to match one or more labels at that position (Requirement 1.10). Examples: api.example.com, *.example.com, api.example.com:8443.",

@@ -385,7 +385,12 @@ class Range:
         return any(s.contains(candidate, include_prerelease=include_prerelease) for s in self.sets)
 
     def __contains__(self, version: object) -> bool:
-        return isinstance(version, (Version, str)) and self.contains(version)
+        if not isinstance(version, (Version, str)):
+            return False
+        try:
+            return self.contains(version)
+        except InvalidVersion:
+            return False
 
     def __str__(self) -> str:
         return " || ".join(str(s) for s in self.sets)

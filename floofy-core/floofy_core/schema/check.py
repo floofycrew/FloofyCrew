@@ -117,9 +117,13 @@ def _json_equal(a: Any, b: Any) -> bool:
     return type(a) is type(b) and a == b
 
 
+_END_ANCHOR = re.compile(r"(?<!\\)\$")
+
+
 @lru_cache(maxsize=256)
 def _compiled(pattern: str) -> re.Pattern[str]:
-    return re.compile(pattern)
+    """Compile with ECMA-262 semantics for ``$``: end of input only, not before a trailing newline."""
+    return re.compile(_END_ANCHOR.sub(r"(?!\\n)$", pattern))
 
 
 def _display(value: Any, limit: int = 60) -> str:
