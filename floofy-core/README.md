@@ -26,6 +26,16 @@ Tests live in `tests/`.
 | `floofy_core.deploy` | `DeployManifest` (`deploy/<payload>.json`, atomic save, `record_patch/added/sidelined`), `Backups` (first-write-only `.floofybak` sidecars, `restore_file`, `refresh` for host-updated drift), `added_name()` / `is_floofy_added()` (`-floofy` marker), `classify_drift()` → `DriftReport` with the Requirement 5.3 decision table and default actions |
 | `floofy_core.patches` | `PatchDescriptor.load()` (schema-validated), `apply_descriptor()` → `PatchResult` with per-op atomicity and typed `Skip`s (`NotApplicable`, `AlreadyApplied`, `FingerprintMiss`, `FingerprintAmbiguous`), `fingerprint_report()` (the reporter), `merge_import_map()` / `drop_modulepreload()` for the spike-1.4 remap path |
 | `floofy_core.aliasgraph` | `build_graph()` → `ChunkGraph` (importer graph of `assets/` by hashed-name reference), `closure()`, `republish()` (aliases `<stem>-<runtag>-floofy.<ext>` with rebased references, stale-alias removal, repointed `index.html` text returned to the caller), `sideline_sidecars()` (`.br`/`.gz` → backup names, reversible); the fallback for targets the import-map remap cannot reach |
+| `floofy_core.patcher` | `Patcher(data_home, payloads)`: `apply(patch_set)` (revert-then-patch every payload, drift actions, target policy, alias graph, `audit.jsonl`), `restore()` (manifest + glob sweep), `status()`, `verify()` over the dashboard socket/loopback (`verified` / `dormant` / `failed` / `no-gateway`), `gc()`; `PlannedPatch`, `resolve_target()`, `url_for()` |
+| `floofy_core.gateway` | `GatewayEndpoint` (unix socket `dashboard-<port>.sock` or loopback port, `GET` with identity encoding), `find_endpoints(host_home)`, `served_version()` from `/api/health` |
+| `floofy_core.editions` | adapter discovery by module prefix `floofy_edition_*`: `edition_providers()`, `combined_edition_probe()` |
+| `floofy_core.cli_patch` | `floofy-patch apply\|restore\|status\|verify\|gc` (`--root`, `--payload`, `--no-adapters`, `--port`, `--json`, `--confirm-governance`); `FLOOFY_NO_ADAPTERS=1` limits discovery to `--root` (set by the test session) |
 
 `examples/<kind>/` holds one minimal valid mod per part kind; keep their hashes
 current with `python scripts/hash_example_files.py` (`--check` in CI).
+
+Tests never touch a live host install: `tests/floofy_testing.py` sets
+`FLOOFY_NO_ADAPTERS=1` for the session and every conftest fingerprints the live
+dashboard shells before and after the run. The opt-in real-gateway smoke
+(`tests/test_real_gateway.py`, `FLOOFY_REAL_PAYLOAD=1`) runs a copy of a payload
+under `.scratch/` with scratch homes; see its docstring.

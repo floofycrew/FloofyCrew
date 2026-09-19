@@ -27,7 +27,7 @@ from floofy_core.patches import (
     merge_import_map,
 )
 
-from conftest import EXAMPLES_DIR, FAKE_INDEX_HTML, REPO_ROOT
+from floofy_testing import EXAMPLES_DIR, FAKE_INDEX_HTML, REPO_ROOT
 
 REAL_INDEX = REPO_ROOT / ".scratch" / "dist-0.7.0.5" / "index.html"
 EXAMPLE_DESCRIPTOR = EXAMPLES_DIR / "patch" / "patches" / "index-boot.json"

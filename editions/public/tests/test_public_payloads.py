@@ -6,7 +6,6 @@ and ``/opt``), and the real public 0.6.0 wheel venv left by spike 1.5 when prese
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -21,8 +20,7 @@ from floofy_edition_public.payloads import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO_ROOT / "floofy-core" / "tests"))
-from conftest import fake_payload  # noqa: E402
+from floofy_testing import fake_payload
 
 SPIKE_VENV = REPO_ROOT / ".scratch" / "spike-5" / "venv"
 

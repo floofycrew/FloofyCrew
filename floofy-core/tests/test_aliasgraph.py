@@ -195,13 +195,16 @@ def test_republish_css_member_and_multi_seed(tmp_path: Path) -> None:
 def test_sideline_sidecars_twice_and_restore(tmp_path: Path) -> None:
     index, assets = make_dist(tmp_path)
     backups = Backups()
+    (assets / (LEAF + ".br")).unlink()
+    (assets / (LEAF + ".gz")).unlink()
     before = snapshot(tmp_path)
     moved = sideline_sidecars(assets / A, backups)
     assert [m[0].name for m in moved] == [A + ".br", A + ".gz"]
     (assets / (A + ".br")).write_bytes(b"stale")  # the host re-laid a sidecar; sideline again
     moved = sideline_sidecars(assets / A, backups)
-    assert len(moved) == 1 and (assets / (A + ".br" + BACKUP_SUFFIX)).read_bytes() == b"br:" + A.encode()
-    assert sideline_sidecars(assets / LEAF, backups) == [] or True  # leaf has sidecars too
+    assert len(moved) == 2  # the re-laid .br parked again (stale bytes dropped), the .gz still recorded as parked
+    assert (assets / (A + ".br" + BACKUP_SUFFIX)).read_bytes() == b"br:" + A.encode() and not (assets / (A + ".br")).exists()
+    assert sideline_sidecars(assets / LEAF, backups) == []  # no sidecars: nothing to park, nothing recorded
     # restore: every backup name moves back over its original name
     for backup in sorted(tmp_path.rglob("*" + BACKUP_SUFFIX)):
         backups.restore_file(backups.original_of(backup))

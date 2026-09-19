@@ -23,7 +23,7 @@ from floofy_core.netscan import host_matches, is_loopback_host, split_authority
 from floofy_core.targets import DEFAULT_TARGET_POLICY, TargetClass, TargetPolicy
 from floofy_core.validator import Finding, validate_mod
 
-from conftest import KINDS, EXAMPLES_DIR, read_manifest, rehash, write_manifest
+from floofy_testing import KINDS, EXAMPLES_DIR, read_manifest, rehash, write_manifest
 
 
 def _codes(findings: list[Finding]) -> list[str]:

@@ -19,7 +19,7 @@ from hypothesis import strategies as st
 from floofy_core.schema import SCHEMA_IDS, load_schema, schema_path
 from floofy_core.schema.check import SchemaError, validate_instance
 
-from conftest import EXAMPLES_DIR, KINDS, REPO_ROOT, read_manifest
+from floofy_testing import EXAMPLES_DIR, KINDS, REPO_ROOT, read_manifest
 
 FLOOFY = load_schema("floofy")
 PATCH = load_schema("patch")

@@ -30,7 +30,7 @@ from floofy_core.payloads import (
 )
 from floofy_core.semver import HostVersion, InvalidVersion
 
-from conftest import fake_payload
+from floofy_testing import fake_payload
 
 
 # --- the walk ------------------------------------------------------------------------
@@ -146,13 +146,24 @@ def test_make_payload_derives_everything(tmp_path: Path) -> None:
 
 
 def test_extra_root_provider_lists_roots_and_finds_payloads(tmp_path: Path) -> None:
-    fake_payload(tmp_path / "one", "0.7.0", layout="flat")
-    fake_payload(tmp_path / "two", "0.6.0", layout="nested", build="0.6.0.16")
+    one = fake_payload(tmp_path / "one", "0.7.0", layout="flat")
+    two = fake_payload(tmp_path / "two", "0.6.0", layout="nested", build="0.6.0.16")
     provider = ExtraRootProvider([tmp_path / "one", tmp_path / "two", tmp_path / "empty"])
     assert provider.roots() == [tmp_path / "one", tmp_path / "two", tmp_path / "empty"]
     payloads = provider.discover()
-    assert [p.id for p in payloads] == [f"root:{path_token(tmp_path / 'one')}:0.7.0", f"root:{path_token(tmp_path / 'two')}:0.6.0.16"]
+    assert [p.id for p in payloads] == [f"root:{path_token(one)}:0.7.0", f"root:{path_token(two)}:0.6.0.16"]
     assert payloads[1].edition == "unknown"  # stamped build, no adapter probe
+
+
+def test_extra_root_with_two_package_trees_gets_two_ids(tmp_path: Path) -> None:
+    """A bundle root holding two site-packages farms yields two distinct payload ids."""
+    root = tmp_path / "bundle"
+    for minor in ("3.10", "3.12"):
+        package_dir = root / "lib" / f"python{minor}" / "site-packages" / "kiro_crew"
+        (package_dir / "static" / "dist").mkdir(parents=True)
+        (package_dir / "__init__.py").write_text('__version__ = "0.7.0"\n', encoding="utf-8")
+    payloads = ExtraRootProvider([root]).discover()
+    assert len(payloads) == 2 and len({p.id for p in payloads}) == 2
 
 
 def test_edition_probe_is_consulted(tmp_path: Path) -> None:

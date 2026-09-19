@@ -458,7 +458,7 @@ class ExtraRootProvider:
                             root=root,
                             package_dir=package_dir,
                             source=self.name,
-                            discriminator=path_token(root),
+                            discriminator=path_token(package_dir),  # one root may hold several package trees
                             current=launcher_points_into(root),
                             edition_probe=self.edition_probe,
                         )

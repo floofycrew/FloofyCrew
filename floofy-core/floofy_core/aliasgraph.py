@@ -154,18 +154,21 @@ def sideline_sidecars(file: Path, backups: Backups, manifest: DeployManifest | N
     """Rename ``<file>.br`` / ``<file>.gz`` to their backup names so the plain file is served.
 
     Reversible: the moved name is the sidecar's backup path, which ``restore``
-    moves back like any other backup. Recorded as ``sidelined[]`` in the manifest.
+    moves back like any other backup. Recorded as ``sidelined[]`` in the manifest;
+    a sidecar already parked by an earlier run is recorded again so it stays parked.
     """
     moved: list[tuple[Path, Path]] = []
     for suffix in SIDECAR_SUFFIXES:
         sidecar = Path(str(file) + suffix)
-        if not sidecar.is_file():
-            continue
         target = backups.backup_path(sidecar)
-        if target.exists():
-            sidecar.unlink()  # a previous run already parked the original bytes
-        else:
-            sidecar.rename(target)
+        if sidecar.is_file():
+            if target.exists():
+                sidecar.unlink()  # a previous run already parked the original bytes
+            else:
+                sidecar.rename(target)
+        elif not target.exists():
+            continue  # no sidecar for this file
+        # else: already sidelined by an earlier run — still record it so the manifest keeps it parked
         moved.append((sidecar, target))
         if manifest is not None:
             manifest.record_sidelined(sidecar, target, mod)
