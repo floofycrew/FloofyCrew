@@ -17,6 +17,7 @@ Tests live in `tests/`.
 | `floofy_core.schema` | the two JSON Schemas (`floofy.schema.json`, `patch.schema.json`), `load_schema()`, and `schema/check.py`, a small stdlib JSON Schema checker; field reference in `schema/README.md` |
 | `floofy_core.semver` | `Version` (SemVer 2.0), `HostVersion` (the shapes KiroCrew prints, with the `X.Y.Z` `base`), `Range` (npm-style ranges) |
 | `floofy_core.validator` | `validate_mod()` → `ValidationReport` of `Finding`s: schema, hashes, parts, targets, network |
+| `floofy_core.resolver` | `resolve(records, host)` → `Resolution`: graded dependencies, mutual conflicts, load order, cycle → `Conflict`, `strict` → `Unsupported`, typed `Reason` enum; governance is never a reason |
 | `floofy_core.archive` | `open_archive_safely()`: listing checked before extraction (no symlinks, absolute paths or `..`) |
 | `floofy_core.targets` | `TargetPolicy`: engineering-rule targets (error) vs governance files (warning, accepted per file); adapters extend it |
 | `floofy_core.netscan` | plaintext / undeclared-host scan and `host_matches()` shared with the Loader's `ctx.http` |
