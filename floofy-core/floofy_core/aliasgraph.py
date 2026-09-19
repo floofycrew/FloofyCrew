@@ -35,6 +35,7 @@ stylesheets, or a client without import-map support.
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import re
 from dataclasses import dataclass, field
@@ -119,12 +120,19 @@ class ChunkGraph:
         return order
 
 
-def build_graph(assets_dir: Path) -> ChunkGraph:
-    """Scan every asset once and build the reference and importer maps (aliases excluded)."""
+def build_graph(assets_dir: Path, *, exclude: Iterable[str] = ()) -> ChunkGraph:
+    """Scan every asset once and build the reference and importer maps (aliases excluded).
+
+    ``exclude`` holds file-name globs to leave out (for example the artefacts of
+    another tool found in a dist that is not vanilla).
+    """
     assets_dir = Path(assets_dir)
     graph = ChunkGraph(assets_dir)
+    globs = list(exclude)
     for path in sorted(assets_dir.iterdir()) if assets_dir.is_dir() else []:
         if not path.is_file() or is_floofy_added(path) or path.suffix.lstrip(".") not in _ASSET_EXTS:
+            continue
+        if any(fnmatch.fnmatchcase(path.name, glob) for glob in globs):
             continue
         graph.chunks[path.name] = path
     for name, path in graph.chunks.items():

@@ -1,0 +1,26 @@
+// floofy fixture skeleton of CommandBarOverlay-tV778n8r.js (24317 bytes in the source dist); references only
+import "./ErrorNotice-DPRjJT69.js";
+import "./Highlighted-DEI8tEWn.js";
+import "./appNav-CnYGwpFQ.js";
+import "./arrow-right-BYNZEw6w.js";
+import "./check-BiXj6uGO.js";
+import "./client-oM83i081.js";
+import "./clock-STbV03H-.js";
+import "./format-B6WGoiAK.js";
+import "./git-merge-BMRwxsD9.js";
+import "./loader-circle-C_5Uqxk0.js";
+import "./message-square-DhfR0FYy.js";
+import "./message-square-plus-gLadhvQs.js";
+import "./package-D9OLWJG_.js";
+import "./rolldown-runtime-C0FnF6B9.js";
+import "./rotate-ccw-BorOdm8z.js";
+import "./scan-eye-DP8Wdilb.js";
+import "./search---XD_99V.js";
+import "./send-BeRLdK9v.js";
+import "./store-BCFckW6_.js";
+import "./t-DOBS4SB0.js";
+import "./terminal-DG02DWdF.js";
+import "./useDialogFocusTrap-CO7-6Fij.js";
+import "./useImeGuard-Cymh2bQY.js";
+import "./vendor-markdown-DW2cMWuW.js";
+import "./vendor-react-CCT3OAU8.js";

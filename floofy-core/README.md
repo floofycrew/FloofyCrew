@@ -36,6 +36,9 @@ Tests live in `tests/`.
 `examples/<kind>/` holds one minimal valid mod per part kind; keep their hashes
 current with `python scripts/hash_example_files.py` (`--check` in CI).
 
+`tests/fixtures/dist-<ver>/` are trimmed real dists from three host versions
+(see `tests/fixtures/README.md`; regenerate with `scripts/make_fixture_payload.py`).
+
 Tests never touch a live host install: `tests/floofy_testing.py` sets
 `FLOOFY_NO_ADAPTERS=1` for the session and every conftest fingerprints the live
 dashboard shells before and after the run. The opt-in real-gateway smoke

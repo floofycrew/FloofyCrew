@@ -1,0 +1,761 @@
+{
+  "closure": [
+    "TunnelQrCard-B5ylGs4W.js",
+    "TunnelMobileConnectSection-BH-Pb4BB.js",
+    "TunnelOverviewPanel-FAvP_jZj.js",
+    "TunnelPage-CNyFj0eG.js",
+    "main-DbC_Nv7X.js"
+  ],
+  "edition": "internal",
+  "entry": "main-DbC_Nv7X.js",
+  "excludedAssets": 42,
+  "files": {
+    "assets/AboutPanel-CuG_Hrna.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 53017
+    },
+    "assets/AgentSelector-njAX4TG0.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 8426
+    },
+    "assets/App-9RQJ1adl.css": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3125
+    },
+    "assets/App-dSbMiEYo.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3481296
+    },
+    "assets/AppIcon-C5wGu9fg.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2184
+    },
+    "assets/AppSource-CWiLiIID.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1195
+    },
+    "assets/AwsConsentGate-AsktYPfE.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 133934
+    },
+    "assets/BrandIcon-Y_VntC9W.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3130
+    },
+    "assets/ChatSettings-BWC1w80e.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1700
+    },
+    "assets/Clickable-L8_sXkR9.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 514
+    },
+    "assets/CodeEditor-DE7r4yeF.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1123
+    },
+    "assets/Combination-CsIYfObh.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 12456
+    },
+    "assets/ConfirmDialog-D8Bxo3pe.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4682
+    },
+    "assets/ErrorBoundary-DNb3gLtK.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3319
+    },
+    "assets/ErrorNotice-BRrcKTRZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4274
+    },
+    "assets/FolderBody-DR44BcW2.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 637
+    },
+    "assets/Highlighted-C0ENYJbA.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 20763
+    },
+    "assets/ListDetailBack-TxPIzLsZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 547
+    },
+    "assets/LottieRenderer-2HsuP2xu.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2469
+    },
+    "assets/MarkdownRenderer-BjPKCU2c.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 178837
+    },
+    "assets/MemoryTab-DPnBQ6il.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 165787
+    },
+    "assets/Modal-DoM_yW6N.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2782
+    },
+    "assets/MonitorRadar-BwXkjaB3.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1477
+    },
+    "assets/NavBackBar-wdaMHq9x.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 5526
+    },
+    "assets/NavigationLeaveGuard-BnnAK_fZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4334
+    },
+    "assets/ProjectPicker-BQ9ys5Fv.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 10810
+    },
+    "assets/PullRequestPanel-Bo_tbqHJ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 38721
+    },
+    "assets/ReadingWidthToggle-DfGGkvtn.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 785
+    },
+    "assets/ResizeHandle-CF8TqiQE.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1181
+    },
+    "assets/SegmentedControl-DlNA2nRQ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3672
+    },
+    "assets/SettingsLink-dbNFuanq.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 614
+    },
+    "assets/SimpleSelect-BjncJAJc.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 47821
+    },
+    "assets/SnipOverlay-D7r2lxx8.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4296
+    },
+    "assets/SpriteRenderer-jlOcuqAu.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 170887
+    },
+    "assets/Trans-Dzzgc12n.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 10758
+    },
+    "assets/TrustDropdown-Fn3AY6we.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2498
+    },
+    "assets/TunnelMobileConnectSection-BH-Pb4BB.js": {
+      "bytes": 301,
+      "kind": "skeleton",
+      "sourceBytes": 1144
+    },
+    "assets/TunnelMobileConnectSection-BH-Pb4BB.js.br": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 592
+    },
+    "assets/TunnelMobileConnectSection-BH-Pb4BB.js.gz": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 654
+    },
+    "assets/TunnelOverviewPanel-FAvP_jZj.js": {
+      "bytes": 294,
+      "kind": "skeleton",
+      "sourceBytes": 1281
+    },
+    "assets/TunnelOverviewPanel-FAvP_jZj.js.br": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 611
+    },
+    "assets/TunnelOverviewPanel-FAvP_jZj.js.gz": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 662
+    },
+    "assets/TunnelPage-CNyFj0eG.js": {
+      "bytes": 354,
+      "kind": "skeleton",
+      "sourceBytes": 7565
+    },
+    "assets/TunnelPage-CNyFj0eG.js.br": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 2276
+    },
+    "assets/TunnelPage-CNyFj0eG.js.gz": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 2410
+    },
+    "assets/TunnelQrCard-B5ylGs4W.js": {
+      "bytes": 3347,
+      "kind": "verbatim",
+      "sourceBytes": 3347
+    },
+    "assets/TunnelQrCard-B5ylGs4W.js.br": {
+      "bytes": 1442,
+      "kind": "verbatim",
+      "sourceBytes": 1442
+    },
+    "assets/TunnelQrCard-B5ylGs4W.js.gz": {
+      "bytes": 1573,
+      "kind": "verbatim",
+      "sourceBytes": 1573
+    },
+    "assets/WorkflowsRuns-CgPZr0en.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 14965
+    },
+    "assets/all-BHGNrjXC.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 11805430
+    },
+    "assets/api-CPDLqlSN.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 210
+    },
+    "assets/apiError-DyJf4FZv.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 741
+    },
+    "assets/appNav-cOXpPGxV.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 707
+    },
+    "assets/appNavHidden-DwPHsreb.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1316
+    },
+    "assets/automation-CrqwrcED.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 10349
+    },
+    "assets/bundle-mjs-DxdGK6Xj.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 26856
+    },
+    "assets/client-Bz2WBKcM.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 69933
+    },
+    "assets/clipboard-DLRiFXZZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1014
+    },
+    "assets/commandModifier-hO4dw1CA.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 46
+    },
+    "assets/composerPastePolicy-DU4I6Ls6.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2984
+    },
+    "assets/context-DMk8fbYA.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1491
+    },
+    "assets/defaultAgentQuery-B4965Aw8.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 345
+    },
+    "assets/destinationVars-CJw46867.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 285
+    },
+    "assets/dialog-DGD7NqtO.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 18001
+    },
+    "assets/dist-BfoZ9w90.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 17712
+    },
+    "assets/dist-tyFW-GQv.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 58530
+    },
+    "assets/dropdown-menu-EF-qgO4W.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 8198
+    },
+    "assets/editionApi-ChzINQo_.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 909
+    },
+    "assets/electron-DFRQJbBi.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 718
+    },
+    "assets/errorReport-C7L0QDWt.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3126
+    },
+    "assets/fileTokens-8GqlM-S2.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 6321
+    },
+    "assets/floating-ui.react-dom-BLSDNTUh.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 21655
+    },
+    "assets/format-CdmOInzc.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3774
+    },
+    "assets/helpers-B_09xguU.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 233
+    },
+    "assets/iconContrast-BOy5mHXx.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2526
+    },
+    "assets/isTouchDevice-HCxMVnPj.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 185
+    },
+    "assets/main-C6DbzVEa.css": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 34383
+    },
+    "assets/main-DbC_Nv7X.js": {
+      "bytes": 5509,
+      "kind": "skeleton",
+      "sourceBytes": 630489
+    },
+    "assets/mobileConnectRenderers-Behhqqn9.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 657
+    },
+    "assets/notificationsSlice-Bmk3zhRB.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3334
+    },
+    "assets/panels-C8txbtWF.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1549
+    },
+    "assets/pasteTokens-Bscwe-3E.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4103
+    },
+    "assets/phoneSubmenu-BEl3yDED.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 39570
+    },
+    "assets/pierre-CK3MSNgB.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 9075
+    },
+    "assets/popover-BG4gd1Al.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 20591
+    },
+    "assets/providers-BsD33ozu.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 6450
+    },
+    "assets/renderBudget-BaOOtQ9m.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 280
+    },
+    "assets/rolldown-runtime-C0FnF6B9.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1291
+    },
+    "assets/runModel-Bc0IK-x1.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 891
+    },
+    "assets/safeStorage--aWtkcR6.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1085
+    },
+    "assets/safeUrl-DOsrqqcq.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 318
+    },
+    "assets/sanitize-vP3Os6lq.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1474
+    },
+    "assets/seamCollision-DVf8VB2B.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 67
+    },
+    "assets/secureId-Dkmv36JH.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 441
+    },
+    "assets/sendTurn-BijzI8Y1.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1001
+    },
+    "assets/sessionOrder-AHJeH66K.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2808
+    },
+    "assets/settings-ykQi5BH6.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 14321
+    },
+    "assets/settingsPath-nYidwDSG.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 400
+    },
+    "assets/shareSupport-DWb35eZF.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 6966
+    },
+    "assets/shim-DV_Pvyua.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 871
+    },
+    "assets/splitOnPlaceholder-ChFmfApo.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 139
+    },
+    "assets/src-CdJBuVPS.css": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 269689
+    },
+    "assets/staleOwnerSignal-Ruoa02k0.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 297
+    },
+    "assets/startupVideoGate-D7s-nnWm.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 365
+    },
+    "assets/store-DhLUM-y3.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 98896
+    },
+    "assets/subNavParams-B62RDvBZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 480
+    },
+    "assets/t-D93jIxKT.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 850317
+    },
+    "assets/tabs-DfBoYqdC.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 26486
+    },
+    "assets/terminalRegistry-C4mghvt3.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4552
+    },
+    "assets/timeAgo-B3N_dP-5.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 239
+    },
+    "assets/toolPurpose-DkMYvtXo.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 431
+    },
+    "assets/touchActions-9FCzY38a.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 664
+    },
+    "assets/tree-CbzpFXoO.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 6661
+    },
+    "assets/trustPatterns-f4MhUv80.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 411
+    },
+    "assets/ui-CO1AQrH1.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 16220
+    },
+    "assets/urlTransform-BNUZfc6g.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 390
+    },
+    "assets/useAgents-Q7JW7pH9.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 870
+    },
+    "assets/useAppsData-CD6mW2B8.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 14050
+    },
+    "assets/useAutoGrowTextarea-2MzPGVhH.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2196
+    },
+    "assets/useAvailableModels-BRe-8VNE.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 428
+    },
+    "assets/useColumnResize-CKXE-lI1.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2371
+    },
+    "assets/useDialogFocusTrap-DvxNWRIm.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1270
+    },
+    "assets/useHeroArt-zr2sAg4Z.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 15323
+    },
+    "assets/useImeGuard-D7PlcO35.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1781
+    },
+    "assets/useIsDark-DtCYROGr.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 498
+    },
+    "assets/useIsMobile-CVmE8oC-.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 916
+    },
+    "assets/useIsTouchDevice-Cgh23pZY.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 508
+    },
+    "assets/useLanguageGeneration-BBuk8GX4.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 353
+    },
+    "assets/useListDetailView-ChaPf7cU.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 400
+    },
+    "assets/useListboxKeyboard-DW_wHDO-.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1932
+    },
+    "assets/useMenuKeyboard-CzKHukvj.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1571
+    },
+    "assets/usePersistedBool-Bez9hn3L.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1075
+    },
+    "assets/usePlainDiff-CkoNJZSJ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 8220
+    },
+    "assets/usePointerDrag-BoxbdO0y.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1853
+    },
+    "assets/useReducedMotion-BNdXG5Dz.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 490
+    },
+    "assets/useScrollEdges-Cl-nieoD.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 908
+    },
+    "assets/useTheme-VJ2kkssT.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 17937
+    },
+    "assets/useTranslation-B77-_p4l.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3124
+    },
+    "assets/useVisualViewport-C6_uBF4A.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 54606
+    },
+    "assets/utils-C3eKvuTu.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 451
+    },
+    "assets/vendor-dompurify-DrVcFY1Q.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 27122
+    },
+    "assets/vendor-icons-BP3Va5xl.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 95912
+    },
+    "assets/vendor-markdown-CaH0jbfC.css": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 28842
+    },
+    "assets/vendor-markdown-t8Ito-TQ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 700563
+    },
+    "assets/vendor-react-CDpZySCs.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 391645
+    },
+    "assets/vendor-yaml-CyJt8SAd.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 95971
+    },
+    "index.html": {
+      "bytes": 35189,
+      "kind": "verbatim"
+    }
+  },
+  "fixtureBytes": 48027,
+  "schema": 1,
+  "seed": "TunnelQrCard-B5ylGs4W.js",
+  "seedImporters": [
+    "TunnelMobileConnectSection-BH-Pb4BB.js",
+    "TunnelOverviewPanel-FAvP_jZj.js",
+    "TunnelPage-CNyFj0eG.js",
+    "main-DbC_Nv7X.js"
+  ],
+  "sourceChunkCount": 718,
+  "sourceIndexSha256": "d1459c65303eaaf2b21da9ecf147fad4b1439a0c46840cf600155f5f875dfd37",
+  "sourceSidecarCount": 1230,
+  "sourceVersion": "0.7.0.4"
+}

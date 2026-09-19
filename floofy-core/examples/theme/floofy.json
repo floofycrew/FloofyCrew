@@ -14,6 +14,6 @@
   ],
   "files": [
     { "path": "theme/theme.json", "sha256": "305caaed53eb8252c8834d873297bdbe64e4583ac7ee9a92e3b078573125b031" },
-    { "path": "theme/variables.json", "sha256": "5c77ad028652ab6cabd331061aad87d85544229e36ea8fb5f9809ac64c1d9061" }
+    { "path": "theme/variables.json", "sha256": "9004832633f26d8b9f18d329488f31bb1116e8587d22e80b48c2093837a49b7f" }
   ]
 }
