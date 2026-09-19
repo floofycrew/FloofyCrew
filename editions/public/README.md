@@ -16,3 +16,4 @@ GitHub releases.
 | Module | Purpose |
 |---|---|
 | `floofy_edition_public.payloads` | `PipxProvider` (both pipx layouts, `PIPX_HOME`), `ManagedVenvProvider` (`~/.kiro/crew-venv` + `crew-venv-<ver>` shadow siblings, promoted one current), `DesktopBundleProvider` (`.app` `backend-dist`, `/opt`), `default_providers()`, `probe_edition()`. Tests in `tests/`. |
+| `floofy_edition_public.governance` | `locations(host_home)`: the neutral home-tier files only (no bundled ceiling). |

@@ -26,3 +26,10 @@ def probe_edition(package_dir: Path) -> str | None:
     from .payloads import probe_edition as _probe
 
     return _probe(package_dir)
+
+
+def governance_locations(host_home: Path, payload=None):
+    """Where this edition's governance lives (core ``floofy_core.editions.governance_locations``)."""
+    from .governance import locations
+
+    return locations(host_home, payload)

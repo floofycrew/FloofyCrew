@@ -23,8 +23,9 @@ import os
 import sys
 from pathlib import Path
 
-from .editions import combined_edition_probe, edition_providers
+from .editions import combined_edition_probe, edition_providers, governance_locations
 from .gateway import GatewayEndpoint
+from .governance import AlwaysConfirm, CallableConfirmer, GovernanceSnapshot
 from .patcher import Patcher, PlannedPatch, VerifyStatus
 from .patches import PatchDescriptor, PatchDescriptorError
 from .payloads import DiscoveryResult, discover_payloads
@@ -53,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     apply.add_argument("--mod", default="cli", help="mod id recorded as the owner of the patches")
     apply.add_argument("--confirm-governance", action="append", default=[], metavar="TARGET", help="confirm one governance-file target (repeatable)")
     apply.add_argument("--no-verify", action="store_true", help="skip the gateway verification")
+    apply.add_argument("--yes", "-y", action="store_true", help="answer the update-survival question with yes (non-interactive)")
+    apply.add_argument("--triggers-installed", choices=["yes", "no", "unknown"], default="unknown", help="whether a re-apply trigger exists (floofy init sets this; Requirement 5.9)")
 
     restore = sub.add_parser("restore", help="return payloads to vanilla (manifest + sweep)")
     restore.add_argument("--all", action="store_true", help="every payload (the default when no --payload is given)")
@@ -83,6 +86,21 @@ def _load_patches(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     return patches
 
 
+def _ask(prompt: str, default: bool) -> bool:
+    suffix = " [Y/n] " if default else " [y/N] "
+    try:
+        answer = input(prompt + suffix).strip().lower()
+    except EOFError:
+        return default
+    return default if not answer else answer in ("y", "yes")
+
+
+def _governance_lines(snapshot: GovernanceSnapshot) -> list[str]:
+    from .governance import warnings_for
+
+    return ["WARNING " + w.format() for w in warnings_for(snapshot)]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -100,13 +118,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"no payload matches {args.payload}; known: {[p.id for p in discovery.payloads]}", file=sys.stderr)
             return 2
     endpoints = [GatewayEndpoint(port=args.port)] if args.port else None
+    host_home = args.host_home or data_home.parent
+    governance = GovernanceSnapshot.read(governance_locations(host_home, payloads[0]))
+    for warning in _governance_lines(governance):
+        say(warning)
+    triggers = {"yes": True, "no": False, "unknown": None}[getattr(args, "triggers_installed", "unknown")]
+    confirmer = AlwaysConfirm() if (getattr(args, "yes", False) or args.json or not sys.stdin.isatty()) else CallableConfirmer(_ask)
     patcher = Patcher(
         data_home,
         payloads,
         confirmed_governance_targets=getattr(args, "confirm_governance", []),
         endpoints=endpoints,
-        host_home=args.host_home,
+        host_home=host_home,
         reporter=say,
+        governance=governance,
+        confirmer=confirmer,
+        triggers_installed=triggers,
     )
 
     if args.command == "apply":
@@ -122,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  ERROR {error}")
                 if item.verify is not None:
                     print(f"  verify: {item.verify.status}{' — ' + item.verify.detail if item.verify.detail else ''}")
+        if report.declined and not args.json:
+            print("declined: nothing was written")
         failed_verify = any(p.verify is not None and p.verify.status == VerifyStatus.FAILED for p in report.payloads)
         return 0 if report.ok and not failed_verify else 1
 

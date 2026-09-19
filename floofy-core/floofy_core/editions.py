@@ -16,9 +16,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Callable
 
-from .payloads import EditionProbe, PayloadProvider, default_edition_probe
+from .governance import GovernanceLocations, default_locations
+from .payloads import EditionProbe, Payload, PayloadProvider, default_edition_probe
 
-__all__ = ["ADAPTER_PREFIX", "combined_edition_probe", "edition_providers", "load_edition_adapters"]
+__all__ = ["ADAPTER_PREFIX", "combined_edition_probe", "edition_providers", "governance_locations", "load_edition_adapters"]
 
 ADAPTER_PREFIX = "floofy_edition_"
 
@@ -63,3 +64,17 @@ def combined_edition_probe(adapters: list[ModuleType] | None = None) -> EditionP
         return default_edition_probe(package_dir)
 
     return probe
+
+
+def governance_locations(host_home: Path, payload: Payload | None = None, adapters: list[ModuleType] | None = None) -> GovernanceLocations:
+    """The governance locations for ``payload``: the adapter matching its edition, else the neutral defaults."""
+    for adapter in load_edition_adapters() if adapters is None else adapters:
+        if payload is not None and getattr(adapter, "EDITION", None) != payload.edition:
+            continue
+        factory = getattr(adapter, "governance_locations", None)
+        if callable(factory):
+            try:
+                return factory(host_home, payload)
+            except Exception:  # noqa: BLE001
+                continue
+    return default_locations(host_home)

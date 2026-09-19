@@ -54,6 +54,7 @@ from .deploy import (
     utc_now,
 )
 from .gateway import GatewayEndpoint, find_endpoints, served_version
+from .governance import AlwaysConfirm, Confirmer, GovernanceSnapshot, GovernanceWarning, survival_check, survival_prompt
 from .patches import PatchDescriptor, PatchResult, Skip, apply_descriptor
 from .payloads import Payload
 from .targets import DEFAULT_TARGET_POLICY, TargetClass, TargetPolicy
@@ -163,13 +164,25 @@ class PayloadApply:
 class ApplyReport:
     payloads: list[PayloadApply] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    governance_warnings: list[dict[str, Any]] = field(default_factory=list)  # informational, never a gate (DR-5)
+    confirmation: str | None = None  # "confirmed" | "declined" | None when nothing had to be asked
 
     @property
     def ok(self) -> bool:
         return all(p.ok for p in self.payloads)
 
+    @property
+    def declined(self) -> bool:
+        return self.confirmation == "declined"
+
     def to_dict(self) -> dict[str, Any]:
-        return {"ok": self.ok, "payloads": [p.to_dict() for p in self.payloads], "notes": list(self.notes)}
+        return {
+            "ok": self.ok,
+            "confirmation": self.confirmation,
+            "governanceWarnings": list(self.governance_warnings),
+            "payloads": [p.to_dict() for p in self.payloads],
+            "notes": list(self.notes),
+        }
 
 
 @dataclass
@@ -271,6 +284,9 @@ class Patcher:
         endpoints: Iterable[GatewayEndpoint] | None = None,
         host_home: Path | None = None,
         reporter: Reporter | None = None,
+        governance: GovernanceSnapshot | None = None,
+        confirmer: Confirmer | None = None,
+        triggers_installed: bool | None = None,
     ):
         self.data_home = Path(data_home)
         self.payloads = list(payloads)
@@ -281,6 +297,12 @@ class Patcher:
         self.host_home = Path(host_home) if host_home else self.data_home.parent
         self.say = reporter or _silent
         self.audit = AuditLog(self.data_home)
+        #: Governance is read for information (task 3.6); ``None`` means "not read".
+        self.governance = governance
+        #: Who answers the Requirement 5.9 question; non-interactive callers are pre-consented.
+        self.confirmer: Confirmer = confirmer or AlwaysConfirm()
+        #: Whether a re-apply trigger exists; ``None`` = unknown (no warning either way).
+        self.triggers_installed = triggers_installed
 
     # -- gateway ------------------------------------------------------------------------
 
@@ -315,6 +337,8 @@ class Patcher:
         endpoint, served = self._served()
         if not self.payloads:
             report.notes.append("no payloads to patch")
+        if patches and not self._survival_confirmed(report):
+            return report
         for payload in self.payloads:
             if wanted is not None and payload.id not in wanted:
                 continue
@@ -323,6 +347,31 @@ class Patcher:
                 result.verify = self.verify(payload, endpoint=endpoint)
             report.payloads.append(result)
         return report
+
+    def _survival_confirmed(self, report: ApplyReport) -> bool:
+        """Requirement 5.9: warn when the patches will not survive the next host update and ask.
+
+        Governance never refuses (DR-5): the warnings are attached to the report,
+        the user is asked once, and a *no* is recorded as ``declined`` — the user's
+        decision, not a governance verdict. No file is touched after a *no*.
+        """
+        # unknown trigger state (None) raises no warning; only a known-missing trigger does
+        triggers = True if self.triggers_installed is None else self.triggers_installed
+        warnings = survival_check(triggers, self.governance)
+        report.governance_warnings = [w.to_dict() for w in warnings]
+        if not warnings:
+            return True
+        for warning in warnings:
+            self.say("WARNING " + warning.format())
+        if self.confirmer.confirm(survival_prompt(warnings), default=False):
+            report.confirmation = "confirmed"
+            self.audit.record("apply-confirm", warnings=[w.code for w in warnings], result="confirmed")
+            return True
+        report.confirmation = "declined"
+        report.notes.append("UserDeclined: the user chose not to apply after the update-survival warning; nothing was written")
+        self.audit.record("apply-confirm", warnings=[w.code for w in warnings], result="declined")
+        self.say("SKIP UserDeclined: nothing written")
+        return False
 
     def _apply_one(self, payload: Payload, patches: list[PlannedPatch], *, dormant: bool) -> PayloadApply:
         result = PayloadApply(payload.id, payload.host_version.text, dormant)
