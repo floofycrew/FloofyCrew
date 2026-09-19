@@ -1,0 +1,20 @@
+{
+  "name": "floofycrew",
+  "version": "0.0.0",
+  "displayName": "FloofyCrew Loader (unofficial)",
+  "description": "Unofficial mod loader for KiroCrew. Not affiliated with Kiro or KiroCrew. Runs the FloofyCrew mods you chose, on your consent, inside the gateway; serves the mod manager page.",
+  "author": "FloofyCrew contributors",
+  "license": "MIT",
+  "tags": ["mods", "unofficial", "floofycrew"],
+  "ui": {
+    "entry": "index.mjs"
+  },
+  "backend": {
+    "hooks": {
+      "routes": "floofy_loader.hooks:register_routes",
+      "on_startup": "floofy_loader.hooks:on_startup",
+      "on_shutdown": "floofy_loader.hooks:on_shutdown"
+    }
+  },
+  "permissions": {}
+}

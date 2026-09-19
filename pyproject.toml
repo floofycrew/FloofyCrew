@@ -22,6 +22,6 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["floofy-core/tests", "editions/toolbox/tests", "editions/public/tests"]
-pythonpath = ["floofy-core", "floofy-core/tests", "editions/toolbox", "editions/public", "scripts"]
+testpaths = ["floofy-core/tests", "editions/toolbox/tests", "editions/public/tests", "loader-app/tests"]
+pythonpath = ["floofy-core", "floofy-core/tests", "editions/toolbox", "editions/public", "scripts", "loader-app", "loader-app/tests"]
 addopts = "-ra"
