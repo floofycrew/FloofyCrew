@@ -33,20 +33,21 @@ What it installs and how:
 | Python 3.12 | `sudo dnf install python3.12 python3.12-devel python3.12-pip` (AL2023 repo); falls back to `uv python install 3.12` without sudo | `/usr/bin/python3.12` = 3.12.14 |
 | Node 24 | official tarball `node-v24.21.0-linux-x64.tar.xz` from nodejs.org, verified against `SHASUMS256.txt` **and** a sha256 pinned in the script; unpacked to `~/.local/node/`, `current` symlink, `node/npm/npx/corepack` linked into `~/.local/bin` | v24.21.0, npm 11.19.0 |
 | uv | `astral.sh/uv/install.sh` into `~/.local/bin` (no rc edits) | 0.12.17 |
-| kiro-cli | public installer `cli.kiro.dev/install` into `~/.local/bin` (needs no ***REMOVED***; `***REMOVED*** install kiro-cli` is the alternative once ***REMOVED*** exists) | 2.22.1 — **login pending** (see below) |
+| kiro-cli | public installer `cli.kiro.dev/install` into `~/.local/bin` (needs no ***REMOVED***; `***REMOVED*** install kiro-cli` is the alternative once ***REMOVED*** exists) | 2.22.1 — logged in (IAM Identity Center, device flow) on 2026-09-19 |
 | Durable tmux | `~/.local/bin/tmux-durable.sh` (copy of the daily desk's script with HOME-relative paths, socket `~/.tmux-forge.sock`, log `~/forge/logs/tmux-durable.log`), server spawned through `systemd-run --user`; `sudo loginctl enable-linger ***REMOVED***` | server unit `tmux-server-*.service` under `user@13611434.service/app.slice`, keeper session `__keeper`, Linger=yes |
 | Scratch dirs | `~/forge/{scratch,logs,ws,src}` | created |
 | PATH | `~/.forge-env.sh` sourced from `~/.zshenv` and `~/.bashrc` (guarded block); adds `~/.local/bin` and `~/.***REMOVED***/bin`, exports `FORGE_HOME`, `TMUX_DURABLE_SOCK` | in place |
 | git-lfs | AL2023 package already present; `git lfs install --skip-repo` | 3.7.1 |
-| ***REMOVED*** | already present at `/usr/local/bin/***REMOVED***`; every `***REMOVED***` command needs a ***REMOVED*** cookie | present, unusable until `***REMOVED***` |
-| ***REMOVED*** tooling | `***REMOVED*** install ***REMOVED***cli` (gives `***REMOVED***`, `***REMOVED***-build`, `***REMOVED***-path`, `***REMOVED***-recursive-cmd` in `~/.***REMOVED***/bin`) — skipped while no ***REMOVED*** cookie | **blocked** |
+| ***REMOVED*** | already present at `/usr/local/bin/***REMOVED***`; every `***REMOVED***` command needs a ***REMOVED*** cookie | present; usable since `***REMOVED*** -o` on 2026-09-19 |
+| ***REMOVED*** tooling | `***REMOVED*** install ***REMOVED***cli` (gives `***REMOVED***`, `***REMOVED***-build`, `***REMOVED***-path`, `***REMOVED***-recursive-cmd` in `~/.***REMOVED***/bin`) | installed 2026-09-19 (`***REMOVED***-build` in `~/.***REMOVED***/bin`) |
 
 Also present from the image: git 2.x, make 4.3, gcc 11.5, jq, rsync, unzip, xz, tmux 3.6a.
 
-## Owner steps still required (Yubikey)
+## Owner steps (Yubikey) — completed 2026-09-19
 
-The script detects both and reports them as BLOCKED instead of prompting.
-Run on the desk, then re-run the bootstrap to confirm:
+The script detects both and reports them as BLOCKED instead of prompting; the
+owner ran them on the desk and `bash ~/forge/bootstrap-desk.sh --verify`
+reports every row OK (verified over ssh 2026-09-19T21:01Z). For a rebuilt desk:
 
 ```bash
 ***REMOVED*** -o                                  # ***REMOVED*** cookie for ***REMOVED*** / ***REMOVED*** / code.***REMOVED***
@@ -70,6 +71,9 @@ non-***REMOVED*** credential path — that is an open item for package 8.
   compat matrix and diagnosis only — no host built here is ever shipped (DR-1,
   Requirement 12.8).
 - Per-version Forge sandboxes go to `~/forge/scratch/<ver>/` with
-  `HOME`/`KIROCREW_HOME` pointed inside them.
+  `KIROCREW_HOME` pointed inside them and, for ***REMOVED*** provisioning,
+  `BUILDER_***REMOVED***_HOME=<ver>/.***REMOVED***` plus the versioned client binary
+  (`~/.***REMOVED***/tools/***REMOVED***/<ver>/***REMOVED***`) — ***REMOVED*** ignores `$HOME`
+  (spike 1.6).
 - Build logs: `~/forge/*.log`; the first `make build` is `~/forge/build-public.log`
   (driver: `forge/build-public.sh`).
