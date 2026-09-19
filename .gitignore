@@ -1,5 +1,7 @@
 .floofy-run/
 .builder-mcp/
+.scratch/
+.venv/
 __pycache__/
 *.pyc
 node_modules/
