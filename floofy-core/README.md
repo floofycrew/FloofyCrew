@@ -9,3 +9,18 @@ interpreter. It must not contain any edition-specific value — no internal
 hostnames, package names, account identifiers or people — those belong in
 `editions/*`; CI enforces this with `scripts/check_no_internal_identifiers.py`.
 Tests live in `tests/`.
+
+## Layout
+
+| Module | Purpose |
+|---|---|
+| `floofy_core.schema` | the two JSON Schemas (`floofy.schema.json`, `patch.schema.json`), `load_schema()`, and `schema/check.py`, a small stdlib JSON Schema checker; field reference in `schema/README.md` |
+| `floofy_core.semver` | `Version` (SemVer 2.0), `HostVersion` (the shapes KiroCrew prints, with the `X.Y.Z` `base`), `Range` (npm-style ranges) |
+| `floofy_core.validator` | `validate_mod()` → `ValidationReport` of `Finding`s: schema, hashes, parts, targets, network |
+| `floofy_core.archive` | `open_archive_safely()`: listing checked before extraction (no symlinks, absolute paths or `..`) |
+| `floofy_core.targets` | `TargetPolicy`: engineering-rule targets (error) vs governance files (warning, accepted per file); adapters extend it |
+| `floofy_core.netscan` | plaintext / undeclared-host scan and `host_matches()` shared with the Loader's `ctx.http` |
+| `floofy_core.cli_validate` | `floofy validate` front end (`--json`, exit 1 on errors only) |
+
+`examples/<kind>/` holds one minimal valid mod per part kind; keep their hashes
+current with `python scripts/hash_example_files.py` (`--check` in CI).
