@@ -9,3 +9,10 @@ location; the hourly user timer (systemd/launchd) and the `kirocrew` PATH wrappe
 re-apply triggers; the GitHub registry endpoint and pinned key; no network
 identity. Nothing here may reference the internal edition. Shipped with the
 GitHub releases.
+
+
+## Modules
+
+| Module | Purpose |
+|---|---|
+| `floofy_edition_public.payloads` | `PipxProvider` (both pipx layouts, `PIPX_HOME`), `ManagedVenvProvider` (`~/.kiro/crew-venv` + `crew-venv-<ver>` shadow siblings, promoted one current), `DesktopBundleProvider` (`.app` `backend-dist`, `/opt`), `default_providers()`, `probe_edition()`. Tests in `tests/`. |

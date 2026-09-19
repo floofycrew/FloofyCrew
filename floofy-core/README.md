@@ -22,6 +22,7 @@ Tests live in `tests/`.
 | `floofy_core.targets` | `TargetPolicy`: engineering-rule targets (error) vs governance files (warning, accepted per file); adapters extend it |
 | `floofy_core.netscan` | plaintext / undeclared-host scan and `host_matches()` shared with the Loader's `ctx.http` |
 | `floofy_core.cli_validate` | `floofy validate` front end (`--json`, exit 1 on errors only) |
+| `floofy_core.payloads` | `Payload`, `PayloadProvider`, `discover_payloads()` → `DiscoveryResult` (every searched root listed on a miss); the layout-agnostic `find_package_dirs()` walk, `read_host_version()` (`__version__` + the `BUILD_VERSION` stamp, the host's rule), `channel_for_version()`; generic `FindSpecProvider` / `ExtraRootProvider`; edition adapters add their own providers |
 
 `examples/<kind>/` holds one minimal valid mod per part kind; keep their hashes
 current with `python scripts/hash_example_files.py` (`--check` in CI).
