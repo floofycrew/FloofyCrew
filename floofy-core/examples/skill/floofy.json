@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "example-skill",
+  "name": "Example skill",
+  "version": "1.0.0",
+  "description": "A zero-code mod: a skill directory with its SKILL.md (Requirement 1.7, 2.2).",
+  "authors": ["FloofyCrew examples"],
+  "license": "MIT",
+  "tags": ["example", "skill"],
+  "kirocrew": { "version": ">=0.7.0 <0.9.0" },
+  "dependsOn": { "floofycrew": "^1.0" },
+  "parts": [
+    { "kind": "skill", "side": "gateway", "path": "skills/example-skill/SKILL.md" }
+  ],
+  "files": [
+    { "path": "skills/example-skill/SKILL.md", "sha256": "3c6cc072b74fd802bbb5badac34bb61ccbdd7cad81dd4c9c487f394151050cd0" }
+  ]
+}

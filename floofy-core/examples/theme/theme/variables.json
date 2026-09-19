@@ -1,0 +1,4 @@
+{
+  "dark": { "--accent": "#7c9cff" },
+  "light": { "--accent": "#3b5bdb" }
+}

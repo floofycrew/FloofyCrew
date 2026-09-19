@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "example-patch",
+  "name": "Example patch",
+  "version": "1.0.0",
+  "description": "An overlay patch descriptor applied by the Patcher (Requirement 2.6, Requirement 5): the only kind that modifies payload files, reversibly and idempotently.",
+  "authors": ["FloofyCrew examples"],
+  "license": "MIT",
+  "tags": ["example", "patch"],
+  "kirocrew": { "version": ">=0.7.0 <0.9.0", "editions": ["internal", "external"] },
+  "dependsOn": { "floofycrew": "^1.0" },
+  "parts": [
+    { "kind": "patch", "side": "spa", "path": "patches/index-boot.json" }
+  ],
+  "files": [
+    { "path": "patches/index-boot.json", "sha256": "89867e28d8258a0fe67a1785597fa9ce60522c28cb4ad90c23f71f54df349e76" }
+  ]
+}

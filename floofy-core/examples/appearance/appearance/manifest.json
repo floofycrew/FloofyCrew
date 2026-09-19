@@ -1,0 +1,6 @@
+{
+  "id": "example-appearance",
+  "name": "Example appearance",
+  "description": "An illustrative appearance manifest; the real shape is defined by the host.",
+  "animations": {}
+}

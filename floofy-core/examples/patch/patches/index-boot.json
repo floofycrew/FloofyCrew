@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "target": "kiro_crew/static/dist/index.html",
+  "description": "Inject a first-frame boot script before the host's module entry.",
+  "appliesTo": ">=0.7.0 <0.9.0",
+  "cacheBust": false,
+  "ops": [
+    {
+      "op": "insert-before",
+      "fingerprint": "<script type=\"module\" crossorigin src=\"/assets/main-",
+      "content": "<script id=\"floofy-example-boot\">document.documentElement.dataset.floofyExample=\"1\";</script>\n",
+      "marker": "id=\"floofy-example-boot\""
+    }
+  ]
+}

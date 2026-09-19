@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "id": "example-app",
+  "name": "Example app",
+  "version": "1.0.0",
+  "description": "A zero-code mod: a KiroCrew App installed through the host App Kit (Requirement 1.7, 2.3). The host's admission verdict is shown as a warning, never enforced by FloofyCrew.",
+  "authors": ["FloofyCrew examples"],
+  "license": "MIT",
+  "links": { "source": "https://example.com/floofycrew/example-app" },
+  "tags": ["example", "app"],
+  "kirocrew": { "version": ">=0.7.0 <0.9.0", "editions": ["internal", "external"] },
+  "dependsOn": { "floofycrew": "^1.0" },
+  "parts": [
+    { "kind": "app", "side": "gateway", "path": "app/app.json" }
+  ],
+  "files": [
+    { "path": "app/app.json", "sha256": "709545bfad7fec83e67c0951955bfffdf220acb7eb89932380f20ada66770744" },
+    { "path": "app/ui/panel.mjs", "sha256": "3004a89b9e7556b1943b74062e1a6ad542395651117b7f243d1006c916b52b53" }
+  ]
+}
