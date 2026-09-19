@@ -1,0 +1,6 @@
+.floofy-run/
+.builder-mcp/
+__pycache__/
+*.pyc
+node_modules/
+build/
