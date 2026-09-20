@@ -14,11 +14,12 @@ the public open-source edition from one codebase.
 > every mod you install is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md)
 > before `floofy init`.
 
-Status: **release 1.0.0 in preparation.** Every package of the plan is
+Status: **1.0.0 — the first release.** Every package of the plan is
 implemented; the internal package and the public release tree are built
 reproducibly by `packaging/`; the compatibility matrix rows come from the Forge.
-What a release supports is recorded in `CHANGELOG.md`, in `pyproject.toml`
-(`[tool.floofycrew] supports`) and in the release's `supports.json`.
+What the release supports is in [CHANGELOG.md](CHANGELOG.md), in
+`pyproject.toml` (`[tool.floofycrew] supports`) and in the release's
+`supports.json`.
 
 ## Install
 

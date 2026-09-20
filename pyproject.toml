@@ -1,6 +1,6 @@
 [project]
 name = "floofycrew"
-version = "0.0.0"
+version = "1.0.0"
 description = "Unofficial modding ecosystem for KiroCrew: manifest, loader, patcher, manager, registry, Forge."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,3 +35,19 @@ markers = [
     "slow: a Forge test that clones this repository and builds the artifacts (a few seconds each)",
     "forge: the Forge suite — ledger, watchers on recorded feeds, provision/check/release with fake commands, runner fallback, notify dry-run (task 8.8, Requirement 13.3); `pytest -m forge`",
 ]
+
+
+[tool.floofycrew]
+# The host versions this release supports (Requirement 10.4): every compatibility-
+# matrix row of the Forge with `loader: ok` at release time, per edition and channel.
+# The release stage writes the same list into dist/supports.json and RELEASE.md;
+# CHANGELOG.md repeats it in prose. Keys are the matrix editions.
+api_version = "1.0.0"
+
+[tool.floofycrew.supports.internal]
+beta = ["0.7.0.5"]
+stable = ["0.7.0.5"]
+
+[tool.floofycrew.supports.external]
+insider = ["0.7.0rc5"]
+stable = ["0.6.0"]
