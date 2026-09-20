@@ -20,7 +20,15 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 |---|---|
 | `app.json` | the host manifest (`kiro_crew/apps/manifest.py` `AppManifest`): name `floofycrew`, hooks `floofy_loader.hooks:{register_routes,on_startup,on_shutdown}`, `ui.entry` `index.mjs`, `permissions` `{}` |
 | `floofy_loader/hooks.py` | the shim the host imports: puts the app directory on `sys.path`, delegates to `floofy_loader.runtime`, and turns any failure into `<data home>/loader-failure.json` so the gateway boots vanilla (Requirement 3.6) |
-| `floofy_loader/runtime.py` | the process-wide `LoaderRuntime` (`startup` / `shutdown` / `register_routes`) |
+| `floofy_loader/runtime.py` | the process-wide `LoaderRuntime` (`startup` / `shutdown` / `register_routes`): reads the host facts, runs `boot()`, keeps the live activations, writes `loader-state.json` |
+| `floofy_loader/boot.py` | the boot sequence (`boot(BootDeps) -> BootResult`, `deactivate_all`) with injectable collaborators (context factory, governance reader, patch runner) |
+| `floofy_loader/state.py` | `LoaderState` / `ModState` / `PartState`, the closed `REASONS` vocabulary, `SEAM_BY_KIND` |
+| `floofy_loader/consent.py` | `consent.json` reader/writer, `WARNING_TEXT`, `WARNING_VERSION`, `ConsentRequired` |
+| `floofy_loader/activation.py` | `ModContext` (the `ctx` mods get), namespaced import under `floofy_mods.<id>.<module>`, fail-open `activate`/`deactivate` |
+| `floofy_loader/pending.py` | staged installs/removals, `enabled.json`, `patch` part planning for the Patcher |
+| `floofy_loader/compat.py` | the `cache/compat.json` reader (`CompatCache.row_for`, verdicts) |
+| `floofy_loader/paths.py` | the data-home layout |
+| `floofy_loader/host.py`, `api.py` | `floofy.host` facts and the `floofy` facade (below) |
 | `ui/index.mjs` | manager page entry (placeholder until 6.7); default-exports a React component, `react` resolves through the host's import map |
 | `tests/` | `test_manifest.py` (shape, host-loader validation on a payload copy, shim behaviour) |
 
@@ -135,6 +143,50 @@ in-process hook routes. Path parameters match one segment (`{id}` →
 `([^/]+)`, L47–L67). Segments the host reserves under an app's namespace
 (`manifest.py` L1347 `CORE_APP_ROUTE_SEGMENTS`: `_jobs config dev disable enable
 manifest migrate-cleanup open token uninstall update`) are never used here.
+
+## Boot sequence and data home
+
+`floofy_loader/boot.py` runs design steps 1–9 on every gateway start (and on the
+manager's reload): host facts → `consent.json` → governance (information) →
+`pending/` → `mods/*/floofy.json` + `enabled.json` → `floofy validate` (hashes →
+`MissingFiles`) → resolver → `cache/compat.json` (`broken` → `Quarantined`) →
+`python-hook` activation under `sys.modules["floofy_mods.<id>.<module>"]`,
+fail-open per mod → `LoaderState`. Without a current consent record the Loader
+is **inert**: everything is still scanned, resolved and reported, but nothing is
+activated, staged or patched, and every mod that would have activated carries
+the Loader-level reason `ConsentRequired`.
+
+Data home `<host home>/floofy/` (`floofy_loader/paths.py`):
+
+| Path | Owner | Meaning |
+|---|---|---|
+| `consent.json` | `floofy init` / manager | `{"warningVersion": 1, "acknowledgedAt": "...", "by": "<os user>"}`; `floofy_loader.consent.WARNING_VERSION` is the current text version, an older acknowledgement counts as missing |
+| `mods/<id>/` | manager | unpacked mods (`floofy.json` at the root; the directory name must equal the manifest `id`) |
+| `enabled.json` | manager | `{"<id>": true|false}`; an unlisted mod with `python-hook`/`spa` parts is off until enabled (Requirement 11.7) |
+| `pending/<id>/` | manager → Loader | a complete mod directory staged while a gateway runs; the Loader moves it over `mods/<id>/` at boot |
+| `pending/<id>.remove` | manager → Loader | marker: remove `mods/<id>/`, `spa/<id>/` and the `enabled.json` entry |
+| `spa/<id>/` | Loader | the `spa` part files of **active** mods, mirrored from `mods/<id>/` for the SPA host route |
+| `cache/compat.json` | `floofy registry refresh` | the registry's `compat.json`; the Loader reads the row for `edition × channel × hostVersion` |
+| `quarantine/requests/<id>.json` | Loader → manager | "this mod is `broken` here" — the manager moves the files into `quarantine/<hostver>/`; the Loader never moves mod dirs |
+| `deploy/`, `audit.jsonl` | Patcher | deployment manifests and the audit log (the Loader appends `net-denied` rows from 4.5) |
+| `loader-state.json` | Loader | the last `LoaderState` (what `GET /api/apps/floofycrew/state` also serves); `floofy doctor` reads it |
+| `loader-failure.json` | shim | written when the Loader itself failed (`phase`, `error`, `traceback`); a later successful boot removes a stale one |
+
+`LoaderState` (`floofy_loader/state.py`) as JSON: `loader` (`ok|inert|failed`),
+`consent{status,required,...}`, `host{...}` (the `floofy.host` facts), `mods{<id>:
+{version, name, active, reason, detail, enabled, quarantined, filesOk, warnings[],
+governance[], parts[{index, kind, side, path, status, detail, seam,
+modifiesPayload}], errors[], modDir, exports{}}}`, `order[]`, `active[]`,
+`governance[]` (loader-level warnings), `governanceSnapshot{}`, `compat{}`,
+`pending{}`, `patches{}`, `errors[]`, `bootedAt`, `durationMs`, `reasons[]`
+(the closed vocabulary: the resolver's `Error Duplicate Conflict Dependency
+Released Feature Unsupported MissingFiles Quarantined UserDisabled` plus
+`ConsentRequired`). Governance never appears as a `reason`; a test asserts it.
+`exports` is what a mod published through `ctx.state[...]`.
+
+Enabled `patch` parts are handed to the Patcher at boot (revert-then-patch,
+pre-consented, no live verify) — the Loader is one of the re-apply triggers
+(Requirement 6.1).
 
 ## Dev-host recipe (never the live install)
 
