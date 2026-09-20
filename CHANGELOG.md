@@ -9,6 +9,18 @@ reports `loader: ok` per edition and channel — repeated here, in
 `supports.json`. FloofyCrew is unofficial and not affiliated with Kiro or
 KiroCrew; it never ships a rebuilt host.
 
+## Unreleased
+
+### Fixed
+
+- `registry-tools`: `index.schema.json` now accepts the same host-version
+  shapes as `compat.schema.json` (PEP 440 pre-releases such as `0.7.0rc5`
+  were refused as compat cell keys, so a public insider row could not be
+  folded into `index.json`), and `build --check` — the CI gate — no longer
+  reports an index carrying the publisher's `floofycrew` release stamp as
+  stale. Publisher-side only: the 1.0.0 client does not validate a fetched
+  index against the schema and reads the corrected public index as is.
+
 ## 1.0.0 — 2026-09-20
 
 The first release: the whole modding ecosystem, on both KiroCrew editions,
