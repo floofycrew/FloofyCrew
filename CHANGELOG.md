@@ -22,6 +22,13 @@ KiroCrew; it never ships a rebuilt host.
   `--json`, whose output stays byte-identical; `FORCE_COLOR` turns it on for a
   pipe. What a line says never depends on colour: the transcript the manager page
   reads is plain text.
+- The terminal banner (Requirement 15.5, task 10.2): the FloofyCrew mark from
+  `branding/ascii/floofy.json` (built by `branding/build_ascii.py`) ships as the
+  CLI's package data and leads `floofy --version` and `floofy doctor` on a
+  terminal — 24-bit where the terminal advertises it, quantised to the 256-colour
+  cube, a single bright-magenta rendering on 16 colours, and omitted when colours
+  are off or the terminal is narrower than the art plus its margins (42 columns).
+  Never in `--json` output or the in-process transcript.
 - `floofy install <git reference>` — `ssh://<host>/<path>@<tag>` or
   `https://<host>/<owner>/<repo>[.git]@<tag>` (optional `#<subdirectory>`): a
   shallow clone at the tag with your own git credentials, the commit recorded,

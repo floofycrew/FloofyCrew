@@ -73,6 +73,29 @@ class Console:
         """A fragment of ``out`` in the palette colour ``tone`` (plain when styling is off)."""
         return self.styling.paint(text, tone)
 
+    @property
+    def is_terminal(self) -> bool:
+        """``out`` is a real terminal (styling may be on for a pipe under ``FORCE_COLOR``; this is stricter)."""
+        return _isatty(self.out)
+
+    def show_banner(self, width: int | None = None) -> bool:
+        """Print the FloofyCrew banner (Requirement 15.5) when styling is on and ``out`` is a terminal.
+
+        Decoration only: it never enters the transcript, is omitted when colours
+        are off or the terminal is narrower than the art plus margins, and never
+        appears in ``--json`` output (styling is off there). Returns whether it printed.
+        """
+        if self.quiet or not self.styling.on or self.styling.forced or not self.is_terminal:
+            return False
+        from .banner import render  # noqa: PLC0415
+
+        text = render(self.styling.depth, width)
+        if text is None:
+            return False
+        self.out.write(text)
+        self.out.flush()
+        return True
+
     # -- output ------------------------------------------------------------------------------
 
     def say(self, message: str = "", *, tone: str | None = None) -> None:

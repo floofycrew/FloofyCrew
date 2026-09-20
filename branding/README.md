@@ -23,6 +23,18 @@ The Loader app ships the mark as its store icon: `loader-app/art/icon.svg` is a
 byte-equal copy of `logo.svg` declared by `iconPath` in `loader-app/app.json`
 (pinned by `loader-app/tests/test_manifest.py`).
 
+## Terminal banner (`ascii/`)
+
+- `ascii/source.html` — the coloured ASCII-art export of the mark (38 × 19 cells).
+- `build_ascii.py` — parses it into `ascii/floofy.json` (one `[char, [r, g, b]]`
+  entry per cell: what the CLI renders from), `ascii/floofy.ans` (24-bit ANSI, for
+  `cat`) and `ascii/floofy.txt` (glyphs only). Standard library; re-run after
+  replacing the export.
+- Shipped copies, each byte-identical to the file here and pinned by a test:
+  `floofy-core/floofy_core/cli/banner.json` (the CLI's package data,
+  `floofy-core/tests/test_banner.py`) and the install scripts' `floofy.ans` /
+  `floofy.txt` (`packaging/`). Regenerate, then copy — never edit a copy.
+
 ```html
 <link rel="icon" href="icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/svg+xml" href="logo.svg">

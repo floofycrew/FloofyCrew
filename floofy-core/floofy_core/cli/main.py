@@ -128,6 +128,7 @@ def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway
         # Requirement 15.1: off on a non-terminal, under NO_COLOR, with --no-color and always with --json
         console.style = Style.detect(env=os.environ, is_tty=_isatty(console.out), no_color=bool(args.no_color) or bool(args.json))
     if args.version:
+        console.show_banner()
         _say_version(console)
         return 0, {"version": FRAMEWORK_VERSION, "apiVersion": API_VERSION, "unofficial": True}
     if args.vanilla and not args.command:

@@ -255,6 +255,7 @@ def _quarantine_summary(ctx: CliContext) -> dict[str, list[str]]:
 
 def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
     about, host, loader = report["floofycrew"], report["host"], report["loader"]
+    ctx.console.show_banner()
     ctx.say(f"{ctx.paint('floofy doctor', 'heading')} — FloofyCrew {about['version']} (api {about['apiVersion']}, {ctx.paint('unofficial', 'italic')}) on Python {about['python']}")
     ctx.say(f"{ctx.paint('host:', 'accent')} edition={host['edition']} version={host['version']} channel={host['channel']} home={host['hostHome']}")
     gateway = host["gateway"]

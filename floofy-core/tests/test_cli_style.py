@@ -8,11 +8,13 @@ and on a real pseudo-terminal. Scratch homes and fake payloads only.
 """
 from __future__ import annotations
 
+import fcntl
 import io
 import json
 import os
 import pty
 import select
+import struct
 import subprocess
 import sys
 import termios
@@ -195,9 +197,14 @@ def test_run_in_process_is_never_styled(host, monkeypatch: pytest.MonkeyPatch):
     assert "floofy doctor" in result.stdout
 
 
-def _cli_bytes(argv: list[str], *, env: dict[str, str], on_pty: bool = False) -> tuple[int, bytes, bytes]:
-    """Run the CLI as a subprocess (the way a user or a script does) and return raw stdout/stderr bytes."""
-    base = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR", "COLORTERM")}
+def _cli_bytes(argv: list[str], *, env: dict[str, str], on_pty: bool = False, columns: int = 30) -> tuple[int, bytes, bytes]:
+    """Run the CLI as a subprocess (the way a user or a script does) and return raw stdout/stderr bytes.
+
+    The pseudo-terminal is ``columns`` wide (30 by default: narrower than the banner
+    plus its margins, so the decoration stays out of these comparisons — the banner
+    has its own tests).
+    """
+    base = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR", "COLORTERM", "COLUMNS", "LINES")}
     full_env = {**base, "FLOOFY_NO_ADAPTERS": "1", "PYTHONPATH": str(REPO_ROOT / "floofy-core"), "TERM": "xterm-256color", **env}
     cmd = [sys.executable, "-m", "floofy_core.cli", *argv]
     if not on_pty:
@@ -207,6 +214,7 @@ def _cli_bytes(argv: list[str], *, env: dict[str, str], on_pty: bool = False) ->
     attrs = termios.tcgetattr(follower)
     attrs[1] &= ~termios.ONLCR  # no LF -> CRLF translation, so the bytes compare as written
     termios.tcsetattr(follower, termios.TCSANOW, attrs)
+    fcntl.ioctl(follower, termios.TIOCSWINSZ, struct.pack("HHHH", 40, columns, 0, 0))
     proc = subprocess.Popen(cmd, stdin=follower, stdout=follower, stderr=subprocess.PIPE, env=full_env, close_fds=True)
     os.close(follower)
     chunks: list[bytes] = []
