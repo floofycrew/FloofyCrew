@@ -24,8 +24,10 @@ Every mechanism below exists to hold up the second half of that bargain.
 ## The one-time warning
 
 `floofy init` (or the manager page's first enable) shows this text and waits
-for the typed acknowledgement `I ACCEPT`; nothing is installed or patched before
-it:
+for your acknowledgement — on a terminal as a full-screen confirmation on the
+alternate screen buffer with a single `[ I AGREE ]` control (Enter agrees, Esc or
+`q` declines, your previous screen comes back either way), elsewhere as the typed
+phrase `I ACCEPT`; nothing is installed or patched before it:
 
 > FloofyCrew is UNOFFICIAL and not affiliated with Kiro or KiroCrew.
 >
@@ -36,7 +38,9 @@ it:
 > (floofy restore --all) — but the risk of every mod you install is yours.
 
 The acknowledgement is recorded in `<host home>/floofy/consent.json`
-(`warningVersion`, `acknowledgedAt`, `by`, `how`: `typed` or `flag`). Until that
+(`warningVersion`, `acknowledgedAt`, `by`, `how`: `screen`, `typed` or `flag` —
+the same record whichever way you agreed; automation keeps
+`--i-accept-the-risk`, and `--yes` never answers this question). Until that
 record exists for the **current** warning text the Loader is inert — every mod
 carries the reason `ConsentRequired` and nothing activates; when the text changes
 materially the version is bumped and the warning is shown again.

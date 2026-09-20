@@ -59,7 +59,7 @@ two-track measurements.
 One repository, one shared core, two thin edition adapters (design decision
 DR-3). The shared core and the docs are edition-neutral by construction; CI
 enforces it, and CI measures that ≥ 80 % of the shipped files are byte-identical
-across the two editions (87.5 % of files, 95.8 % of bytes on the current tree; the per-release figures are in `docs/two-track.md`).
+across the two editions (87.6 % of files, 95.9 % of bytes on the current tree; the per-release figures are in `docs/two-track.md`).
 
 | Path | What |
 |---|---|

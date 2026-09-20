@@ -10,9 +10,12 @@ Three grades of question, deliberately distinct (Requirement 11.1, 11.4, 11.7):
   governance-altering target: the user types the exact path. **Never** satisfied
   by ``--yes``; automation supplies each path with
   ``--confirm-governance-target <path>`` (recorded in the audit row as such).
-* the one-time consent acknowledgement (``floofy init``): the user types
-  :data:`floofy_core.consent.ACCEPT_PHRASE`, or automation passes
-  ``--i-accept-the-risk`` — handled in the init command with :meth:`Console.typed`.
+* the one-time consent acknowledgement (``floofy init``): on a terminal the
+  full-screen ``[ I AGREE ]`` control (:meth:`Console.ask_consent_screen`,
+  Requirement 15.3; ``how="screen"``); otherwise the user types
+  :data:`floofy_core.consent.ACCEPT_PHRASE` (``how="typed"``), or automation
+  passes ``--i-accept-the-risk`` (``how="flag"``) — handled in the init command.
+  ``--yes`` never answers it.
 
 Text output goes to ``out`` (stdout by default); in ``--json`` mode the prose is
 suppressed and the command's result document is printed once at the end by
@@ -54,6 +57,40 @@ class Console:
     transcript: list[str] = field(default_factory=list)
     #: The styling of ``out``; ``None`` until :func:`floofy_core.cli.main.execute` detects it (off by default).
     style: Style | None = None
+    #: A host-supplied consent screen (the interactive ``floofy`` draws it in curses): ``() -> accepted | None``.
+    consent_fn: Callable[[], bool | None] | None = None
+    #: A host-supplied yes/no control for :meth:`confirm` (the interactive ``floofy``): ``(prompt, default) -> answer``.
+    confirm_fn: Callable[[str, bool], bool | None] | None = None
+    #: A host-supplied text field for :meth:`typed` (the interactive ``floofy``): ``(prompt, what) -> text``. Never a button.
+    typed_fn: Callable[[str, str], str | None] | None = None
+
+    # -- the full-screen consent (Requirement 15.3) --------------------------------------------
+
+    @property
+    def screen_available(self) -> bool:
+        """Both stdin and ``out`` are terminals and nothing asked for a plain run: a full-screen control may be drawn."""
+        if self.non_interactive or self.quiet or self.input_fn is not None:
+            return False
+        try:
+            stdin_tty = sys.stdin is not None and sys.stdin.isatty()
+        except (AttributeError, ValueError):
+            stdin_tty = False
+        return stdin_tty and self.is_terminal
+
+    def ask_consent_screen(self) -> bool | None:
+        """Show the one-time warning as a full-screen ``[ I AGREE ]`` control.
+
+        ``True``/``False`` is the user's answer; ``None`` means the screen cannot be
+        shown here (no terminal, ``--json``, a scripted console) and the caller
+        falls back to the typed ``I ACCEPT`` prompt, exactly as before.
+        """
+        if self.consent_fn is not None:
+            return self.consent_fn()
+        if not self.screen_available:
+            return None
+        from .consent_screen import ConsentScreen  # noqa: PLC0415
+
+        return ConsentScreen(stdin=sys.stdin, stdout=self.out, style=self.styling).run()
 
     # -- styling -----------------------------------------------------------------------------
 
@@ -136,6 +173,11 @@ class Console:
         if self.non_interactive:
             self.transcript.append(f"{prompt} -> {'yes' if default else 'no'} (non-interactive default)")
             return default
+        if self.confirm_fn is not None:
+            chosen = self.confirm_fn(prompt, default)
+            answer_value = default if chosen is None else bool(chosen)
+            self.transcript.append(f"{prompt} -> {'yes' if answer_value else 'no'}")
+            return answer_value
         suffix = " [Y/n] " if default else " [y/N] "
         answer = self._read(prompt + suffix)
         if answer is None:
@@ -153,7 +195,7 @@ class Console:
         if self.non_interactive:
             self.transcript.append(f"{what}: needs a typed confirmation; refused in non-interactive mode")
             return False
-        answer = self._read(prompt)
+        answer = self.typed_fn(prompt, what) if self.typed_fn is not None else self._read(prompt)
         ok = answer is not None and answer.strip() == expected
         self.transcript.append(f"{what}: {'typed' if ok else 'not confirmed'}")
         return ok

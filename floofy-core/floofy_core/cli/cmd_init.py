@@ -1,10 +1,12 @@
 """``floofy init`` / ``floofy deinit`` (Requirement 6.1, 7.1, 11.1, 2.3).
 
-``init`` is the one place FloofyCrew asks for the user's consent: it prints the
-prominent one-time warning (:data:`floofy_core.consent.WARNING_TEXT`) and
-requires the typed phrase ``I ACCEPT`` — or ``--i-accept-the-risk`` for
-automation, recorded as such — before anything is set up. ``--yes`` never
-answers this question. Then, each step explicit and reported:
+``init`` is the one place FloofyCrew asks for the user's consent: it shows the
+prominent one-time warning (:data:`floofy_core.consent.WARNING_TEXT`) — on a
+terminal as the full-screen ``[ I AGREE ]`` control of
+:mod:`floofy_core.cli.consent_screen` (Requirement 15.3; recorded ``screen``),
+otherwise printed, requiring the typed phrase ``I ACCEPT`` (``typed``) — or
+``--i-accept-the-risk`` for automation, recorded as ``flag`` — before anything is
+set up. ``--yes`` never answers this question. Then, each step explicit and reported:
 
 1. the data home layout under ``<host home>/floofy/`` and ``consent.json``;
 2. the Loader app: built (from a checkout) or taken from ``--loader-app``, then
@@ -77,21 +79,31 @@ def _consent_step(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any]:
     if current.ok and not args.reaccept:
         ctx.say(f"consent: already recorded on {current.acknowledged_at} by {current.by or '?'} (warning v{current.warning_version}); --reaccept to see the warning again")
         return {**current.to_dict(), "status": "existing"}
-    ctx.say("")
-    ctx.say("=" * 72, tone="danger")
-    ctx.say("  READ THIS ONCE — FloofyCrew consent", tone="heading")
-    ctx.say("=" * 72, tone="danger")
-    for line in WARNING_TEXT.rstrip().splitlines():
-        ctx.say("  " + line)
-    ctx.say("=" * 72, tone="danger")
-    if args.accept_flag:
-        how = "flag"
-        ctx.say(f"consent: acknowledged with --i-accept-the-risk (recorded as such)")
-    else:
-        prompt = f"Type {ACCEPT_PHRASE} to acknowledge (anything else aborts): "
-        if not ctx.console.typed(prompt, ACCEPT_PHRASE, what="consent"):
-            raise CliError(f"consent not given: type {ACCEPT_PHRASE} at the prompt, or pass --i-accept-the-risk for automation (--yes never accepts the warning)", exit_code=3)
-        how = "typed"
+    how: str | None = None
+    if not args.accept_flag:
+        # Requirement 15.3: on a terminal, the full-screen [ I AGREE ] control; None means "not available here"
+        accepted = ctx.console.ask_consent_screen()
+        if accepted is True:
+            how = "screen"
+            ctx.say("consent: acknowledged on the full-screen control (recorded as such)")
+        elif accepted is False:
+            raise CliError("consent not given: declined on the full-screen control (Esc/q). Run `floofy init` again to reconsider, or pass --i-accept-the-risk for automation (--yes never accepts the warning)", exit_code=3)
+    if how is None:
+        ctx.say("")
+        ctx.say("=" * 72, tone="danger")
+        ctx.say("  READ THIS ONCE — FloofyCrew consent", tone="heading")
+        ctx.say("=" * 72, tone="danger")
+        for line in WARNING_TEXT.rstrip().splitlines():
+            ctx.say("  " + line)
+        ctx.say("=" * 72, tone="danger")
+        if args.accept_flag:
+            how = "flag"
+            ctx.say("consent: acknowledged with --i-accept-the-risk (recorded as such)")
+        else:
+            prompt = f"Type {ACCEPT_PHRASE} to acknowledge (anything else aborts): "
+            if not ctx.console.typed(prompt, ACCEPT_PHRASE, what="consent"):
+                raise CliError(f"consent not given: type {ACCEPT_PHRASE} at the prompt, or pass --i-accept-the-risk for automation (--yes never accepts the warning)", exit_code=3)
+            how = "typed"
     record = write_consent(ctx.home.consent, how=how)
     ctx.audit.record("consent", result="ok", detail=f"warning v{record['warningVersion']} acknowledged ({how})", how=how)
     ctx.say(f"consent: recorded in {ctx.home.consent}")

@@ -2,7 +2,7 @@
 
 ``floofy init`` (or the manager UI's first enable) shows :data:`WARNING_TEXT`
 once and writes ``consent.json`` — ``{"warningVersion": 1, "acknowledgedAt":
-"...", "by": "<os user>", "how": "typed" | "flag"}``. Until that record exists
+"...", "by": "<os user>", "how": "screen" | "typed" | "flag"}``. Until that record exists
 for the *current* warning text, the Loader is inert: nothing activates and every
 mod that would otherwise load reports the Loader-level reason
 ``ConsentRequired`` (Requirement 3.5). This is the **user's** consent to run
@@ -12,8 +12,9 @@ governance, which is only ever a warning (DR-5).
 The text and the record live in the shared core so the ``floofy`` CLI never
 imports the Loader package; ``floofy_loader.consent`` re-exports this module.
 The acknowledgement is deliberately not automatable by ``--yes``: the CLI needs
-the typed phrase :data:`ACCEPT_PHRASE` or the explicit ``--i-accept-the-risk``
-flag, and the record says which one was used.
+the full-screen ``[ I AGREE ]`` control on a terminal (Requirement 15.3), the
+typed phrase :data:`ACCEPT_PHRASE` elsewhere, or the explicit
+``--i-accept-the-risk`` flag, and the record says which one was used.
 """
 from __future__ import annotations
 
@@ -108,9 +109,11 @@ def read_consent(path: Path) -> ConsentStatus:
 def write_consent(path: Path, *, by: str | None = None, when: str | None = None, how: str = "typed") -> dict[str, Any]:
     """Record the acknowledgement of the current warning (the manager calls this after the user agreed).
 
-    ``how`` records the acknowledgement mechanism: ``typed`` (the user typed
-    :data:`ACCEPT_PHRASE`), ``flag`` (``--i-accept-the-risk`` for automation) or
-    ``test``. It is part of the record so an audit reader can tell them apart.
+    ``how`` records the acknowledgement mechanism: ``screen`` (Enter on the
+    full-screen ``[ I AGREE ]`` control, Requirement 15.3), ``typed`` (the user
+    typed :data:`ACCEPT_PHRASE`), ``flag`` (``--i-accept-the-risk`` for
+    automation) or ``test``. It is part of the record so an audit reader can tell
+    them apart; the rest of the record is identical whichever way was used.
     """
     record = {
         "warningVersion": WARNING_VERSION,

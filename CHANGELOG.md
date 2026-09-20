@@ -40,6 +40,13 @@ KiroCrew; it never ships a rebuilt host.
   `floofy init --trigger KIND` (repeatable: `user-timer`, `path-wrapper`) installs
   only the named trigger kinds. The internal package ships `banner/`; the public
   one-liner embeds the art.
+- Full-screen consent (Requirement 15.3, task 10.4): on a terminal `floofy init`
+  shows the one-time warning on the alternate screen buffer — banner, the text
+  wrapped and scrollable, a single `[ I AGREE ]` control; Enter agrees, Esc or `q`
+  declines — and restores the previous screen either way. The acknowledgement is
+  recorded exactly as before with `how: "screen"`; `--i-accept-the-risk` (`flag`)
+  and the typed `I ACCEPT` prompt without a terminal (`typed`) are unchanged, and
+  `--yes` still never answers. Typed governance confirmations stay typed.
 - `floofy install <git reference>` — `ssh://<host>/<path>@<tag>` or
   `https://<host>/<owner>/<repo>[.git]@<tag>` (optional `#<subdirectory>`): a
   shallow clone at the tag with your own git credentials, the commit recorded,

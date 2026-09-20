@@ -26,7 +26,7 @@ unofficial and says so in every banner.
 
 | Command | What it does | Notable options |
 |---|---|---|
-| `init` | acknowledge the one-time warning, install the Loader app (through the host's App Kit) and the re-apply trigger; offers the `agent.apps_trusted` grant | `--i-accept-the-risk` (automation; recorded), `--reaccept`, `--loader-app PATH`, `--no-loader-app`, `--reinstall-loader`, `--no-grant`, `--no-trigger`, `--trigger KIND` (only `user-timer` / `path-wrapper`, repeatable — the install scripts' menu answer), `--early` (also the early shim) |
+| `init` | acknowledge the one-time warning (on a terminal: the full-screen `[ I AGREE ]` control — Enter agrees, Esc/`q` declines; elsewhere: type `I ACCEPT`), install the Loader app (through the host's App Kit) and the re-apply trigger; offers the `agent.apps_trusted` grant | `--i-accept-the-risk` (automation; recorded), `--reaccept`, `--loader-app PATH`, `--no-loader-app`, `--reinstall-loader`, `--no-grant`, `--no-trigger`, `--trigger KIND` (only `user-timer` / `path-wrapper`, repeatable — the install scripts' menu answer), `--early` (also the early shim) |
 | `deinit` | remove the trigger(s), the early shim and the Loader app; restore every payload to vanilla | `--purge` (also the data home: mods, consent, audit log), `--keep-loader-app` |
 | `doctor` | diagnose: host edition/version/channel/payloads, Loader state, early shim, triggers, governance warnings, consent record, drift per payload, the compat verdict for this host version | `--no-live` |
 | `status` | installed mods with state, seam, compat badge, source tier, typed reason and warnings; dormant payloads marked | `--no-live` |
