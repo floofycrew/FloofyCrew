@@ -62,15 +62,19 @@ export function browserAsk(question) {
  * (`needs` carries it), `needs` alone when no asker could present the question.
  */
 export async function callRoute(path, body = {}, { method = "POST", ask = browserAsk, fetchImpl = apiFetch } = {}) {
+  let request = { ...body };
   let confirmations = { ...(body.confirmations || {}) };
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
-    const reply = await fetchImpl(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, confirmations }) });
+    const reply = await fetchImpl(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...request, confirmations }) });
     const document = reply.body || {};
     if (reply.status !== 409 || !document.confirmation) return { ...document, httpStatus: reply.status, ok: reply.ok && document.ok !== false };
     const question = document.confirmation;
     const answer = await ask(question, document);
     if (!answer) return { ...document, httpStatus: reply.status, ok: false, declined: true, needs: question, error: `not confirmed: ${question.kind}` };
-    confirmations = mergeConfirmations(confirmations, answer);
+    // `$body` patches the request itself (the staged-vs-apply-now choice made on the disclosure); the rest are confirmations
+    const { $body, ...rest } = answer;
+    if ($body && typeof $body === "object") request = { ...request, ...$body };
+    confirmations = mergeConfirmations(confirmations, rest);
   }
   return { ok: false, httpStatus: 0, error: "too many confirmation rounds" };
 }

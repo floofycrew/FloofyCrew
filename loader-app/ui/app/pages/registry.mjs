@@ -40,10 +40,11 @@ function AddSourceForm({ manager }) {
   const [allowUnsigned, setAllowUnsigned] = React.useState(false);
   const [name, setName] = React.useState("");
   const [publicKey, setPublicKey] = React.useState("");
+  const [refresh, setRefresh] = React.useState(true);
   const submit = async (event) => {
     event.preventDefault();
     if (!url.trim()) return;
-    const result = await manager.act("/registries", { url: url.trim(), trust, allowUnsigned, name: name.trim() || undefined, publicKey: publicKey.trim() || undefined, refresh: true });
+    const result = await manager.act("/registries", { url: url.trim(), trust, allowUnsigned, name: name.trim() || undefined, publicKey: publicKey.trim() || undefined, refresh });
     if (result && result.ok) {
       setUrl("");
       setName("");
@@ -63,6 +64,7 @@ function AddSourceForm({ manager }) {
       TRUST_LEVELS.map((level) => React.createElement("option", { key: level, value: level }, `trust: ${level}`)),
     ),
     React.createElement("label", { style: styles.muted }, React.createElement("input", { type: "checkbox", checked: allowUnsigned, onChange: (e) => setAllowUnsigned(e.target.checked), "data-testid": "floofycrew-add-source-unsigned" }), " accept unsigned indexes (warned, audited)"),
+    React.createElement("label", { style: styles.muted }, React.createElement("input", { type: "checkbox", checked: refresh, onChange: (e) => setRefresh(e.target.checked), "data-testid": "floofycrew-add-source-refresh" }), " fetch now"),
     React.createElement("button", { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: manager.busy || !url.trim(), "data-testid": "floofycrew-add-source-submit" }, "Add source"),
   );
 }

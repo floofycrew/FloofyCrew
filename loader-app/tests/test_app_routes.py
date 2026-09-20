@@ -174,8 +174,9 @@ def test_consent_outranks_everything_and_is_recorded_as_app(homes: Path):
     # the consent route without the agreement is the same question
     status, body = home.call("consent", body={})
     assert status == 409 and body["confirmation"]["kind"] == "consent" and not home.paths.consent.exists()
-    # {"agree": true} IS the [ I AGREE ] answer: recorded through the CLI's own init step, how = app
-    status, body = home.call("consent", body={"agree": True})
+    # {"agree": true} IS the [ I AGREE ] answer — through the protocol it arrives as confirmations.consent: recorded through
+    # the CLI's own init step, how = app
+    status, body = home.call("consent", body={"confirmations": {"consent": True}})
     assert status == 200 and body["ok"] is True and body["reloaded"] is True, body
     record = json.loads(home.paths.consent.read_text(encoding="utf-8"))
     assert record["how"] == "app" and read_consent(home.paths.consent).ok
@@ -196,6 +197,10 @@ def test_a_mutating_request_may_carry_the_agreement_itself(homes: Path):
     assert json.loads(home.paths.consent.read_text(encoding="utf-8"))["how"] == "app"
     assert [r["op"] for r in home.audit()] == ["consent", "init", "enable"] and {r["actor"] for r in home.audit()} == {"app"}
     assert read_enabled(home.paths.enabled) == {"alpha": True}
+    # re-acknowledging on request (the Settings page): the same step, the record rewritten, a second consent row
+    status, body = home.call("consent", body={"agree": True, "reaccept": True})
+    assert status == 200 and body["ok"] is True and json.loads(home.paths.consent.read_text(encoding="utf-8"))["how"] == "app"
+    assert [r["op"] for r in home.audit()[-2:]] == ["consent", "init"] and len([r for r in home.audit() if r["op"] == "consent"]) == 2
 
 
 # --- yes/no and the audit contract ------------------------------------------------------------------------

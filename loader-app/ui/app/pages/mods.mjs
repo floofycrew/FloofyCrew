@@ -84,7 +84,7 @@ export function InstallForm({ manager }) {
   );
 }
 
-export function ModsPage({ manager, navigate }) {
+export function ModsPage({ manager, navigate, openConsent }) {
   const { state, rows, statusMeta, registry, busy, act, applyNow } = manager;
   const host = (state && state.host) || {};
   const consent = (state && state.consent) || {};
@@ -105,7 +105,8 @@ export function ModsPage({ manager, navigate }) {
         "div",
         { style: consent.required ? styles.danger : undefined, "data-testid": "floofycrew-consent" },
         React.createElement("strong", null, "Consent: "),
-        consent.required ? `required — ${consent.message || "the one-time warning has not been acknowledged"}; the first action asks for it` : `acknowledged by ${consent.by || "?"} on ${consent.acknowledgedAt || "?"} (${consent.how || "?"})`,
+        consent.required ? `required — ${consent.message || "the one-time warning has not been acknowledged"}; the first action asks for it ` : `acknowledged by ${consent.by || "?"} on ${consent.acknowledgedAt || "?"} (${consent.how || "?"})`,
+        consent.required && openConsent ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": "floofycrew-consent-open", onClick: () => openConsent({ reaccept: false }) }, "Read the warning and agree") : null,
       ),
       pending.length ? React.createElement("div", { style: styles.warn, "data-testid": "floofycrew-pending" }, `Staged (restart to apply): ${pending.join(", ")} `, React.createElement("button", { style: styles.button, onClick: applyNow, disabled: busy, "data-testid": "floofycrew-apply-now" }, "Apply now")) : null,
       state && state.governance && state.governance.length

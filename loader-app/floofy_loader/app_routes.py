@@ -40,7 +40,7 @@ automation switches that answer a question by themselves (``--yes``,
 | POST | ``/profiles/{name}/export`` | ``{file}`` | ``profile export <name> <file>`` |
 | POST | ``/profiles/import`` | ``{file, name?}`` | ``profile import <file> [--name N]`` |
 | POST | ``/vanilla`` | ``{cancel?}`` | ``vanilla [--cancel]`` |
-| POST | ``/consent`` | ``{agree: true, reaccept?}`` | ``init --no-loader-app --no-trigger [--reaccept]`` with the agreement as the ``[ I AGREE ]`` answer (``how: "app"``) |
+| POST | ``/consent`` | ``{agree: true, reaccept?}`` (or ``confirmations.consent: true``) | ``init --no-loader-app --no-trigger [--reaccept]`` with the agreement as the ``[ I AGREE ]`` answer (``how: "app"``) |
 
 **Confirmation protocol** (Requirement 16.3; design "Manager App"). A request may
 carry ``confirmations``::
@@ -529,8 +529,9 @@ def dispatch(runtime: Any, route: AppRouteSpec, params: dict[str, str] | None = 
     confirmations = dict(confirmations or {})
     if runtime.facts is None or runtime.paths is None:
         return _json(503, {"ok": False, "error": "the Loader has not started"})
-    if route.is_consent and body.get("agree") is not True:
-        return _json(409, {"ok": False, "confirmation": _consent_question(), "error": "the consent route needs {\"agree\": true} — the [ I AGREE ] control; nothing else records the acknowledgement", "route": route.name})
+    if route.is_consent and body.get("agree") is not True and confirmations.get("consent") is not True:
+        # the [ I AGREE ] answer arrives as {agree: true} or, through the protocol, as confirmations.consent; nothing else records it
+        return _json(409, {"ok": False, "confirmation": _consent_question(), "error": "the consent route needs {\"agree\": true} (or confirmations.consent) — the [ I AGREE ] control; nothing else records the acknowledgement", "route": route.name})
     try:
         argv = route.argv(params, body, query)
         argv = _resolve_source_url(runtime, argv)

@@ -107,7 +107,8 @@ def harness():
     assert payload is not None
     scratch = fresh_scratch("playwright")
     app_dir = build_loader_app(scratch / "app" / "floofycrew")
-    gw = ScratchGateway(payload, scratch)
+    # FLOOFY_ALLOW_LOCAL_GIT: the confirmations test installs from a file:// bare repository (the test-suite switch of task 7.7)
+    gw = ScratchGateway(payload, scratch, extra_env={"FLOOFY_ALLOW_LOCAL_GIT": "1"})
     guard = ShellGuard(payload, gw.data_home)
     FloofyPaths(gw.data_home).ensure()
     install_mod(gw, RIMURU_DIR)
@@ -346,5 +347,158 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         page.click('[data-testid="floofycrew-nav-mods"]')
         page.wait_for_selector('[data-testid="floofycrew-mod-row-rimuru-branding"]', timeout=30000)
         assert page.inner_text('[data-testid="floofycrew-banner"]').count("UNOFFICIAL") == 1, "the banner stays on every page"
+    finally:
+        context.close()
+
+
+
+
+def _audit_rows(harness: Harness) -> list[dict]:
+    path = harness.gw.data_home / "audit.jsonl"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.is_file() else []
+
+
+def _write_mod(root: Path, mod_id: str, parts: list[dict], files: dict[str, str]) -> Path:
+    import hashlib
+
+    root.mkdir(parents=True, exist_ok=True)
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    manifest = {"schema": 1, "id": mod_id, "name": mod_id, "version": "1.0.0", "description": "confirmations test mod", "authors": ["tests"], "license": "MIT", "kirocrew": {"version": ">=0.7.0 <0.9.0"}, "dependsOn": {"floofycrew": ">=0.0.0"}, "parts": parts, "files": [{"path": rel, "sha256": hashlib.sha256((root / rel).read_bytes()).hexdigest()} for rel in sorted(files)]}
+    (root / "floofy.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return root
+
+
+def test_5b_confirmations_need_the_user(harness: Harness):
+    """Task 11.3 (Requirement 16.3, 16.5, 11.1, 11.4, 8.8): every question the CLI would ask is a modal the user answers;
+    nothing changes before the answer, a typed governance path is typed, the consent is the same text with [ I AGREE ]."""
+    import subprocess
+
+    client = harness.gw.client()
+    data_home = harness.gw.data_home
+    govy = _write_mod(harness.gw.scratch / "src" / "govy", "govy", [{"kind": "agent", "side": "gateway", "path": "agents/a.json"}], {"agents/a.json": json.dumps({"name": "govy-agent"}), "security_policy.json": "{}"})
+    context, page = harness.page()
+    try:
+        page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-install-form"]', timeout=60000)
+        rows_before = len(_audit_rows(harness))
+
+        # --- a governance-altering install: the disclosure, the flags question, then the typed path (staged by default) ---
+        page.fill('[data-testid="floofycrew-install-source"]', str(govy))
+        page.click('[data-testid="floofycrew-install-submit"]')
+        page.wait_for_selector('[data-testid="floofycrew-yesno-modal"]', timeout=60000)
+        disclosure = page.inner_text('[data-testid="floofycrew-disclosure"]')
+        assert "govy 1.0.0" in disclosure and "agent/gateway" in disclosure and "GOVERNANCE-ALTERING" in disclosure and "security_policy.json" in disclosure, disclosure
+        assert "no remote hosts declared" in page.inner_text('[data-testid="floofycrew-disclosure-network"]')
+        assert "Accept the 1 flag(s)" in page.inner_text('[data-testid="floofycrew-yesno-prompt"]')
+        assert page.is_checked('[data-testid="floofycrew-staging-staged"]'), "staged for the next gateway start is the default (Requirement 16.5)"
+        assert not (data_home / "pending" / "govy").exists() and not (data_home / "mods" / "govy").exists()
+        # No closes the question and nothing happened
+        page.click('[data-testid="floofycrew-yesno-no"]')
+        page.wait_for_selector('[data-testid="floofycrew-modal"]', state="detached", timeout=30000)
+        assert "not confirmed (yes-no); nothing was changed" in page.inner_text('[data-testid="floofycrew-output"]')
+        assert len(_audit_rows(harness)) == rows_before and not (data_home / "pending" / "govy").exists()
+        # again: Yes, then the typed field — the submit stays disabled until the exact path is typed
+        page.click('[data-testid="floofycrew-install-submit"]')
+        page.wait_for_selector('[data-testid="floofycrew-yesno-yes"]', timeout=60000)
+        page.click('[data-testid="floofycrew-yesno-yes"]')
+        page.wait_for_selector('[data-testid="floofycrew-typed-modal"]', timeout=60000)
+        assert "Type the exact path" in page.inner_text('[data-testid="floofycrew-typed-prompt"]')
+        assert page.is_disabled('[data-testid="floofycrew-typed-submit"]')
+        page.fill('[data-testid="floofycrew-typed-0"]', "security_policy")
+        assert page.is_disabled('[data-testid="floofycrew-typed-submit"]'), "a partial path does not unlock the confirmation"
+        assert page.locator('[data-testid="floofycrew-typed-submit"]').evaluate("b => b.tagName") == "BUTTON" and page.locator('[data-testid="floofycrew-typed-0"]').evaluate("i => i.tagName") == "INPUT", "typed in a text field, never a button (Requirement 11.4)"
+        assert len(_audit_rows(harness)) == rows_before and not (data_home / "pending" / "govy").exists(), "still nothing changed"
+        page.fill('[data-testid="floofycrew-typed-0"]', "security_policy.json")
+        page.click('[data-testid="floofycrew-typed-submit"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-pending\"]')?.textContent.includes('govy')", timeout=60000)
+        assert (data_home / "pending" / "govy").is_dir() and not (data_home / "mods" / "govy").exists(), "staged into pending/ (Requirement 7.6)"
+        rows = _audit_rows(harness)[rows_before:]
+        assert [r["op"] for r in rows] == ["governance-target-confirm", "agent-install", "install"], rows
+        assert rows[0]["actor"] == "app" and rows[0]["detail"] == "typed at the prompt" and rows[0]["files"] == ["security_policy.json"]
+        assert rows[-1]["actor"] == "app" and "GovernanceAltering" in rows[-1]["governanceFlags"] and "staged into" in rows[-1]["detail"]
+        # apply now = the Loader's reload: the staged mod lands
+        page.click('[data-testid="floofycrew-apply-now"]')
+        page.wait_for_function("() => !document.querySelector('[data-testid=\"floofycrew-pending\"]')", timeout=60000)
+        assert (data_home / "mods" / "govy").is_dir()
+        removed = client.post(f"{API}/mods/govy/uninstall", {"now": True, "confirmations": {"yes": True}})
+        assert removed.status == 200, removed.body[:300]
+
+        # --- the one-time consent, on request: the same text, [ I AGREE ]; Esc declines ---
+        consent_path = data_home / "consent.json"
+        before = json.loads(consent_path.read_text(encoding="utf-8"))
+        page.click('[data-testid="floofycrew-nav-settings"]')
+        page.wait_for_selector('[data-testid="floofycrew-consent-open"]', timeout=60000)
+        page.click('[data-testid="floofycrew-consent-open"]')
+        page.wait_for_selector('[data-testid="floofycrew-consent-modal"]', timeout=60000)
+        text = page.inner_text('[data-testid="floofycrew-consent-text"]')
+        assert "FloofyCrew is UNOFFICIAL" in text and "the risk of every mod you install is yours" in text, "the same warning text as the CLI"
+        assert page.inner_text('[data-testid="floofycrew-consent-agree"]') == "[ I AGREE ]"
+        page.keyboard.press("Escape")
+        page.wait_for_selector('[data-testid="floofycrew-modal"]', state="detached", timeout=30000)
+        assert json.loads(consent_path.read_text(encoding="utf-8")) == before, "Esc declines: the record is untouched"
+        page.click('[data-testid="floofycrew-consent-open"]')
+        page.wait_for_selector('[data-testid="floofycrew-consent-agree"]', timeout=60000)
+        page.click('[data-testid="floofycrew-consent-agree"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-settings-consent\"]')?.textContent.includes('through app')", timeout=60000)
+        after = json.loads(consent_path.read_text(encoding="utf-8"))
+        assert after["how"] == "app" and after["warningVersion"] == before["warningVersion"]
+        assert any(r["op"] == "consent" and r["actor"] == "app" and r.get("how") == "app" for r in _audit_rows(harness))
+
+        # --- a git reference: the unlisted-source line, Cancel first, then the explicit accept ---
+        work = harness.gw.scratch / "src" / "gitmod"
+        _write_mod(work, "unlisted-demo", [{"kind": "agent", "side": "gateway", "path": "agents/u.json"}], {"agents/u.json": json.dumps({"name": "unlisted-agent"})})
+        env = {"GIT_AUTHOR_NAME": "tests", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "tests", "GIT_COMMITTER_EMAIL": "t@example.invalid", "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(work)}
+        for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "release"], ["tag", "1.0.0"]):
+            subprocess.run(["git", *args], cwd=str(work), env=env, check=True, capture_output=True)
+        bare = harness.gw.scratch / "src" / "forge.git"
+        subprocess.run(["git", "clone", "-q", "--bare", str(work), str(bare)], env=env, check=True, capture_output=True)
+        reference = f"{bare.as_uri()}@1.0.0"
+        rows_before = len(_audit_rows(harness))
+        page.click('[data-testid="floofycrew-nav-registry"]')
+        page.wait_for_selector('[data-testid="floofycrew-reference-input"]', timeout=60000)
+        page.fill('[data-testid="floofycrew-reference-input"]', reference)
+        page.click('[data-testid="floofycrew-reference-submit"]')
+        page.wait_for_selector('[data-testid="floofycrew-unlisted-modal"]', timeout=90000)
+        assert "no curator review" in page.inner_text('[data-testid="floofycrew-disclosure-unlisted"]')
+        assert "UNLISTED SOURCE" in page.inner_text('[data-testid="floofycrew-unlisted-prompt"]')
+        page.click('[data-testid="floofycrew-unlisted-cancel"]')
+        page.wait_for_selector('[data-testid="floofycrew-modal"]', state="detached", timeout=30000)
+        assert len(_audit_rows(harness)) == rows_before and not (data_home / "pending" / "unlisted-demo").exists()
+        page.click('[data-testid="floofycrew-reference-submit"]')
+        page.wait_for_selector('[data-testid="floofycrew-unlisted-accept"]', timeout=90000)
+        assert page.inner_text('[data-testid="floofycrew-unlisted-accept"]').startswith("I ACCEPT")
+        page.click('[data-testid="floofycrew-unlisted-accept"]')
+        page.wait_for_function("() => (document.querySelector('[data-testid=\"floofycrew-output\"]')?.textContent || '').includes('staged in pending/')", timeout=90000)
+        row = _audit_rows(harness)[-1]
+        assert row["op"] == "install" and row["mod"] == "unlisted-demo" and row["actor"] == "app" and row["tier"] == "unlisted" and row["unlistedSource"]["how"] == "typed"
+        assert (data_home / "pending" / "unlisted-demo").is_dir()
+        assert client.post(f"{API}/reload").status == 200
+        removed = client.post(f"{API}/mods/unlisted-demo/uninstall", {"now": True, "confirmations": {"yes": True}})
+        assert removed.status == 200, removed.body[:300]
+
+        # --- --allow-unsigned on a registry source: the loosening warning, Keep first, then the explicit accept ---
+        rows_before = len(_audit_rows(harness))
+        page.fill('[data-testid="floofycrew-add-source-url"]', "http://127.0.0.1:9/registry/")
+        page.fill('[data-testid="floofycrew-add-source-name"]', "loopdemo")
+        page.check('[data-testid="floofycrew-add-source-unsigned"]')
+        page.uncheck('[data-testid="floofycrew-add-source-refresh"]')
+        page.click('[data-testid="floofycrew-add-source-submit"]')
+        page.wait_for_selector('[data-testid="floofycrew-unsigned-modal"]', timeout=60000)
+        assert "TRUST LOOSENED for http://127.0.0.1:9/registry/" in page.inner_text('[data-testid="floofycrew-unsigned-text"]')
+        page.click('[data-testid="floofycrew-unsigned-keep"]')
+        page.wait_for_selector('[data-testid="floofycrew-modal"]', state="detached", timeout=30000)
+        assert len(_audit_rows(harness)) == rows_before
+        registries = data_home / "registries.json"
+        assert not registries.exists() or all(s.get("name") != "loopdemo" for s in json.loads(registries.read_text(encoding="utf-8"))["sources"])
+        page.click('[data-testid="floofycrew-add-source-submit"]')
+        page.wait_for_selector('[data-testid="floofycrew-unsigned-accept"]', timeout=60000)
+        page.click('[data-testid="floofycrew-unsigned-accept"]')
+        page.wait_for_selector('[data-testid="floofycrew-source-loopdemo"]', timeout=60000)
+        assert "UNSIGNED INDEXES ACCEPTED" in page.inner_text('[data-testid="floofycrew-source-loopdemo"]')
+        ops = [r["op"] for r in _audit_rows(harness)[rows_before:]]
+        assert ops == ["registry-add", "registry-trust-loosened"], ops
+        assert client.request("DELETE", f"{API}/registries/loopdemo").status == 200
     finally:
         context.close()

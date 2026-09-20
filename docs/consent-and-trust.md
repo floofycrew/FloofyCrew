@@ -23,11 +23,12 @@ Every mechanism below exists to hold up the second half of that bargain.
 
 ## The one-time warning
 
-`floofy init` (or the manager page's first enable) shows this text and waits
+`floofy init` (or the FloofyCrew App's first action) shows this text and waits
 for your acknowledgement — on a terminal as a full-screen confirmation on the
 alternate screen buffer with a single `[ I AGREE ]` control (Enter agrees, Esc or
-`q` declines, your previous screen comes back either way), elsewhere as the typed
-phrase `I ACCEPT`; nothing is installed or patched before it:
+`q` declines, your previous screen comes back either way), in the App as a modal
+with the same text and the same `[ I AGREE ]` control (Esc declines), elsewhere
+as the typed phrase `I ACCEPT`; nothing is installed or patched before it:
 
 > FloofyCrew is UNOFFICIAL and not affiliated with Kiro or KiroCrew.
 >
@@ -38,8 +39,8 @@ phrase `I ACCEPT`; nothing is installed or patched before it:
 > (floofy restore --all) — but the risk of every mod you install is yours.
 
 The acknowledgement is recorded in `<host home>/floofy/consent.json`
-(`warningVersion`, `acknowledgedAt`, `by`, `how`: `screen`, `typed` or `flag` —
-the same record whichever way you agreed; automation keeps
+(`warningVersion`, `acknowledgedAt`, `by`, `how`: `screen`, `app`, `typed` or
+`flag` — the same record whichever way you agreed; automation keeps
 `--i-accept-the-risk`, and `--yes` never answers this question). Until that
 record exists for the **current** warning text the Loader is inert — every mod
 carries the reason `ConsentRequired` and nothing activates; when the text changes
@@ -142,6 +143,25 @@ floofy registry add <url> --trust owner|index       # per-source trust level
 
 Each loosening writes an audit row. The host's own app and theme admission is
 consulted only to explain what the host will think of the result.
+
+## The same questions in the App
+
+The FloofyCrew App (the Loader app's page inside KiroCrew) runs every action
+through a Loader route that calls the **same** `floofy` handler as the CLI, so
+it asks the same questions, with the same grade, before anything changes:
+
+| The CLI asks | The App shows | Recorded |
+|---|---|---|
+| the one-time warning, `[ I AGREE ]` / `I ACCEPT` | a modal with the same text and an `[ I AGREE ]` control; Esc declines | `consent.json` `how: app`, a `consent` audit row |
+| an ordinary yes/no (a `python-hook`/`patch`/`app` part, the flags, an uninstall) | the install disclosure — parts and seams, whether payload files are modified, the declared network hosts and credentials, the flags, the host's verdicts, the source tier — with the exact prompt and Yes / No; the staged-vs-apply-now choice sits here (staged is the default) | the row the CLI writes, `actor: app` |
+| a governance-altering target typed as its exact path | a **text field** per target; the button unlocks only when the field equals the path, and the Loader compares what was typed byte for byte — never a button, never trimmed | `governance-target-confirm` (`typed at the prompt`) |
+| the unlisted-source line of a git reference, `I ACCEPT` | the disclosure with the line and an explicit *I ACCEPT — install from this unlisted source anyway* item | the `install` row's `unlistedSource.how: typed` |
+| `--allow-unsigned` on a registry source | the same loosening warning and an explicit accept item | `registry-trust-loosened` |
+
+A request that does not carry the answer gets a `409` with the question and
+**nothing happens**; the App has no `--yes`, `--i-accept-the-risk`,
+`--accept-unlisted-source` or `--confirm-governance-target` — those exist for
+automation you run yourself at a terminal.
 
 ## The audit log
 

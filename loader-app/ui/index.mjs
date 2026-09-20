@@ -23,6 +23,7 @@ import React from "react";
 
 import { ensureStarted } from "./host.mjs";
 import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf } from "./app/api.mjs";
+import { ConfirmationHost, useAsker } from "./app/confirm.mjs";
 import { UNOFFICIAL, styles } from "./app/palette.mjs";
 import { AuditPage } from "./app/pages/audit.mjs";
 import { DoctorPage } from "./app/pages/doctor.mjs";
@@ -147,7 +148,9 @@ function Nav({ current, onSelect }) {
   );
 }
 
-export default function FloofyCrewApp({ ask, initialPage } = {}) {
+export default function FloofyCrewApp({ ask: askOverride, initialPage } = {}) {
+  const asker = useAsker();
+  const ask = askOverride || asker.ask;
   const [route, setRoute] = React.useState(() => (initialPage ? { key: initialPage, rest: "" } : pageFromHash(typeof location !== "undefined" ? location.hash : "")));
   React.useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -164,6 +167,8 @@ export default function FloofyCrewApp({ ask, initialPage } = {}) {
   }, []);
   const manager = useManager({ ask });
   const page = PAGES.find((p) => p.key === route.key) || PAGES[0];
+  // the one-time warning on request (Settings, the "consent required" line): the consent route asks, the modal answers
+  const openConsent = React.useCallback(({ reaccept = false } = {}) => manager.act("/consent", reaccept ? { reaccept: true } : {}), [manager.act]);
 
   return React.createElement(
     "div",
@@ -171,8 +176,9 @@ export default function FloofyCrewApp({ ask, initialPage } = {}) {
     React.createElement(Header, { state: manager.state }),
     React.createElement("div", { style: styles.banner, "data-testid": "floofycrew-banner", role: "note" }, `FloofyCrew mod manager — UNOFFICIAL. ${UNOFFICIAL} Mods run with the gateway's privileges on your consent; governance verdicts are warnings, never gates.`),
     React.createElement(Nav, { current: page.key, onSelect: select }),
-    React.createElement("section", { "data-testid": `floofycrew-page-${page.key}` }, React.createElement(page.component, { manager, rest: route.rest, navigate: select })),
+    React.createElement("section", { "data-testid": `floofycrew-page-${page.key}` }, React.createElement(page.component, { manager, rest: route.rest, navigate: select, openConsent })),
     manager.error ? React.createElement("div", { style: { ...styles.card, ...styles.danger }, "data-testid": "floofycrew-error" }, manager.error) : null,
     manager.output ? React.createElement("pre", { style: { ...styles.card, ...styles.mono }, "data-testid": "floofycrew-output" }, manager.output) : null,
+    askOverride ? null : React.createElement(ConfirmationHost, { pending: asker.pending, answer: asker.answer }),
   );
 }
