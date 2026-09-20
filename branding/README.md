@@ -10,6 +10,18 @@
   multi-size `favicon.ico` (16/32/48/64/256, PNG-in-ICO). Transparent corners.
 - `build_icons.py` — regenerates all of the above from `gen_logos.py`
   (`CHOSEN = "sunset"`); renders with headless Chromium, packs the ICO with stdlib.
+- `wordmark.svg` (dark text, light surfaces), `wordmark-dark.svg` (peach text,
+  dark surfaces), `wordmark-text.svg` (text only) — horizontal lockup, mark +
+  "Floofy" in ink + "Crew" in the sunset gradient. Height 128 user units.
+- `build_wordmark.py` — sets the text in Nunito ExtraBold (SIL OFL-1.1,
+  [googlefonts/nunito](https://github.com/googlefonts/nunito)), kerned with
+  HarfBuzz, and converts it to outlines so the SVGs need no font at render time.
+  The font is downloaded to `.cache/` (gitignored) and pinned in `.font-sha256`;
+  run with `uv run --no-project --with fonttools --with uharfbuzz python branding/build_wordmark.py`.
+
+The Loader app ships the mark as its store icon: `loader-app/art/icon.svg` is a
+byte-equal copy of `logo.svg` declared by `iconPath` in `loader-app/app.json`
+(pinned by `loader-app/tests/test_manifest.py`).
 
 ```html
 <link rel="icon" href="icons/favicon.ico" sizes="any">
