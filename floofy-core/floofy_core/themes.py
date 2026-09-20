@@ -37,6 +37,7 @@ time — never silently loaded. ``validate_theme_dir`` reports them as ``uncheck
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -54,6 +55,8 @@ __all__ = [
     "slugify_theme_name",
     "validate_theme_data",
     "validate_theme_dir",
+    "theme_css",
+    "theme_css_for_pack",
 ]
 
 # --- constants (theme_validate.py line numbers in the module docstring) --------------
@@ -526,3 +529,212 @@ def direct_write_theme(source: Path, themes_home: Path) -> tuple[Path, ThemeSumm
         raise
     shutil.rmtree(old, ignore_errors=True)
     return destination_dir, summary
+
+
+
+
+# --- the dashboard's custom-pack CSS generator, ported (task 5.4/5.5) ------------------------
+#
+# The SPA builds a pack's CSS at runtime (``useTheme`` chunk: ``ne(slug, variables)``
+# with the derived-token helper ``y()``, the colour mixer ``te()`` and the WCAG
+# luminance ``v()`` from ``iconContrast``) into ``<style id="mc-custom-theme-<slug>">``
+# — after auth, after React mounted. Baking the same string into ``index.html``
+# (a boot part's ``css``) makes it present at first paint for every client state.
+# This is a byte-exact port of the 0.7.0.5 generator; the boot script's drift
+# guard and the Playwright parity test compare it with the host's own output.
+
+_THEME_CSS_VALUE_OK_RE = re.compile(r"^[a-zA-Z0-9#(),.\- %/]+$")
+_THEME_CSS_VALUE_BAD_RE = re.compile(r"url\s*\(|expression\s*\(|image\s*\(|image-set\s*\(|paint\s*\(|element\s*\(", re.IGNORECASE)
+_THEME_CODE_TOKENS: tuple[tuple[str, str, str], ...] = (
+    # key, value on a bright --bg, value on a dark --bg
+    ("--json-key", "#001080", "#9CDCFE"),
+    ("--json-str", "#A31515", "#CE9178"),
+    ("--json-num", "#098658", "#B5CEA8"),
+    ("--json-bool", "#0000FF", "#569CD6"),
+    ("--diff-add", "rgba(22,163,74,.12)", "rgba(46,160,67,.15)"),
+    ("--diff-add-text", "#1a7f37", "#7ee787"),
+    ("--diff-del", "rgba(220,38,38,.12)", "rgba(248,81,73,.15)"),
+    ("--diff-del-text", "#cf222e", "#ffa198"),
+    ("--diff-hunk", "rgba(4,117,88,.12)", "rgba(4,117,88,.2)"),
+    ("--diff-hunk-text", "#065f46", "#6ee7b7"),
+    ("--diff-meta-text", "#1f2328", "#e6edf3"),
+)
+_THEME_MIX_TOKENS: tuple[tuple[str, int], ...] = (
+    ("--card", 4), ("--bg-elevated", 6), ("--chrome", 6), ("--bg-accent", 8), ("--panel", 8), ("--bg-hover", 10), ("--card-hl", 10),
+    ("--panel-strong", 12), ("--border", 14), ("--border-strong", 22), ("--border-hover", 30), ("--muted", 75), ("--muted-strong", 85),
+)
+_THEME_FG_PAIRS: tuple[tuple[str, str], ...] = (
+    ("--accent-fg", "--accent"), ("--ok-fg", "--ok"), ("--warn-fg", "--warn"), ("--danger-fg", "--danger"), ("--info-fg", "--info"), ("--aim-fg", "--aim"),
+)
+_THEME_FONT_TAIL = (
+    "--font-body:var(--theme-font-sans, var(--script-fallbacks),'Space Grotesk',-apple-system,BlinkMacSystemFont,sans-serif);"
+    "--mono:var(--theme-font-mono, var(--script-fallbacks-mono),'JetBrains Mono',ui-monospace,SFMono-Regular,monospace);"
+    "--radius-sm:6px;--radius-md:8px;--radius-lg:12px;--radius-xl:16px;"
+)
+_RGB_FN_RE = re.compile(r"^rgba?\(([^)]*)\)$", re.IGNORECASE)
+_SRGB_FN_RE = re.compile(r"^color\(\s*srgb\s+([^)]*)\)$", re.IGNORECASE)
+_HEX_RE = re.compile(r"^#([0-9a-f]{3,8})$", re.IGNORECASE)
+
+
+def _js_round(value: float) -> int:
+    """JavaScript ``Math.round`` (half toward +infinity), not Python's banker's rounding."""
+    return math.floor(value + 0.5)
+
+
+def _generator_sanitize(value: Any) -> str:
+    """The generator's ``p()``: a CSS value or ``""``."""
+    if not isinstance(value, str) or len(value) > 200:
+        return ""
+    trimmed = value.strip()
+    if not trimmed or not _THEME_CSS_VALUE_OK_RE.match(trimmed) or _THEME_CSS_VALUE_BAD_RE.search(trimmed):
+        return ""
+    return trimmed
+
+
+def _parse_color(value: str) -> dict[str, float] | None:
+    """``iconContrast`` ``d()``: ``{r, g, b, a}`` or ``None``."""
+    text = value.strip().lower()
+    if not text:
+        return None
+    if text == "transparent":
+        return {"r": 0, "g": 0, "b": 0, "a": 0}
+
+    def numbers(source: str) -> list[float]:
+        out: list[float] = []
+        for token in re.split(r"[\s,/]+", source):
+            if token:
+                try:
+                    out.append(float(token))
+                except ValueError:
+                    return [float("nan")]
+        return out
+
+    match = _RGB_FN_RE.match(text)
+    if match:
+        parts = numbers(match.group(1))
+        if len(parts) < 3 or any(p != p for p in parts):
+            return None
+        return {"r": parts[0], "g": parts[1], "b": parts[2], "a": parts[3] if len(parts) > 3 else 1}
+    match = _SRGB_FN_RE.match(text)
+    if match:
+        parts = numbers(match.group(1))
+        if len(parts) < 3 or any(p != p for p in parts):
+            return None
+        return {"r": parts[0] * 255, "g": parts[1] * 255, "b": parts[2] * 255, "a": parts[3] if len(parts) > 3 else 1}
+    match = _HEX_RE.match(text)
+    if match:
+        digits = match.group(1)
+        long_form = len(digits) > 4
+        step = 2 if long_form else 1
+        components: list[int] = []
+        index = 0
+        while index + step <= len(digits):
+            chunk = digits[index : index + step]
+            components.append(int(chunk if long_form else chunk + chunk, 16))
+            index += step
+        if len(components) < 3:
+            return None
+        return {"r": components[0], "g": components[1], "b": components[2], "a": components[3] / 255 if len(components) > 3 else 1}
+    return None
+
+
+def _opaque_rgb(value: str) -> dict[str, float] | None:
+    color = _parse_color(value)
+    if not color or color["a"] < 1:
+        return None
+    return {k: min(255, max(0, color[k])) for k in ("r", "g", "b")}
+
+
+def _luminance(value: str) -> float | None:
+    color = _opaque_rgb(value)
+    if not color:
+        return None
+
+    def linear(channel: float) -> float:
+        t = channel / 255
+        return t / 12.92 if t <= 0.04045 else ((t + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * linear(color["r"]) + 0.7152 * linear(color["g"]) + 0.0722 * linear(color["b"])
+
+
+def _mix(foreground: str, background: str, percent: float) -> str | None:
+    fg, bg = _opaque_rgb(foreground), _opaque_rgb(background)
+    if not fg or not bg:
+        return None
+    k = percent / 100
+
+    def channel(a: float, b: float) -> str:
+        return format(_js_round(a * k + b * (1 - k)), "02x")
+
+    return f"#{channel(fg['r'], bg['r'])}{channel(fg['g'], bg['g'])}{channel(fg['b'], bg['b'])}"
+
+
+def _derived_tokens(block: dict[str, Any]) -> str:
+    """The generator's ``y()``: tokens the pack did not declare, derived from ``--bg`` / ``--text`` / the accents."""
+
+    def declared(key: str) -> bool:
+        return isinstance(block.get(key), str) and _generator_sanitize(block[key]) != ""
+
+    out: list[str] = []
+
+    def put(key: str, value: str | None) -> None:
+        if value and not declared(key):
+            out.append(f"{key}:{value}")
+
+    bg = _generator_sanitize(block.get("--bg", ""))
+    text = _generator_sanitize(block.get("--text", ""))
+    bg_ok = bg if _opaque_rgb(bg) else ""
+    text_ok = text if _opaque_rgb(text) else ""
+    for key, percent in _THEME_MIX_TOKENS:
+        put(key, _mix(text, bg, percent))
+    put("--text-strong", text_ok or None)
+    put("--card-fg", text_ok or None)
+    put("--muted-fg", (text_ok and bg_ok) or None)
+    for fg_key, base_key in _THEME_FG_PAIRS:
+        if declared(fg_key) or not declared(base_key):
+            continue
+        lum = _luminance(_generator_sanitize(block[base_key]))
+        if lum is not None:
+            out.append(f"{fg_key}:{'#000' if lum > 0.179 else '#fff'}")
+    lum = _luminance(bg) if text_ok else None
+    if lum is not None:
+        bright = lum > 0.179
+        for key, on_bright, on_dark in _THEME_CODE_TOKENS:
+            put(key, on_bright if bright else on_dark)
+    return ";".join(out) + ";" if out else ""
+
+
+def theme_css(slug: str, variables: dict[str, Any]) -> str:
+    """The dashboard's generated CSS for a custom pack (``ne(slug, variables)``), scoped to ``[data-theme="custom-<slug>-dark|light"]``."""
+    if not slug:
+        return ""
+
+    def declared_vars(block: dict[str, Any]) -> str:
+        pairs = []
+        for key, value in block.items():
+            if key in THEME_CSS_VARS:
+                clean = _generator_sanitize(value)
+                if clean != "":
+                    pairs.append(f"{key}:{clean}")
+        return ";".join(pairs)
+
+    dark = variables.get("dark") if isinstance(variables.get("dark"), dict) else {}
+    light = variables.get("light") if isinstance(variables.get("light"), dict) else {}
+    return (
+        f'[data-theme="custom-{slug}-dark"]{{{declared_vars(dark)};{_derived_tokens(dark)}{_THEME_FONT_TAIL}color-scheme:dark;}}\n'
+        f'[data-theme="custom-{slug}-light"]{{{declared_vars(light)};{_derived_tokens(light)}{_THEME_FONT_TAIL}color-scheme:light;}}'
+    )
+
+
+def theme_css_for_pack(pack_dir: Path) -> str:
+    """``theme_css`` for an on-disk pack (``theme.json`` slug + ``variables.json``)."""
+    pack_dir = Path(pack_dir)
+    manifest = json.loads((pack_dir / THEME_MANIFEST_NAME).read_text(encoding="utf-8"))
+    variables_path = next((pack_dir / rel for rel in THEME_VARIABLES_REL if (pack_dir / rel).is_file()), None)
+    if variables_path is None:
+        raise ThemeValidationError("variables.json missing")
+    variables = json.loads(variables_path.read_text(encoding="utf-8"))
+    slug = manifest.get("slug") if isinstance(manifest, dict) else None
+    if not isinstance(slug, str):
+        raise ThemeValidationError("theme.json has no slug")
+    return theme_css(re.sub(r"[^a-z0-9-]", "", slug), variables)
