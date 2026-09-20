@@ -1,0 +1,224 @@
+"""The registry client's local side: the merged ``cache/index.json`` (Requirement 8.1, 8.4, 8.5, 9.2).
+
+``floofy registry refresh`` (task 6.8) fetches every configured source's
+``index.json`` + ``compat.json`` over HTTPS into ``cache/sources/<key>/`` and
+merges the **usable** ones (signature verified, or the source explicitly
+``allowUnsigned``) into ``cache/index.json`` / ``cache/compat.json``. This module
+reads that merged index for ``search``, ``install <id[@version]>``, ``update``
+and ``which`` (hash lookup):
+
+* :class:`IndexCache` — ``mods[]`` records (design "Registry index"); a mod id
+  that collides across sources is namespaced ``<source>/<id>`` (Requirement 8.4);
+* :func:`IndexCache.pick` — "newest mod version known to work here"
+  (Requirement 9.2): candidates whose ``kirocrew`` range contains the host base
+  version and whose ``compat`` cell for this host is not ``broken``; a version
+  with a ``tested``/``expected`` cell beats one the matrix knows nothing about,
+  and within that the newest wins;
+* :func:`IndexCache.by_hash` — ``mod@version`` for any file's SHA-256 (Requirement 8.5).
+
+The network side (sources, trust, signatures) is :mod:`floofy_core.registry_sources`.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Iterable
+
+from .datahome import DataHome
+from .semver import InvalidRange, InvalidVersion, Range, Version
+
+__all__ = ["IndexCache", "IndexVersion", "ModEntry", "VERDICT_RANK"]
+
+#: ``tested`` and ``expected`` are both "known to work here"; an unknown cell ranks below them, ``broken`` is excluded.
+VERDICT_RANK = {"tested": 2, "expected": 2, None: 1, "": 1, "broken": 0}
+
+
+@dataclass(frozen=True)
+class IndexVersion:
+    version: str
+    kirocrew: str
+    editions: tuple[str, ...]
+    compat: dict[str, str]
+    files: tuple[dict[str, Any], ...]
+    dependencies: dict[str, Any]
+    channel: str | None
+    published_at: str | None
+    raw: dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
+
+    @property
+    def parsed(self) -> Version | None:
+        try:
+            return Version.parse(self.version)
+        except InvalidVersion:
+            return None
+
+    def supports(self, base_version: Version | str, edition: str | None) -> bool:
+        try:
+            in_range = Range.parse(self.kirocrew or "*").contains(base_version)
+        except (InvalidRange, ValueError):
+            in_range = False
+        edition_ok = not self.editions or edition in (None, "unknown") or edition in self.editions
+        return in_range and edition_ok
+
+    def verdict_for(self, host_version: str | None) -> str | None:
+        return self.compat.get(host_version) if host_version else None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"version": self.version, "kirocrew": self.kirocrew, "editions": list(self.editions), "compat": dict(self.compat), "files": [dict(f) for f in self.files], "dependencies": dict(self.dependencies), "channel": self.channel, "publishedAt": self.published_at}
+
+
+@dataclass
+class ModEntry:
+    id: str
+    name: str
+    description: str
+    authors: list[str]
+    tags: list[str]
+    repo: str | None
+    source: str
+    versions: list[IndexVersion]
+    #: ``<source>/<id>`` when the id collides across sources (Requirement 8.4), else the id.
+    key: str = ""
+
+    def __post_init__(self) -> None:
+        self.key = self.key or self.id
+
+    def version(self, text: str) -> IndexVersion | None:
+        return next((v for v in self.versions if v.version == text), None)
+
+    def matches(self, query: str) -> bool:
+        needle = query.lower()
+        haystack = " ".join([self.id, self.name, self.description, *self.tags, self.key]).lower()
+        return all(term in haystack for term in needle.split())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "key": self.key, "name": self.name, "description": self.description, "authors": list(self.authors), "tags": list(self.tags), "repo": self.repo, "source": self.source, "versions": [v.to_dict() for v in self.versions]}
+
+
+@dataclass
+class IndexCache:
+    mods: list[ModEntry] = field(default_factory=list)
+    source: str = ""
+    generated_at: str | None = None
+    notes: list[str] = field(default_factory=list)
+
+    @property
+    def available(self) -> bool:
+        return bool(self.mods) or not self.notes
+
+    @classmethod
+    def load(cls, home: DataHome) -> "IndexCache":
+        return cls.load_path(home.index_cache)
+
+    @classmethod
+    def load_path(cls, path: Path) -> "IndexCache":
+        try:
+            document = json.loads(Path(path).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return cls(source=str(path), notes=["no registry cache yet (floofy registry add <url>, then floofy registry refresh)"])
+        except (OSError, ValueError) as exc:
+            return cls(source=str(path), notes=[f"registry cache unreadable: {exc}"])
+        return cls.from_documents([(str(path), document)])
+
+    @classmethod
+    def from_documents(cls, documents: Iterable[tuple[str, Any]]) -> "IndexCache":
+        """Merge one or more ``index.json`` documents; ids colliding across sources get ``<source>/<id>`` keys."""
+        cache = cls()
+        seen: dict[str, ModEntry] = {}
+        for label, document in documents:
+            if not isinstance(document, dict) or not isinstance(document.get("mods"), list):
+                cache.notes.append(f"{label}: no mods[] in the index")
+                continue
+            source = str(document.get("source") or label)
+            cache.source = cache.source or source
+            cache.generated_at = cache.generated_at or (document.get("generatedAt") if isinstance(document.get("generatedAt"), str) else None)
+            for raw in document["mods"]:
+                entry = _entry(raw, source)
+                if entry is None:
+                    continue
+                if entry.id in seen and seen[entry.id].source != source:
+                    first = seen[entry.id]
+                    first.key = f"{first.source}/{first.id}"
+                    entry.key = f"{source}/{entry.id}"
+                    cache.notes.append(f"mod id {entry.id!r} exists in {first.source} and {source}; namespaced as {first.key} and {entry.key}")
+                elif entry.id in seen:
+                    continue  # the same source listed twice: keep the first
+                else:
+                    seen[entry.id] = entry
+                cache.mods.append(entry)
+        return cache
+
+    # -- queries ---------------------------------------------------------------------------------
+
+    def find(self, ref: str) -> ModEntry | None:
+        """By key (``source/id``) first, then by bare id when unambiguous."""
+        for entry in self.mods:
+            if entry.key == ref:
+                return entry
+        matches = [entry for entry in self.mods if entry.id == ref]
+        return matches[0] if len(matches) == 1 else None
+
+    def search(self, query: str) -> list[ModEntry]:
+        return [entry for entry in self.mods if not query or entry.matches(query)]
+
+    def pick(self, ref: str, *, base_version: Version | str, edition: str | None, host_version: str | None, requested: str | None = None) -> tuple[ModEntry | None, IndexVersion | None, str]:
+        """The version to install: an exact ``requested`` one, else the newest known to work on this host (Requirement 9.2)."""
+        entry = self.find(ref)
+        if entry is None:
+            return None, None, f"{ref!r} is not in the registry cache"
+        if requested:
+            picked = entry.version(requested)
+            return entry, picked, "" if picked else f"{ref} has no version {requested} in the cache"
+        candidates = [v for v in entry.versions if v.supports(base_version, edition) and v.verdict_for(host_version) != "broken" and v.parsed is not None]
+        if not candidates:
+            return entry, None, f"no version of {ref} declares support for host {base_version} ({edition}) without a broken verdict"
+        candidates.sort(key=lambda v: (VERDICT_RANK.get(v.verdict_for(host_version), 1), v.parsed), reverse=True)
+        return entry, candidates[0], ""
+
+    def by_hash(self, sha256: str) -> list[tuple[ModEntry, IndexVersion, dict[str, Any]]]:
+        """Every ``(mod, version, file)`` whose file ``sha256`` matches (Requirement 8.5)."""
+        wanted = sha256.lower().strip()
+        hits: list[tuple[ModEntry, IndexVersion, dict[str, Any]]] = []
+        for entry in self.mods:
+            for version in entry.versions:
+                for file in version.files:
+                    if str(file.get("sha256", "")).lower() == wanted:
+                        hits.append((entry, version, dict(file)))
+        return hits
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"source": self.source, "generatedAt": self.generated_at, "mods": len(self.mods), "notes": list(self.notes)}
+
+
+def _entry(raw: Any, source: str) -> ModEntry | None:
+    if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
+        return None
+    versions: list[IndexVersion] = []
+    for item in raw.get("versions") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("version"), str):
+            continue
+        compat = item.get("compat") if isinstance(item.get("compat"), dict) else {}
+        versions.append(
+            IndexVersion(
+                version=item["version"],
+                kirocrew=str(item.get("kirocrew") or "*"),
+                editions=tuple(str(e) for e in (item.get("editions") or [])),
+                compat={str(k): str(v) for k, v in compat.items()},
+                files=tuple(dict(f) for f in (item.get("files") or []) if isinstance(f, dict)),
+                dependencies=dict(item.get("dependencies") or {}) if isinstance(item.get("dependencies"), dict) else {},
+                channel=item.get("channel") if isinstance(item.get("channel"), str) else None,
+                published_at=item.get("publishedAt") if isinstance(item.get("publishedAt"), str) else None,
+                raw=item,
+            )
+        )
+    return ModEntry(
+        id=raw["id"],
+        name=str(raw.get("name") or raw["id"]),
+        description=str(raw.get("description") or ""),
+        authors=[str(a) for a in (raw.get("authors") or [])],
+        tags=[str(t) for t in (raw.get("tags") or [])],
+        repo=raw.get("repo") if isinstance(raw.get("repo"), str) else None,
+        source=source,
+        versions=versions,
+    )

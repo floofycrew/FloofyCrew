@@ -196,6 +196,16 @@ class CliContext:
             self._audit = AuditLog(self.data_home, actor=self.actor)
         return self._audit
 
+    # -- consent -----------------------------------------------------------------------------
+
+    def require_consent(self, what: str) -> None:
+        """Requirement 11.1: nothing is applied before the one-time warning was acknowledged (``floofy init``)."""
+        from ..consent import read_consent  # noqa: PLC0415
+
+        status = read_consent(self.home.consent)
+        if not status.ok:
+            raise CliError(f"cannot {what}: {status.detail}", exit_code=3)
+
     # -- the mod set -------------------------------------------------------------------------
 
     def mods(self, *, include_broken: bool = True) -> list[InstalledMod]:

@@ -27,13 +27,22 @@ LOG_BACKUPS = 1
 
 
 def mod_data_dir(data_home: Path, mod_id: str, *, payload_root: Path | None = None) -> Path:
-    """``<data home>/mods/<id>/.floofy/`` — created, contained in the data home, never under a payload."""
+    """``<data home>/mods/<id>/.floofy/`` — created, contained in the data home, never under a payload.
+
+    A ``floofy dev`` link (``mods/<id>`` → a checkout) is honoured: the runtime
+    state then lives in the checkout's ``.floofy/`` (the developer's own tree),
+    still never under a host payload.
+    """
     if not mod_id or mod_id in (".", "..") or "/" in mod_id or "\\" in mod_id:
         raise ValueError(f"not a mod id: {mod_id!r}")
     home = Path(data_home).resolve()
-    target = (home / "mods" / mod_id / RUNTIME_DIR).resolve()
-    if target.parent.parent != home / "mods":
+    mod_root = home / "mods" / mod_id
+    target = (mod_root / RUNTIME_DIR).resolve()
+    linked = mod_root.is_symlink() and mod_root.resolve().is_dir()
+    if not linked and target.parent.parent != home / "mods":
         raise ValueError(f"mod data dir {target} escapes {home / 'mods'}")
+    if linked and target.parent != mod_root.resolve():
+        raise ValueError(f"mod data dir {target} escapes the linked mod directory {mod_root.resolve()}")
     if payload_root is not None and target.is_relative_to(Path(payload_root).resolve()):
         raise ValueError(f"mod data dir {target} lies under the host payload {payload_root}")
     target.mkdir(parents=True, exist_ok=True)

@@ -38,7 +38,6 @@ UNOFFICIAL = "FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew.
 
 #: Commands whose implementation lands in a later task of package 6; they print the task and exit 2.
 _LANDS_LATER: dict[str, str] = {
-    **{name: "6.2" for name in ("search", "install", "uninstall", "enable", "disable", "update", "apply", "restore", "verify", "validate", "new", "dev")},
     **{name: "6.5" for name in ("yeet", "hold")},
     "profile": "6.6",
     **{name: "6.8" for name in ("registry", "audit", "which")},

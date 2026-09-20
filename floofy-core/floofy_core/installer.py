@@ -1,0 +1,371 @@
+"""The install engine behind ``floofy install`` / ``update`` / ``profile use`` (Requirement 7.6, 11.3, 11.4, 11.7).
+
+Pure building blocks, driven by the CLI (:mod:`floofy_core.cli.cmd_mods`) and
+reused in-process by the manager UI:
+
+* :func:`resolve_source` — a mod reference is a **path** (directory or
+  ``.zip``/``.tar.gz``), a **URL** (HTTPS only; plaintext ``http://`` is refused
+  unless the host is loopback — Requirement 11.6 applies to FloofyCrew's own
+  traffic too) or a **registry id** (``id`` / ``id@version`` from the merged
+  ``cache/index.json``, with the index's ``sha256`` checked after download);
+* :func:`disclose` — what the manager shows before install (Requirement 11.7):
+  every part with kind, side, seam and whether it modifies payload files; the
+  declared ``network.hosts[]`` and ``credentials``; the validator's governance
+  and network flags; the host's admission verdict for ``app`` parts and the
+  theme route's state, both as **warnings** (Requirement 2.3, 11.2);
+* :func:`governance_targets` — the exact paths that need a per-file typed
+  confirmation (Requirement 11.4);
+* :func:`place` — copy the validated tree into ``pending/<id>/`` (a gateway is
+  running and ``--now`` was not given: applied at the next gateway start, the
+  ModAssistant pattern) or straight into ``mods/<id>/``, preserving the mod's
+  ``.floofy/`` runtime state across updates, and write the source record;
+* :func:`run_handlers` — the seam kind handlers (theme, agent, skill,
+  appearance, config, app) run at install/uninstall time; code kinds are the
+  Loader's and Patcher's business.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import shutil
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+from .archive import ArchiveError, is_archive, open_archive_safely
+from .datahome import DataHome
+from .governance import GovernanceSnapshot, warnings_for
+from .kinds import SEAMS, KindContext, PartOutcome, handlers
+from .modstore import code_kinds_of, parts_of, write_source
+from .netscan import is_loopback_host
+from .patches import PatchDescriptor, PatchDescriptorError
+from .registry import IndexCache
+from .targets import DEFAULT_TARGET_POLICY, TargetClass, TargetPolicy
+from .validator import ValidationReport, validate_mod
+
+__all__ = [
+    "CONFIRM_KINDS",
+    "Disclosure",
+    "InstallError",
+    "MAX_DOWNLOAD_BYTES",
+    "ResolvedSource",
+    "disclose",
+    "download",
+    "governance_targets",
+    "place",
+    "resolve_source",
+    "run_handlers",
+    "sha256_of",
+]
+
+#: Kinds whose code runs with gateway privileges or touch payload files: an explicit yes is required (Requirement 11.7).
+CONFIRM_KINDS = frozenset({"python-hook", "patch", "app"})
+MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
+
+
+class InstallError(Exception):
+    """A refusal or failure the CLI turns into an error line and exit 1."""
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 16), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+# --- sources -----------------------------------------------------------------------------------
+
+
+@dataclass
+class ResolvedSource:
+    kind: str  # path | archive | url | registry
+    ref: str
+    root: Path  # the mod directory to validate and copy
+    sha256: str | None = None
+    version: str | None = None
+    registry_key: str | None = None
+    _cleanup: list[Path] = field(default_factory=list, repr=False)
+
+    def cleanup(self) -> None:
+        for path in self._cleanup:
+            shutil.rmtree(path, ignore_errors=True)
+        self._cleanup.clear()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "ref": self.ref, "sha256": self.sha256, "version": self.version, "registryKey": self.registry_key}
+
+
+def _refuse_plaintext(url: str) -> None:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme == "https":
+        return
+    if parsed.scheme == "http" and is_loopback_host(parsed.hostname or ""):
+        return
+    raise InstallError(f"refusing {url}: FloofyCrew's own traffic must use https (plaintext is allowed to loopback only — Requirement 11.6)")
+
+
+def download(url: str, destination: Path, *, expected_sha256: str | None = None, max_bytes: int = MAX_DOWNLOAD_BYTES, opener: Callable[..., Any] | None = None) -> str:
+    """Fetch ``url`` (HTTPS, or plaintext loopback) into ``destination``; returns the SHA-256, checked when expected."""
+    _refuse_plaintext(url)
+    open_url = opener or urllib.request.urlopen
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        with open_url(urllib.request.Request(url, headers={"User-Agent": "floofy (unofficial KiroCrew mod manager)"}), timeout=60) as response, Path(destination).open("wb") as out:
+            while True:
+                chunk = response.read(1 << 16)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise InstallError(f"{url}: larger than {max_bytes} bytes; refusing")
+                digest.update(chunk)
+                out.write(chunk)
+    except urllib.error.URLError as exc:
+        raise InstallError(f"download failed: {url}: {exc}") from exc
+    actual = digest.hexdigest()
+    if expected_sha256 and actual != expected_sha256.lower():
+        Path(destination).unlink(missing_ok=True)
+        raise InstallError(f"{url}: sha256 mismatch (expected {expected_sha256[:12]}…, got {actual[:12]}…); the download was discarded (Requirement 8.3)")
+    return actual
+
+
+def _extract(archive: Path, source: ResolvedSource) -> Path:
+    scratch = Path(tempfile.mkdtemp(prefix="floofy-install-"))
+    source._cleanup.append(scratch)
+    try:
+        return open_archive_safely(archive, scratch)
+    except ArchiveError as exc:
+        source.cleanup()
+        raise InstallError(f"{archive}: unsafe archive: {exc} (Requirement 1.8)") from exc
+
+
+def resolve_source(
+    ref: str,
+    *,
+    home: DataHome,
+    base_version: Any,
+    edition: str | None,
+    host_version: str | None,
+    requested_version: str | None = None,
+    expected_sha256: str | None = None,
+    opener: Callable[..., Any] | None = None,
+) -> ResolvedSource:
+    """Turn ``<id[@version]|path|url>`` into a local mod directory to validate."""
+    candidate = Path(ref).expanduser()
+    if candidate.exists():
+        if candidate.is_dir():
+            return ResolvedSource("path", str(candidate.resolve()), candidate.resolve())
+        if is_archive(candidate):
+            source = ResolvedSource("archive", str(candidate.resolve()), candidate, sha256=sha256_of(candidate))
+            source.root = _extract(candidate, source)
+            return source
+        raise InstallError(f"{ref}: not a mod directory or a .zip/.tar.gz archive")
+    if ref.startswith(("http://", "https://")):
+        source = ResolvedSource("url", ref, Path("."))
+        scratch = Path(tempfile.mkdtemp(prefix="floofy-download-"))
+        source._cleanup.append(scratch)
+        name = Path(urllib.parse.urlsplit(ref).path).name or "mod.zip"
+        target = scratch / name
+        source.sha256 = download(ref, target, expected_sha256=expected_sha256, opener=opener)
+        if not is_archive(target):
+            source.cleanup()
+            raise InstallError(f"{ref}: the download is not a .zip/.tar.gz archive")
+        source.root = _extract(target, source)
+        return source
+    # a registry reference: id or id@version
+    mod_ref, _, version = ref.partition("@")
+    cache = IndexCache.load(home)
+    entry, picked, why = cache.pick(mod_ref, base_version=base_version, edition=edition, host_version=host_version, requested=requested_version or version or None)
+    if entry is None or picked is None:
+        hint = "; ".join(cache.notes) if cache.notes else "run `floofy search` to see what the cache knows"
+        raise InstallError(f"{why} ({hint})")
+    archive_files = [f for f in picked.files if isinstance(f.get("url"), str)]
+    if not archive_files:
+        raise InstallError(f"{entry.key}@{picked.version} lists no downloadable file in the index")
+    file = archive_files[0]
+    source = resolve_source(str(file["url"]), home=home, base_version=base_version, edition=edition, host_version=host_version, expected_sha256=str(file.get("sha256") or "") or expected_sha256, opener=opener)
+    source.kind = "registry"
+    source.ref = f"{entry.key}@{picked.version}"
+    source.version = picked.version
+    source.registry_key = entry.key
+    return source
+
+
+# --- disclosure -----------------------------------------------------------------------------------
+
+
+def governance_targets(root: Path, manifest: dict[str, Any], policy: TargetPolicy | None = None) -> list[str]:
+    """Shipped files and patch targets that land on the host's governance files (Requirement 11.4)."""
+    policy = policy or DEFAULT_TARGET_POLICY
+    found: list[str] = []
+    for entry in manifest.get("files") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str) and policy.classify(entry["path"]) is TargetClass.GOVERNANCE:
+            found.append(entry["path"])
+    for part in parts_of(manifest):
+        if part.get("kind") != "patch" or not isinstance(part.get("path"), str):
+            continue
+        try:
+            descriptor = PatchDescriptor.load(Path(root) / part["path"])
+        except (PatchDescriptorError, OSError, ValueError):
+            continue
+        if policy.classify(descriptor.target) is TargetClass.GOVERNANCE:
+            found.append(descriptor.target)
+    return sorted(dict.fromkeys(found))
+
+
+@dataclass
+class Disclosure:
+    """Everything the user sees before saying yes (Requirement 11.7)."""
+
+    mod_id: str
+    version: str
+    name: str
+    parts: list[dict[str, Any]]
+    modifies_payload: bool
+    network_hosts: list[str]
+    credentials: bool
+    flags: list[dict[str, Any]]  # validator warnings the user may accept (governance, network, unlisted files)
+    governance_targets: list[str]
+    host_warnings: list[dict[str, Any]]  # the host's verdicts, informational
+    confirm_kinds: list[str]
+    lands_disabled: bool
+    errors: list[dict[str, Any]]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.mod_id,
+            "version": self.version,
+            "name": self.name,
+            "parts": list(self.parts),
+            "modifiesPayload": self.modifies_payload,
+            "network": {"hosts": list(self.network_hosts), "credentials": self.credentials},
+            "flags": list(self.flags),
+            "governanceTargets": list(self.governance_targets),
+            "hostWarnings": list(self.host_warnings),
+            "confirmKinds": list(self.confirm_kinds),
+            "landsDisabled": self.lands_disabled,
+            "errors": list(self.errors),
+        }
+
+    def lines(self) -> list[str]:
+        out = [f"{self.name} ({self.mod_id} {self.version})"]
+        out.append("  parts:")
+        for part in self.parts:
+            payload = " [MODIFIES PAYLOAD FILES]" if part["modifiesPayload"] else ""
+            out.append(f"    {part['index']}. {part['kind']}/{part['side']} {part['path']} -> {part['seam']}{payload}")
+        if self.network_hosts or self.credentials:
+            out.append(f"  network: hosts {', '.join(self.network_hosts) or '-'}; asks for credentials itself: {'yes' if self.credentials else 'no'}")
+        else:
+            out.append("  network: no remote hosts declared (only loopback is allowed without a declaration)")
+        for flag in self.flags:
+            out.append(f"  flag {flag['code']}{' [' + flag['path'] + ']' if flag.get('path') else ''}: {flag['message']}")
+        for target in self.governance_targets:
+            out.append(f"  GOVERNANCE-ALTERING target: {target} (needs its path typed to confirm)")
+        for warning in self.host_warnings:
+            out.append(f"  host says: {warning['code']}: {warning['message']}")
+        if self.lands_disabled:
+            out.append("  code parts (python-hook/spa) land DISABLED; `floofy enable` turns them on (Requirement 11.7)")
+        for error in self.errors:
+            out.append(f"  ERROR {error['code']}: {error['message']}")
+        return out
+
+
+def disclose(root: Path, report: ValidationReport, snapshot: GovernanceSnapshot | None, *, policy: TargetPolicy | None = None) -> Disclosure:
+    manifest = report.manifest or {}
+    parts = []
+    for index, part in enumerate(parts_of(manifest)):
+        kind = str(part.get("kind", ""))
+        parts.append({"index": index, "kind": kind, "side": str(part.get("side", "")), "path": str(part.get("path", "")), "seam": SEAMS.get(kind, "?"), "modifiesPayload": kind == "patch", "description": part.get("description")})
+    network = manifest.get("network") if isinstance(manifest.get("network"), dict) else {}
+    kinds = {p["kind"] for p in parts}
+    host_warnings: list[dict[str, Any]] = []
+    if snapshot is not None:
+        mod_id = str(manifest.get("id") or "")
+        host_warnings = [w.to_dict() for w in warnings_for(snapshot, theme_targets=[mod_id] if "theme" in kinds else (), app_targets=[mod_id] if "app" in kinds else ())]
+        if "app" in kinds and snapshot.admission_mode:
+            host_warnings.append({"code": "AppAdmissionMode", "message": f"the host's app admission is in {snapshot.admission_mode} mode; its verdict is shown, not enforced (Requirement 2.3)", "affectedTargets": [mod_id]})
+    return Disclosure(
+        mod_id=str(manifest.get("id") or root.name),
+        version=str(manifest.get("version") or "0.0.0"),
+        name=str(manifest.get("name") or manifest.get("id") or root.name),
+        parts=parts,
+        modifies_payload="patch" in kinds,
+        network_hosts=[str(h) for h in (network.get("hosts") or [])],
+        credentials=bool(network.get("credentials")),
+        flags=[f.to_dict() for f in report.warnings if f.accept],
+        governance_targets=governance_targets(root, manifest, policy),
+        host_warnings=host_warnings,
+        confirm_kinds=sorted(kinds & CONFIRM_KINDS),
+        lands_disabled=bool(code_kinds_of(manifest)),
+        errors=[f.to_dict() for f in report.errors],
+    )
+
+
+def validate(root: Path, *, policy: TargetPolicy | None = None) -> ValidationReport:
+    return validate_mod(root, targets=policy)
+
+
+# --- placing the tree ---------------------------------------------------------------------------
+
+
+def _copy_tree(source: Path, target: Path) -> None:
+    if target.exists() or target.is_symlink():
+        if target.is_symlink():
+            target.unlink()
+        else:
+            shutil.rmtree(target)
+    shutil.copytree(source, target, symlinks=False, ignore=shutil.ignore_patterns("__pycache__", ".git", ".pytest_cache", ".hypothesis"))
+
+
+def place(home: DataHome, source: ResolvedSource, manifest: dict[str, Any], *, stage: bool) -> tuple[Path, str]:
+    """Copy the mod into ``pending/<id>/`` (``stage``) or ``mods/<id>/``; keep ``.floofy/`` runtime state; write the source record."""
+    mod_id = str(manifest["id"])
+    home.ensure()
+    installed = home.mod_dir(mod_id)
+    runtime_backup: Path | None = None
+    if (installed / ".floofy").is_dir() and not installed.is_symlink():
+        runtime_backup = Path(tempfile.mkdtemp(prefix="floofy-runtime-")) / ".floofy"
+        shutil.copytree(installed / ".floofy", runtime_backup)
+    target = home.pending / mod_id if stage else installed
+    remove_marker = home.pending / f"{mod_id}.remove"
+    if remove_marker.exists():
+        remove_marker.unlink()
+    _copy_tree(source.root, target)
+    if runtime_backup is not None:
+        shutil.rmtree(target / ".floofy", ignore_errors=True)
+        shutil.copytree(runtime_backup, target / ".floofy")
+        shutil.rmtree(runtime_backup.parent, ignore_errors=True)
+    write_source(target, source=source.kind, ref=source.ref, sha256=source.sha256, extra={"registryKey": source.registry_key, "version": str(manifest.get("version") or "")})
+    return target, ("staged" if stage else "installed")
+
+
+def run_handlers(kctx: KindContext, mod_id: str, mod_dir: Path, manifest: dict[str, Any], op: str) -> list[PartOutcome]:
+    """``install`` / ``uninstall`` / ``status`` every part through its kind handler (fail-soft per part)."""
+    table = handlers()
+    outcomes: list[PartOutcome] = []
+    for index, part in enumerate(parts_of(manifest)):
+        kind = str(part.get("kind", ""))
+        handler = table.get(kind)
+        if handler is None:
+            outcomes.append(PartOutcome(kind, index, SEAMS.get(kind, "?"), kind == "patch", ok=False, status="error", detail=f"no handler for kind {kind!r}"))
+            continue
+        try:
+            outcome = getattr(handler, op)(kctx, mod_id, Path(mod_dir), part, index)
+        except Exception as exc:  # noqa: BLE001 - one seam failing must not abort the others
+            outcome = PartOutcome(kind, index, handler.seam, handler.modifies_payload, ok=False, status="error", detail=f"{type(exc).__name__}: {exc}")
+        outcomes.append(outcome)
+    return outcomes
+
+
+def manifest_of(root: Path) -> dict[str, Any]:
+    document = json.loads((Path(root) / "floofy.json").read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise InstallError(f"{root}/floofy.json is not a JSON object")
+    return document
