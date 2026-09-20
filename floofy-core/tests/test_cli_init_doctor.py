@@ -104,7 +104,13 @@ def test_every_required_command_is_registered_and_version_prints_unofficial():
 
 
 def test_unimplemented_command_names_its_task(fake_host):
-    result = fake_host.run("profile", "list")
+    """Commands of a later task print the task and exit 2 (none are left once package 6 is complete)."""
+    from floofy_core.cli.main import _LANDS_LATER
+
+    if not _LANDS_LATER:
+        pytest.skip("every command has landed")
+    name = next(iter(_LANDS_LATER))
+    result = fake_host.run(name, "x")
     assert result.exit == 2 and "lands in task" in result.stderr
 
 
