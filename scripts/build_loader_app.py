@@ -12,7 +12,10 @@ script builds that layout::
 
     <out>/
       app.json                 version stamped from floofy_core.__version__
-      ui/                      manager page entry (+ host.mjs / patched/ from 5.x)
+      ui/                      manager page entry (loader-app/ui) + the SPA host
+                               modules and surface registry (spa-host/src, task 5.x);
+                               the Patcher later adds ui/patched/ and ui/boot/ at
+                               apply time on the user's machine, never here
       floofy_loader/           the runtime (loader-app/floofy_loader)
       floofy_early/            the optional early shim package (task 4.7)
       floofy_core/             vendored copy of floofy-core/floofy_core
@@ -41,10 +44,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LOADER_APP = REPO_ROOT / "loader-app"
+SPA_HOST_SRC = REPO_ROOT / "spa-host" / "src"
 DEFAULT_OUT = LOADER_APP / "build" / "floofycrew"
 
 #: Directory names never copied into the app (tests and caches are not runtime).
 SKIP_NAMES = frozenset({"__pycache__", "tests", ".pytest_cache", ".hypothesis", "build", "node_modules", ".git"})
+#: SPA host files copied into ``ui/`` (hand-written ES modules and JSON — no build step, no npm).
+SPA_HOST_SUFFIXES = (".mjs", ".js", ".json", ".css")
 
 EDITIONS = {"toolbox": "floofy_edition_toolbox", "public": "floofy_edition_public"}
 
@@ -62,6 +68,25 @@ def core_version() -> str:
     raise SystemExit("floofy_core/__init__.py has no __version__ literal")
 
 
+def spa_host_files() -> list[Path]:
+    """The SPA host modules shipped in ``ui/`` (source of truth: ``spa-host/src``)."""
+    if not SPA_HOST_SRC.is_dir():
+        return []
+    return sorted(p for p in SPA_HOST_SRC.iterdir() if p.is_file() and p.suffix in SPA_HOST_SUFFIXES)
+
+
+def copy_spa_host(ui_dir: Path) -> list[Path]:
+    """Copy the SPA host into the app's ``ui/`` next to the manager entry; a name clash is a build error."""
+    copied: list[Path] = []
+    for source in spa_host_files():
+        destination = ui_dir / source.name
+        if destination.exists():
+            raise SystemExit(f"ui/{source.name} exists in both loader-app/ui and spa-host/src; the SPA host owns that name")
+        shutil.copy2(source, destination)
+        copied.append(destination)
+    return copied
+
+
 def build(out: Path, editions: list[str]) -> Path:
     """Write the app directory at ``out`` (replacing it) and return it."""
     out = Path(out)
@@ -74,6 +99,7 @@ def build(out: Path, editions: list[str]) -> Path:
     (out / "app.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     shutil.copytree(LOADER_APP / "ui", out / "ui", ignore=_ignore)
+    copy_spa_host(out / "ui")
     shutil.copytree(LOADER_APP / "floofy_loader", out / "floofy_loader", ignore=_ignore)
     if (LOADER_APP / "floofy_early").is_dir():
         shutil.copytree(LOADER_APP / "floofy_early", out / "floofy_early", ignore=_ignore)

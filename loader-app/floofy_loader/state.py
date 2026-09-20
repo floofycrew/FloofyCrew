@@ -55,9 +55,11 @@ class PartState:
     detail: str = ""
     seam: str = ""
     modifies_payload: bool = False
+    #: ``spa`` parts only: ``runtime`` (loaded by the SPA host) or ``boot`` (inlined into index.html by the Patcher).
+    activation: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "index": self.index,
             "kind": self.kind,
             "side": self.side,
@@ -67,6 +69,9 @@ class PartState:
             "seam": self.seam or SEAM_BY_KIND.get(self.kind, ""),
             "modifiesPayload": self.modifies_payload or self.kind == "patch",
         }
+        if self.kind == "spa":
+            data["activation"] = self.activation or "runtime"
+        return data
 
 
 @dataclass

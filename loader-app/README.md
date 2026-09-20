@@ -36,12 +36,14 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 | `floofy_loader/net.py` | `FloofyHttp` (`ctx.http`, `floofy.fetch`), `NetworkPolicy`, `FloofyNetworkDenied`: the encrypted-only rule with the loopback exemption, declared hosts, audited denials, policy-checked redirects |
 | `floofy_loader/hooks_registry.py` | `HookRegistry` / `ModHooks` (`ctx.hooks`): `before`/`after`/`replace` on `pkg.module:attr` and `route:METHOD /path` targets, per-mod attribution, identity-restoring unwind, fail-open faults |
 | `floofy_loader/host.py`, `api.py` | `floofy.host` facts and the `floofy` facade (below) |
-| `ui/index.mjs` | manager page entry (placeholder until 6.7); default-exports a React component, `react` resolves through the host's import map |
+| `ui/index.mjs` | manager page entry (placeholder until 6.7); default-exports a React component, `react` resolves through the host's import map; imports `./host.mjs` so the SPA host runs on the manager page even without the `index.html` loader tag |
+| `ui/host.mjs`, `boundary.mjs`, `events.mjs`, `surfaces.mjs`, `patches.mjs`, `reporter.mjs` | the SPA host (task 5.x) — copied from `spa-host/src/` by the build script; see `spa-host/README.md` |
 | `tests/` | `test_manifest.py` (shape, host-loader validation on a payload copy, shim behaviour) |
 
 `scripts/build_loader_app.py` assembles the **installable** directory (default
 `loader-app/build/floofycrew/`, gitignored): `app.json` with `version` stamped
-from `floofy_core.__version__`, `ui/`, `floofy_loader/`, `floofy_early/`, a
+from `floofy_core.__version__`, `ui/` (the manager entry plus the SPA host
+modules from `spa-host/src/`), `floofy_loader/`, `floofy_early/`, a
 vendored copy of `floofy-core/floofy_core` and the edition adapter(s) chosen
 with `--edition <editions/ dir name>|both` (default both — an adapter is inert
 on a host it does not recognise, so one archive installs on both editions).

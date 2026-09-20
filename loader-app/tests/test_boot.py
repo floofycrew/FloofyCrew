@@ -289,10 +289,13 @@ def test_enabled_patch_parts_go_to_the_patch_runner(env, tmp_path: Path):
 
 def test_spa_parts_are_published_only_while_active(env):
     consent(env)
-    make_mod(env.paths, "ui", code=None, parts=[{"kind": "spa", "side": "spa", "path": "spa/main.js"}], files={"spa/main.js": "export default 1;\n", "spa/lib/util.js": "export const u = 1;\n"})
+    make_mod(env.paths, "ui", code=None, parts=[{"kind": "spa", "side": "spa", "path": "spa/main.js"}, {"kind": "spa", "side": "spa", "path": "boot/first.js", "activation": "boot"}], files={"spa/main.js": "export default 1;\n", "spa/lib/util.js": "export const u = 1;\n", "boot/first.js": "// boot\n"})
     enable(env, ui=True)
     state = boot(env.deps).state
     assert state.mods["ui"].active and (env.paths.spa_dir("ui") / "main.js").is_file() and (env.paths.spa_dir("ui") / "lib" / "util.js").is_file()
+    parts = state.mods["ui"].to_dict()["parts"]
+    assert parts[0]["activation"] == "runtime" and parts[0]["detail"] == "served from spa/ui/main.js"
+    assert parts[1]["activation"] == "boot" and parts[1]["detail"].startswith("boot activation: inlined into index.html")
     enable(env, ui=False)
     state = boot(env.deps).state
     assert state.mods["ui"].reason == Reason.UserDisabled.value and not env.paths.spa_dir("ui").exists()

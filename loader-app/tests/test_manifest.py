@@ -63,6 +63,9 @@ def test_build_assembles_a_self_contained_app_dir(tmp_path: Path):
     for package in build_loader_app.EDITIONS.values():
         assert (out / package / "__init__.py").is_file(), package
     assert (out / "ui" / "index.mjs").is_file()
+    for name in ("host.mjs", "boundary.mjs", "events.mjs", "surfaces.mjs", "patches.mjs", "reporter.mjs"):
+        assert (out / "ui" / name).is_file(), f"the SPA host module {name} is shipped in ui/"
+        assert (out / "ui" / name).read_bytes() == (REPO_ROOT / "spa-host" / "src" / name).read_bytes()
     assert not list(out.rglob("__pycache__")) and not (out / "floofy_loader" / "tests").exists()
     built = json.loads((out / "app.json").read_text(encoding="utf-8"))
     assert built["version"] == build_loader_app.core_version()

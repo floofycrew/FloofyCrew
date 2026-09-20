@@ -176,7 +176,10 @@ def _parts(manifest: dict[str, Any]) -> list[PartState]:
     for index, raw in enumerate(manifest.get("parts") or []):
         if not isinstance(raw, dict):
             continue
-        parts.append(PartState(index, str(raw.get("kind", "")), str(raw.get("side", "")), str(raw.get("path", ""))))
+        part = PartState(index, str(raw.get("kind", "")), str(raw.get("side", "")), str(raw.get("path", "")))
+        if part.kind == "spa":
+            part.activation = str(raw.get("activation") or "runtime")
+        parts.append(part)
     return parts
 
 
@@ -281,7 +284,10 @@ def _publish_spa_parts(paths: FloofyPaths, mod_id: str, mod_dir: Path, manifest:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
         part.status = "active"
-        part.detail = f"served from spa/{mod_id}/{Path(part.path).name}"
+        if part.activation == "boot":
+            part.detail = f"boot activation: inlined into index.html by the Patcher; files mirrored to spa/{mod_id}/"
+        else:
+            part.detail = f"served from spa/{mod_id}/{Path(part.path).name}"
 
 
 def _remove_spa(paths: FloofyPaths, mod_id: str) -> None:
