@@ -300,9 +300,10 @@ Data home `<host home>/floofy/` (`floofy_loader/paths.py`):
 | `pending/<id>/` | manager → Loader | a complete mod directory staged while a gateway runs; the Loader moves it over `mods/<id>/` at boot |
 | `pending/<id>.remove` | manager → Loader | marker: remove `mods/<id>/`, `spa/<id>/` and the `enabled.json` entry |
 | `spa/<id>/` | Loader | the `spa` part files of **active** mods, mirrored from `mods/<id>/` for the SPA host route |
-| `cache/compat.json` | `floofy registry refresh` | the registry's `compat.json`; the Loader reads the row for `edition × channel × hostVersion` |
+| `registries.json`, `cache/sources/<key>/`, `cache/index.json`, `cache/compat.json` | `floofy registry add/refresh` | the user's registry sources and per-source trust; each source's fetched `index.json`/`compat.json` (+ `.sig`) with a `meta.json` verdict; the merged caches rebuilt from the **usable** sources only (signature verified, or the source explicitly `allowUnsigned`). The Loader reads the compat row for `edition × channel × hostVersion` and `GET /registry` reads the merged index |
 | `quarantine/requests/<id>.json` | Loader → manager | "this mod is `broken` here" — the manager moves the files into `quarantine/<hostver>/`; the Loader never moves mod dirs |
-| `deploy/`, `audit.jsonl` | Patcher | deployment manifests and the audit log (the Loader appends `net-denied` rows from 4.5) |
+| `deploy/` | Patcher | deployment manifests |
+| `audit.jsonl` | everyone, one writer | `floofy_core.audit.AuditLog`: every mutating operation from the CLI, the seam handlers, the Patcher, the Loader (`net-denied` rows) and the UI's `POST /cli` route (`actor: ui`), each row with a `consentRef` (`{warningVersion, sha256}` of `consent.json`); `floofy audit` reads it |
 | `loader-state.json` | Loader | the last `LoaderState` (what `GET /api/apps/floofycrew/state` also serves); `floofy doctor` reads it |
 | `loader-failure.json` | shim | written when the Loader itself failed (`phase`, `error`, `traceback`); a later successful boot removes a stale one |
 | `vanilla-once` | `floofy --vanilla` | marker consumed by the next consented boot: every mod is `UserDisabled` for that boot only, the Patcher runs with an empty set (payloads restored for the boot), `LoaderState.vanilla` is `true`; the boot after runs the mods again |

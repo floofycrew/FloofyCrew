@@ -1,23 +1,28 @@
 """The audit log: every mutating operation, one JSON object per line (Requirement 11.5).
 
 ``<data home>/audit.jsonl`` is FloofyCrew's own trail, kept in addition to
-whatever the host's SEL records for app and theme installs. One writer class for
-the CLI, the Loader (``net-denied`` rows, in-process UI actions), the Patcher and
-the re-apply triggers, so every row has the same shape (design "Consent, trust
-and audit")::
+whatever the host's SEL records for app and theme installs. **One writer** for
+every surface — the CLI commands (``install``/``uninstall``/``enable``/``disable``/
+``update``/``apply``/``restore``/``yeet``/``hold``/``profile``/``init``/``deinit``/
+``registry``/``vanilla``), the seam kind handlers, the Patcher (``apply``,
+``restore``, ``apply-confirm``), the Loader (``net-denied`` rows) and the manager
+UI's in-process CLI route (``actor: ui``) — so every row has the same shape
+(design "Consent, trust and audit")::
 
     {"ts": "...", "op": "install", "mod": "rimuru-branding", "version": "1.0.0",
      "payload": "venv:crew-venv:0.7.0", "files": [...], "governanceFlags": [...],
-     "consentRef": "<sha256 of consent.json>:<warningVersion>",
-     "actor": "cli" | "ui" | "loader" | "trigger", "by": "<os user>",
+     "consentRef": {"warningVersion": 1, "sha256": "<sha256 of consent.json>"} | null,
+     "actor": "cli" | "ui" | "loader" | "trigger" | "patcher", "by": "<os user>",
      "result": "ok" | "declined" | "error", "detail": "...", ...op-specific fields}
 
 ``consentRef`` ties the row to the exact acknowledgement it ran under
-(:func:`floofy_core.consent.consent_reference`); ``actor`` says which surface
-performed the operation, ``by`` who owns the process. Extra keyword fields are
-recorded verbatim so a caller can add what its operation needs
-(``code``/``url`` for network denials, ``warnings`` for the survival question).
-Reading is :func:`read_audit` (``floofy audit``).
+(:func:`floofy_core.consent.consent_reference`; ``null`` when no consent record
+existed, e.g. the ``consent`` row itself is written right after the record and
+so already carries it); ``actor`` says which surface performed the operation,
+``by`` who owns the process. Extra keyword fields are recorded verbatim so a
+caller can add what its operation needs (``code``/``url`` for network denials,
+``warnings`` for the survival question, ``sources`` for a registry refresh).
+Reading is :func:`read_audit` (``floofy audit [--tail N] [--op OP] [--json]``).
 """
 from __future__ import annotations
 
@@ -48,7 +53,7 @@ class AuditLog:
         self.actor = actor
         self._consent_path = self.data_home / "consent.json"
 
-    def consent_ref(self) -> str | None:
+    def consent_ref(self) -> dict[str, Any] | None:
         return consent_reference(self._consent_path)
 
     def entry(self, op: str, **fields: Any) -> dict[str, Any]:

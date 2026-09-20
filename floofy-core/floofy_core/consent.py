@@ -123,11 +123,14 @@ def write_consent(path: Path, *, by: str | None = None, when: str | None = None,
     return record
 
 
-def consent_reference(path: Path) -> str | None:
-    """The ``consentRef`` audit rows carry: ``sha256(consent.json bytes) + ":" + warningVersion``, or ``None``.
+def consent_reference(path: Path) -> dict[str, Any] | None:
+    """The ``consentRef`` audit rows carry: ``{"warningVersion": N, "sha256": <sha256 of consent.json>}``, or ``None``.
 
     Ties every audited mutation to the exact acknowledgement it ran under
-    (Requirement 11.5, design "Consent, trust and audit").
+    (Requirement 11.5, design "Consent, trust and audit"): the digest is over the
+    file's bytes, so a re-acknowledgement (or any edit) changes the reference, and
+    ``warningVersion`` says which warning text was accepted. ``None`` means no
+    consent record existed when the row was written.
     """
     try:
         raw = Path(path).read_bytes()
@@ -137,4 +140,4 @@ def consent_reference(path: Path) -> str | None:
         version = json.loads(raw.decode("utf-8")).get("warningVersion")
     except (ValueError, AttributeError):
         version = None
-    return f"{hashlib.sha256(raw).hexdigest()}:{version if isinstance(version, int) else '?'}"
+    return {"warningVersion": version if isinstance(version, int) else None, "sha256": hashlib.sha256(raw).hexdigest()}

@@ -8,7 +8,9 @@ reads that merged index for ``search``, ``install <id[@version]>``, ``update``
 and ``which`` (hash lookup):
 
 * :class:`IndexCache` — ``mods[]`` records (design "Registry index"); a mod id
-  that collides across sources is namespaced ``<source>/<id>`` (Requirement 8.4);
+  that collides across sources is namespaced ``<source>/<id>`` (Requirement 8.4),
+  ``<source>`` being the user's configured label for that source (``--name``,
+  else the cache key), so an index cannot choose its own namespace;
 * :func:`IndexCache.pick` — "newest mod version known to work here"
   (Requirement 9.2): candidates whose ``kirocrew`` range contains the host base
   version and whose ``compat`` cell for this host is not ``broken``; a version
@@ -119,31 +121,47 @@ class IndexCache:
             return cls(source=str(path), notes=["no registry cache yet (floofy registry add <url>, then floofy registry refresh)"])
         except (OSError, ValueError) as exc:
             return cls(source=str(path), notes=[f"registry cache unreadable: {exc}"])
+        if isinstance(document, dict) and document.get("merged") is True and isinstance(document.get("documents"), list):
+            # the merged cache `floofy registry refresh` writes: one entry per usable source under its configured
+            # label, which is the namespace on collisions (Requirement 8.4) — never a name the index claims for itself
+            pairs = [(str(entry.get("source") or entry.get("key") or "source"), entry.get("document")) for entry in document["documents"] if isinstance(entry, dict)]
+            cache = cls.from_documents(pairs, prefer_label=True)
+            cache.source = str(path)
+            cache.generated_at = document.get("generatedAt") if isinstance(document.get("generatedAt"), str) else cache.generated_at
+            if not pairs:
+                cache.notes.append("the registry cache has no usable source (floofy registry refresh; unsigned indexes are refused by default)")
+            return cache
         return cls.from_documents([(str(path), document)])
 
     @classmethod
-    def from_documents(cls, documents: Iterable[tuple[str, Any]]) -> "IndexCache":
-        """Merge one or more ``index.json`` documents; ids colliding across sources get ``<source>/<id>`` keys."""
+    def from_documents(cls, documents: Iterable[tuple[str, Any]], *, prefer_label: bool = False) -> "IndexCache":
+        """Merge one or more ``index.json`` documents; ids colliding across sources get ``<source>/<id>`` keys.
+
+        The source name of each document is the index's own ``source`` field unless
+        ``prefer_label`` is set, in which case the caller's label wins (the merged
+        cache passes the user's configured source label so an index cannot pick its
+        own namespace).
+        """
         cache = cls()
         seen: dict[str, ModEntry] = {}
+        listed: set[tuple[str, str]] = set()
         for label, document in documents:
             if not isinstance(document, dict) or not isinstance(document.get("mods"), list):
                 cache.notes.append(f"{label}: no mods[] in the index")
                 continue
-            source = str(document.get("source") or label)
+            source = str(label if prefer_label else (document.get("source") or label))
             cache.source = cache.source or source
             cache.generated_at = cache.generated_at or (document.get("generatedAt") if isinstance(document.get("generatedAt"), str) else None)
             for raw in document["mods"]:
                 entry = _entry(raw, source)
-                if entry is None:
-                    continue
-                if entry.id in seen and seen[entry.id].source != source:
+                if entry is None or (source, entry.id) in listed:
+                    continue  # the same source listing an id twice: keep the first
+                listed.add((source, entry.id))
+                if entry.id in seen:
                     first = seen[entry.id]
                     first.key = f"{first.source}/{first.id}"
                     entry.key = f"{source}/{entry.id}"
                     cache.notes.append(f"mod id {entry.id!r} exists in {first.source} and {source}; namespaced as {first.key} and {entry.key}")
-                elif entry.id in seen:
-                    continue  # the same source listed twice: keep the first
                 else:
                     seen[entry.id] = entry
                 cache.mods.append(entry)

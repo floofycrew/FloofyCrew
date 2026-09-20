@@ -88,9 +88,15 @@ def loader_state(ctx: CliContext, *, live: bool = True) -> tuple[dict[str, Any] 
 
 
 def compat_row(ctx: CliContext) -> dict[str, Any]:
+    """The cached compat verdict for the current host (Requirement 9.2).
+
+    The edition comes from the CLI context (adapters, else the payload's stamp
+    normalised) rather than the raw payload stamp, so an unstamped or adapter-less
+    run still finds the row the registry published for this edition.
+    """
     cache = CompatCache.load(ctx.home.compat_cache)
     current = ctx.current_payload()
-    row = cache.row_for(current.edition, current.channel, current.host_version.text) if current is not None else None
+    row = cache.row_for(ctx.edition(), current.channel, current.host_version.text) if current is not None else None
     return {"cached": bool(cache.rows) or not cache.notes, "source": cache.source, "generatedAt": cache.generated_at, "rows": len(cache.rows), "notes": list(cache.notes), "row": row.to_dict() if row else None}
 
 

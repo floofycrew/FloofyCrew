@@ -62,6 +62,7 @@ def write_mod(root: Path, mod_id: str, *, parts: list[dict], files: dict[str, st
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("FLOOFY_NO_ADAPTERS", "1")
     monkeypatch.delenv("KIROCREW_HOME", raising=False)
+    monkeypatch.setenv("KIRO_HOME", str(tmp_path / "kiro"))  # the agent seam lands in KIRO_HOME; never the live ~/.kiro
     payload_root = tmp_path / "payload"
     fake_payload(payload_root, "0.7.0", build="0.7.0.5")
     home = tmp_path / "home"
@@ -175,7 +176,9 @@ def test_governance_altering_target_needs_the_typed_path_not_yes(env):
     shutil.rmtree(env.paths.mods / "govy")
     flagged = env.run("--yes", "install", str(mod), "--confirm-governance-target", "security_policy.json")
     assert flagged.exit == 0, flagged.stderr
-    assert read_audit(env.paths.audit)[-2]["detail"] == "pre-confirmed by flag"
+    tail = read_audit(env.paths.audit)[-3:]
+    assert [r["op"] for r in tail] == ["governance-target-confirm", "agent-install", "install"], "the confirmation precedes the seam handler's row and the command's"
+    assert tail[0]["detail"] == "pre-confirmed by flag" and tail[0]["files"] == ["security_policy.json"]
 
 
 def test_install_from_archives_and_validation_errors_refuse(env, tmp_path: Path):

@@ -348,7 +348,17 @@ def update(ctx: CliContext, args: argparse.Namespace) -> int:
         finally:
             if source is not None:
                 source.cleanup()
-    return 0 if all("error" not in a for a in ctx.result["applied"]) else 1
+    failed = [a for a in ctx.result["applied"] if "error" in a]
+    if ctx.result["applied"]:
+        # one summary row for the operation; each successful update also wrote its own `install` row
+        ctx.audit.record(
+            "update",
+            payload=current.id if current else None,
+            result="ok" if not failed else ("partial" if len(failed) < len(ctx.result["applied"]) else "error"),
+            detail="; ".join(f"{a['id']} -> {a['version']}" + (f" failed: {a['error']}" if "error" in a else "") for a in ctx.result["applied"]),
+            mods=[{"id": a["id"], "version": a["version"], "ok": "error" not in a} for a in ctx.result["applied"]],
+        )
+    return 0 if not failed else 1
 
 
 # --- dev ---------------------------------------------------------------------------------------------

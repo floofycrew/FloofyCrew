@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import socket
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -24,6 +25,11 @@ KINDS = ("theme", "agent", "skill", "appearance", "config", "app", "python-hook"
 # SAFETY: the test session must never reach a live host install. The CLI honours this
 # environment guard by searching only the roots a test names explicitly.
 os.environ["FLOOFY_NO_ADAPTERS"] = "1"
+# SAFETY: the drop-in seams (agent/skill/appearance) land in ``KIRO_HOME`` (default ``~/.kiro``),
+# which ``--home`` does not move. Point the whole session at a scratch Kiro home so a fixture
+# that forgets to set ``KIRO_HOME`` still cannot write into the live ``~/.kiro/agents``.
+SESSION_KIRO_HOME = Path(tempfile.mkdtemp(prefix="floofy-tests-kiro-"))
+os.environ["KIRO_HOME"] = str(SESSION_KIRO_HOME)
 
 def live_shells() -> list[Path]:
     """Every dashboard shell of a real host install on this machine, found the way the CLI would.
@@ -58,6 +64,28 @@ def live_fingerprint() -> dict[str, tuple[int, float]]:
         except OSError:
             continue
         found[str(index)] = (stat.st_size, stat.st_mtime)
+    return found
+
+
+def live_dropin_sidecars() -> set[str]:
+    """Every FloofyCrew ``.floofy-owner`` sidecar in the live drop-in seams (``~/.kiro/agents``, the
+    default crew home's ``skills/`` and ``appearance-library/``).
+
+    The seam handlers write one next to everything they install, so a new sidecar here
+    during a test session means a fixture reached the live Kiro home (it happened once:
+    a fixture without ``KIRO_HOME`` installed an ``agent`` part into ``~/.kiro/agents``).
+    The live directories are only ever listed, never written.
+    """
+    from floofy_core.kinds.dropins import OWNER_SUFFIX
+
+    kiro_home = Path.home() / ".kiro"
+    crew_home = Path(os.environ.get("KIROCREW_HOME") or kiro_home / "crew")
+    found: set[str] = set()
+    for directory in (kiro_home / "agents", crew_home / "skills", crew_home / "appearance-library" / "appearances"):
+        try:
+            found.update(str(p) for p in directory.iterdir() if p.name.endswith(OWNER_SUFFIX))
+        except OSError:
+            continue
     return found
 
 

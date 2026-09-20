@@ -37,9 +37,7 @@ PROG = "floofy"
 UNOFFICIAL = "FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew."
 
 #: Commands whose implementation lands in a later task of package 6; they print the task and exit 2.
-_LANDS_LATER: dict[str, str] = {
-    **{name: "6.8" for name in ("registry", "audit", "which")},
-}
+_LANDS_LATER: dict[str, str] = {}
 
 
 @dataclass
