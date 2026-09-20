@@ -34,6 +34,11 @@ masquerade-allow.txt              ids the curators cleared of the host-name chec
 
 {{ARCHIVE_NOTE}}
 
+## Mods
+
+<!-- mods:begin -->
+<!-- mods:end -->
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md): one pull request per mod version, the

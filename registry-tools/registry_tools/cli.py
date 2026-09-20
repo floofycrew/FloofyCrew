@@ -10,6 +10,7 @@
 | ``validate-submission --record ID@VERSION --registry REPO [--json]`` | the same gate for a **link record**: clone ``link.repo`` at the tag, compare commit / manifest hash / ``files[]`` with the record, then every check above on the checkout (Requirement 8.9, 8.10) |
 | ``compat-merge COMPAT ROW [--sign KEY] [--source LABEL]`` | add/replace a matrix row from a Forge run file; ``--override CELL=VERDICT --reason … --by …`` records a human override instead |
 | ``app-registry REPO [--out app-registry.json]`` | the KiroCrew-compatible ``app-registry.json`` for the app-kind mods of ``index.json`` (task 7.4) |
+| ``readme REPO [--check]`` | rewrite the README's mod table (between ``<!-- mods:begin -->`` / ``<!-- mods:end -->``) from ``index.json``; ``--check`` fails when the committed table is stale (Requirement 8.10) |
 
 Exit status: 0 ok, 1 a check failed, 2 usage or an unreadable input.
 """
@@ -198,6 +199,23 @@ def cmd_app_registry(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_readme(args: argparse.Namespace) -> int:
+    from .readme import readme_matches, update_readme  # noqa: PLC0415
+
+    try:
+        repo = RegistryRepo.load(Path(args.repo))
+        json.loads(repo.index_path.read_text(encoding="utf-8"))
+    except (RepoError, OSError, ValueError) as exc:
+        return _fail(str(exc), 2)
+    if args.check:
+        ok, message = readme_matches(repo)
+        _say(message)
+        return 0 if ok else 1
+    changed, path = update_readme(repo)
+    _say(f"{'rewrote' if changed else 'unchanged'} the mod table in {path}")
+    return 0
+
+
 # --- parser -----------------------------------------------------------------------------------------------------
 
 
@@ -263,6 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
     app_registry.add_argument("repo")
     app_registry.add_argument("--out", default=None)
     app_registry.set_defaults(func=cmd_app_registry)
+
+    readme = sub.add_parser("readme", help="regenerate the README mod table from index.json")
+    readme.add_argument("repo")
+    readme.add_argument("--check", action="store_true", help="do not write; fail when the committed table differs from the regenerated one")
+    readme.set_defaults(func=cmd_readme)
     return parser
 
 

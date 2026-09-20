@@ -22,8 +22,16 @@ What it does, in order:
    fingerprints against its ``static/dist``, Python anchors against its
    ``kiro_crew``), otherwise ``loader: ok`` on trust; the seeded mods get the
    verdict the caller asserts (``--verdict``, default ``expected``);
-4. builds ``index.json`` and ``app-registry.json``, signs everything when a
-   private key is given (the key id must be the one the adapter pins).
+4. builds ``index.json`` and ``app-registry.json``, refreshes the README's mod
+   table, signs everything when a private key is given (the key id must be the
+   one the adapter pins);
+5. when the adapter config carries a ``registryPackage`` block, renders the
+   **gated package** (Requirement 8.10): the build-gate module and its pytest
+   suite from ``templates/registry-gate/`` (neutral), the adapter's own build
+   files, CR template and reserved names (``registryPackage.files``, appended or
+   copied in), the pinned signing key record, the FloofyCrew tooling vendored
+   under ``vendor/`` and ``RENDERED.md`` naming the source commit and every
+   vendored file's hash.
 
 The wrapper ``scripts/init_registry_repo.sh <target> --edition public|internal``
 picks the adapter config by its ``edition`` field and passes the rest through.
@@ -33,6 +41,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sys
 import time
@@ -158,13 +167,154 @@ def _copy_template(target: Path, values: dict[str, str], *, github: bool) -> lis
     return written
 
 
-def _seed_mod(repo: RegistryRepo, mod_dir: Path, *, floofycrew_repo: str, channel: str, archives_in_repo: bool, record_kind: str = "archive", link_source: Path | None = None) -> dict[str, Any]:
+# --- the gated package (Requirement 8.7, 8.10) ---------------------------------------------------------------
+
+#: The FloofyCrew packages the gate runs; vendored as byte copies (tests and caches excluded).
+VENDORED = (("floofy-core", "floofy_core"), ("registry-tools", "registry_tools"))
+_VENDOR_SKIP = ("__pycache__", ".pytest_cache", ".hypothesis")
+
+
+def _gate_values(config: dict[str, Any], values: dict[str, str]) -> dict[str, str]:
+    """The extra placeholders of a gated package, from the adapter's ``registryPackage`` block."""
+    block = config.get("registryPackage")
+    if not isinstance(block, dict) or not isinstance(block.get("name"), str):
+        raise BootstrapError("registry.json has no registryPackage block (name, gateModule, …); nothing to render a gated package from")
+    module = str(block.get("gateModule") or re.sub(r"[^a-z0-9_]", "_", block["name"].lower()))
+    if not re.match(r"^[a-z_][a-z0-9_]*$", module):
+        raise BootstrapError(f"registryPackage.gateModule {module!r} is not a Python package name")
+    return {
+        **values,
+        "PACKAGE_NAME": str(block["name"]),
+        "GATE_MODULE": module,
+        "GATE_DIST_NAME": str(block.get("gateDistName") or module.replace("_", "")),
+        "GATE_ENV_PREFIX": str(block.get("gateEnvPrefix") or module.upper()),
+        "GATE_COMMAND": str(block.get("gateCommand") or f"PYTHONPATH=src python -m {module}"),
+        "CONTACT_KIND": str(block.get("contactKind") or "a contact"),
+        "CONTACT_PATTERN": str(block.get("contactPattern") or "^\\S+$"),
+    }
+
+
+def _render_tree(source_dir: Path, target: Path, values: dict[str, str], *, rename: dict[str, str] | None = None) -> list[Path]:
+    """Render every file under ``source_dir`` into ``target`` (placeholders substituted; ``rename`` maps template directory names)."""
+    written: list[Path] = []
+    for path in sorted(p for p in source_dir.rglob("*") if p.is_file()):
+        parts = [(rename or {}).get(part, part) for part in path.relative_to(source_dir).parts]
+        destination = target.joinpath(*parts)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(_render(path.read_text(encoding="utf-8"), values, json_strings=destination.suffix == ".json"), encoding="utf-8")
+        written.append(destination)
+    return written
+
+
+def _vendor(target: Path, floofycrew_root: Path) -> list[tuple[str, str]]:
+    """Byte-copy the FloofyCrew packages the gate runs into ``vendor/``; returns ``(relative path, sha256)`` pairs."""
+    vendor = target / "vendor"
+    if vendor.exists():
+        shutil.rmtree(vendor)
+    copied: list[tuple[str, str]] = []
+    for directory, package in VENDORED:
+        source = Path(floofycrew_root) / directory / package
+        if not source.is_dir():
+            raise BootstrapError(f"{source}: the FloofyCrew checkout has no {package} package to vendor")
+        for path in sorted(p for p in source.rglob("*") if p.is_file()):
+            relative = path.relative_to(source)
+            if any(part in _VENDOR_SKIP for part in relative.parts) or path.suffix == ".pyc":
+                continue
+            destination = vendor / package / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, destination)
+            copied.append((f"vendor/{package}/{relative.as_posix()}", hashlib.sha256(path.read_bytes()).hexdigest()))
+    return copied
+
+
+def _source_commit(floofycrew_root: Path) -> str:
+    """``<sha>[ +dirty]`` of the FloofyCrew checkout the package was rendered from, or ``unknown``."""
+    import subprocess  # noqa: PLC0415
+
+    try:
+        head = subprocess.run(["git", "-C", str(floofycrew_root), "rev-parse", "HEAD"], capture_output=True, text=True, check=False, timeout=30).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(floofycrew_root), "status", "--porcelain", "--untracked-files=no", "--", "floofy-core", "registry-tools"], capture_output=True, text=True, check=False, timeout=30).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    if not re.match(r"^[0-9a-f]{40}$", head):
+        return "unknown"
+    return head + (" +uncommitted changes in floofy-core/ or registry-tools/" if dirty else "")
+
+
+def _write_rendered(target: Path, *, values: dict[str, str], floofycrew_root: Path, vendored: list[tuple[str, str]], written: list[Path]) -> Path:
+    lines = [
+        f"# RENDERED — how {values['PACKAGE_NAME']} was generated",
+        "",
+        "Nothing in this repository except the records under `mods/`, `compat.json`,",
+        "`masquerade-allow.txt` and the signatures is written by hand: the rest is rendered",
+        "by `registry-tools/scripts/init_registry_repo.sh` from the FloofyCrew repository",
+        f"(`{values['FLOOFYCREW_REPO']}`). Regenerate there; do not edit the rendered files.",
+        "",
+        f"- FloofyCrew source: commit `{_source_commit(floofycrew_root)}`",
+        f"- rendered at: {_now()}",
+        f"- gate module: `src/{values['GATE_MODULE']}/` (`{values['GATE_COMMAND']}`, or `PYTHONPATH=src python -m {values['GATE_MODULE']}`)",
+        "",
+        "## Vendored FloofyCrew tooling (`vendor/`, byte copies, standard library only)",
+        "",
+        "| File | sha256 |",
+        "|---|---|",
+        *(f"| `{relative}` | `{digest}` |" for relative, digest in vendored),
+        "",
+        "## Rendered files",
+        "",
+        *(f"- `{relative}`" for relative in sorted(dict.fromkeys(p.relative_to(target).as_posix() for p in written))),
+        "",
+    ]
+    path = target / "RENDERED.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _render_gate(target: Path, config: dict[str, Any], values: dict[str, str], *, floofycrew_root: Path, edition_config: Path) -> tuple[dict[str, str], list[Path], list[tuple[str, str]]]:
+    """Render the gated package: the neutral gate template, the adapter's build files, the signing key record, the vendored tooling."""
+    gate_values = _gate_values(config, values)
+    written = _render_tree(TEMPLATE_DIR / "registry-gate", target, gate_values, rename={"gate_module": gate_values["GATE_MODULE"]})
+    block = config["registryPackage"]
+    extras = (Path(edition_config).parent / str(block.get("files") or "")).resolve() if block.get("files") else None
+    if extras is not None:
+        if not extras.is_dir():
+            raise BootstrapError(f"registryPackage.files {extras} is not a directory")
+        for path in sorted(p for p in extras.rglob("*") if p.is_file()):
+            relative = path.relative_to(extras)
+            text = _render(path.read_text(encoding="utf-8"), gate_values, json_strings=path.suffix == ".json")
+            if relative.name.endswith(".append.md") or relative.name.endswith(".append"):
+                # appended to the rendered file of the same name (README.append.md -> README.md, .gitignore.append -> .gitignore)
+                base = relative.name[: -len(".append.md")] + ".md" if relative.name.endswith(".append.md") else relative.name[: -len(".append")]
+                destination = target / relative.parent / base
+                destination.write_text(destination.read_text(encoding="utf-8").rstrip("\n") + "\n" + text, encoding="utf-8")
+            else:
+                destination = target / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(text, encoding="utf-8")
+            written.append(destination)
+    # the public key clients trust, so the gate can verify the committed signatures
+    key_record = next((k for k in config.get("keys") or [] if isinstance(k, dict) and k.get("keyId") == values["KEY_ID"]), None)
+    if key_record is None:
+        raise BootstrapError(f"registry.json pins key {values['KEY_ID']} but keys[] has no record for it")
+    key_path = target / "schema" / "signing-key.pub.json"
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.write_text(json.dumps(key_record, indent=2) + "\n", encoding="utf-8")
+    written.append(key_path)
+    vendored = _vendor(target, floofycrew_root)
+    return gate_values, written, vendored
+
+
+def _seed_mod(repo: RegistryRepo, mod_dir: Path, *, floofycrew_repo: str, channel: str, archives_in_repo: bool, record_kind: str = "archive", link_source: Path | None = None, contact: str | None = None, contact_pattern: str | None = None) -> dict[str, Any]:
     manifest = json.loads((mod_dir / "floofy.json").read_text(encoding="utf-8"))
     mod_id, version = str(manifest["id"]), str(manifest["version"])
     record_dir = repo.version_dir(mod_id, version)
     record_dir.mkdir(parents=True, exist_ok=True)
     (record_dir / "floofy.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    curated = {"repo": floofycrew_repo, "tags": sorted({str(t) for t in manifest.get("tags") or []}), "links": {"source": f"{floofycrew_repo}", "docs": f"{floofycrew_repo}"} if floofycrew_repo.startswith("https://") else {}}
+    curated: dict[str, Any] = {"repo": floofycrew_repo, "tags": sorted({str(t) for t in manifest.get("tags") or []}), "links": {"source": f"{floofycrew_repo}", "docs": f"{floofycrew_repo}"} if floofycrew_repo.startswith("https://") else {}}
+    # who answers for the mod (the gated package's community bar, Requirement 8.10): --contact, else the first author when it fits the edition's contact shape
+    who = contact or next((str(a) for a in (manifest.get("authors") or []) if isinstance(a, str)), None)
+    if who and (contact_pattern is None or re.match(contact_pattern, who)):
+        curated["contact"] = who
     (record_dir.parent / "mod.json").write_text(json.dumps(curated, indent=2) + "\n", encoding="utf-8")
     if record_kind == "link":
         # a link record (Requirement 8.9): the mod lives at mods/<id> of the FloofyCrew repository, tagged <id>-<version>;
@@ -226,6 +376,8 @@ def init_registry_repo(
     record_kind: str | None = None,
     link_source: Path | None = None,
     replace: bool = False,
+    gate: bool | None = None,
+    contact: str | None = None,
 ) -> dict[str, Any]:
     """Instantiate (or, with ``replace``, re-render) a registry repository at ``target``.
 
@@ -235,6 +387,11 @@ def init_registry_repo(
     adapter's ``recordKind``. ``replace`` empties the target first (everything
     but ``.git/``) so a clone that already holds a rendered registry can be
     regenerated in place; the result is deterministic apart from timestamps.
+    ``gate`` renders the **gated package** (Requirement 8.10): the build gate
+    module and its tests from ``templates/registry-gate/``, the adapter's build
+    files (``registryPackage.files``), the pinned signing key record and the
+    vendored FloofyCrew tooling; it defaults to on whenever the adapter config
+    carries a ``registryPackage`` block.
     """
     target = Path(target)
     if target.exists() and any(p.name != ".git" for p in target.iterdir()):
@@ -254,7 +411,11 @@ def init_registry_repo(
     target.mkdir(parents=True, exist_ok=True)
     written = _copy_template(target, values, github=github)
     repo = RegistryRepo.load(target)
-    seeded = [_seed_mod(repo, Path(floofycrew_root) / "mods" / mod_id, floofycrew_repo=values["FLOOFYCREW_REPO"], channel="stable", archives_in_repo=archives_in_repo, record_kind=values["RECORD_KIND"], link_source=link_source) for mod_id in seed_mods]
+    package_block = config.get("registryPackage") if isinstance(config.get("registryPackage"), dict) else {}
+    seeded = [
+        _seed_mod(repo, Path(floofycrew_root) / "mods" / mod_id, floofycrew_repo=values["FLOOFYCREW_REPO"], channel="stable", archives_in_repo=archives_in_repo, record_kind=values["RECORD_KIND"], link_source=link_source, contact=contact, contact_pattern=str(package_block.get("contactPattern")) if package_block.get("contactPattern") else None)
+        for mod_id in seed_mods
+    ]
     summary: dict[str, Any] = {"target": str(target), "edition": values["EDITION"], "source": values["SOURCE_LABEL"], "keyId": values["KEY_ID"], "recordKind": values["RECORD_KIND"], "written": [str(p.relative_to(target)) for p in written], "seeded": seeded, "github": github}
     compat = load_compat(repo.compat_path)
     if host_version:
@@ -274,9 +435,19 @@ def init_registry_repo(
         raise BootstrapError("index build failed: " + "; ".join(result.problems))
     write_index(repo, result)
     from .app_registry import write_app_registry  # noqa: PLC0415
+    from .readme import update_readme  # noqa: PLC0415
 
     _path, rows = write_app_registry(repo, result.index)
     summary["appRows"] = len(rows)
+    render_gate = bool(config.get("registryPackage")) if gate is None else gate
+    if render_gate:
+        gate_values, gate_written, vendored = _render_gate(target, config, values, floofycrew_root=Path(floofycrew_root), edition_config=Path(edition_config))
+        written.extend(gate_written)
+        summary["gate"] = {"package": gate_values["PACKAGE_NAME"], "module": gate_values["GATE_MODULE"], "vendored": len(vendored), "written": [str(p.relative_to(target)) for p in gate_written]}
+    update_readme(repo, index=result.index)
+    if render_gate:
+        summary["gate"]["rendered"] = str(_write_rendered(target, values=gate_values, floofycrew_root=Path(floofycrew_root), vendored=vendored, written=written).relative_to(target))
+        summary["written"] = [str(p.relative_to(target)) for p in written]
     if sign_key is not None:
         try:
             pair = load_private_key(Path(sign_key))
@@ -307,6 +478,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--record", default=None, choices=["link", "archive"], help="the shape of the seeded records (default: the adapter's recordKind, else archive)")
     parser.add_argument("--link-source", default=None, metavar="DIR", help="for --record link: a local checkout of the FloofyCrew repository holding the <id>-<version> tags (the commit and files come from the tagged tree)")
     parser.add_argument("--replace", action="store_true", help="re-render over an existing tree (everything but .git/ is removed first)")
+    parser.add_argument("--gate", dest="gate", action="store_true", default=None, help="render the gated package (build gate module, tests, vendored tooling); default: when the adapter config has a registryPackage block")
+    parser.add_argument("--no-gate", dest="gate", action="store_false", help="do not render the gated package")
+    parser.add_argument("--contact", default=None, help="the `contact` written into the seeded mods' mod.json (default: the manifest's first author when it fits the edition's contact shape)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -325,6 +499,8 @@ def main(argv: list[str] | None = None) -> int:
             record_kind=args.record,
             link_source=Path(args.link_source) if args.link_source else None,
             replace=args.replace,
+            gate=args.gate,
+            contact=args.contact,
         )
     except (BootstrapError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -341,6 +517,8 @@ def main(argv: list[str] | None = None) -> int:
         if summary.get("compatRow"):
             print(f"  compat row: {summary['compatRow']['edition']}/{summary['compatRow']['channel']}/{summary['compatRow']['hostVersion']} loader={summary['compatRow']['framework']['loader']}")
         print(f"  app-registry.json: {summary['appRows']} row(s); signed: {summary.get('signedWith') or 'no (run `registry_tools build . --sign KEY` and `sign compat.json`)'}")
+        if summary.get("gate"):
+            print(f"  gated package {summary['gate']['package']}: gate module src/{summary['gate']['module']}, {summary['gate']['vendored']} vendored file(s), {summary['gate']['rendered']}")
     return 0
 
 

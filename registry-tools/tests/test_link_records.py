@@ -242,6 +242,7 @@ def test_bootstrap_seeds_a_link_record_from_a_local_tag(tmp_path: Path, monkeypa
     package_url = str(config["floofycrewRepo"])
     assert re.match(config["repoUrlPattern"], package_url), "the adapter's FloofyCrew repository satisfies its own pin"
     point_forge_at(monkeypatch, bare, package_url)
+    config.pop("registryPackage", None)  # the gated package has its own test (test_gated_package.py); this one is about the record shape
     config_path = tmp_path / "registry.json"
     config_path.write_text(json.dumps(config) + "\n", encoding="utf-8")
     target = tmp_path / "registry"
