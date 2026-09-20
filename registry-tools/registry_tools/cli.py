@@ -3,10 +3,11 @@
 | Command | What it does |
 |---|---|
 | ``keygen --out KEY [--comment TEXT]`` | an Ed25519 key pair: ``KEY`` (private, mode 0600, never committed) and ``KEY.pub.json`` (the public record an edition adapter pins) |
-| ``build REPO [--out index.json] [--compat compat.json] [--sign KEY] [--app-registry] [--check] [--floofycrew VERSION]`` | ``index.json`` from ``mods/**`` with the matrix cells folded in; ``--check`` only compares with the committed index (CI); ``--sign`` writes ``index.json.sig``; ``--app-registry`` also emits the KiroCrew-compatible ``app-registry.json`` |
+| ``build REPO [--out index.json] [--compat compat.json] [--sign KEY] [--app-registry] [--check] [--floofycrew VERSION] [--resolve-links]`` | ``index.json`` from ``mods/**`` with the matrix cells folded in; ``--check`` only compares with the committed index (CI); ``--sign`` writes ``index.json.sig``; ``--app-registry`` also emits the KiroCrew-compatible ``app-registry.json``; ``--resolve-links`` clones every unresolved link record at its tag and fills in ``commit``, ``manifestSha256`` and ``files[]`` (Requirement 8.9) |
 | ``sign PAYLOAD --key KEY [--out SIG]`` | the detached signature of any JSON document (``index.json``, ``compat.json``) |
 | ``verify PAYLOAD [--sig SIG] [--public-key RECORD …] [--key-id ID] [--edition-keys]`` | verify a detached signature against the given public records, or the keys pinned by the installed edition adapters |
 | ``validate-submission MOD [--registry REPO] [--tag TAG] [--allowlist FILE] [--terms t,t] [--json]`` | the CI gate for a pull request (schema, ``floofy validate``, hashes, licence, masquerade, tag, record consistency) |
+| ``validate-submission --record ID@VERSION --registry REPO [--json]`` | the same gate for a **link record**: clone ``link.repo`` at the tag, compare commit / manifest hash / ``files[]`` with the record, then every check above on the checkout (Requirement 8.9, 8.10) |
 | ``compat-merge COMPAT ROW [--sign KEY] [--source LABEL]`` | add/replace a matrix row from a Forge run file; ``--override CELL=VERDICT --reason … --by …`` records a human override instead |
 | ``app-registry REPO [--out app-registry.json]`` | the KiroCrew-compatible ``app-registry.json`` for the app-kind mods of ``index.json`` (task 7.4) |
 
@@ -65,7 +66,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     except RepoError as exc:
         return _fail(str(exc), 2)
     compat = CompatCache.load(Path(args.compat)) if args.compat else None
-    result = build_index(repo, compat=compat, floofycrew_version=args.floofycrew)
+    result = build_index(repo, compat=compat, floofycrew_version=args.floofycrew, resolve_links=args.resolve_links)
     for note in result.notes:
         _say(f"note: {note}")
     if not result.ok:
@@ -146,10 +147,12 @@ def cmd_validate_submission(args: argparse.Namespace) -> int:
             allow = {line.split("#", 1)[0].strip() for line in Path(args.allowlist).read_text(encoding="utf-8").splitlines() if line.split("#", 1)[0].strip()}
         except OSError as exc:
             return _fail(str(exc), 2)
-    kwargs: dict[str, Any] = {"registry": Path(args.registry) if args.registry else None, "tag": args.tag, "allowlist": allow}
+    kwargs: dict[str, Any] = {"registry": Path(args.registry) if args.registry else None, "tag": args.tag, "allowlist": allow, "record": args.record}
     if terms:
         kwargs["terms"] = terms
-    report = validate_submission(Path(args.mod), **kwargs)
+    if args.mod is None and args.record is None:
+        return _fail("give the mod (a directory or archive) or --record <id>@<version>", 2)
+    report = validate_submission(Path(args.mod) if args.mod else None, **kwargs)
     _say(json.dumps(report.to_dict(), indent=2) if args.json else report.format())
     return 0 if report.ok else 1
 
@@ -216,6 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--app-registry", action="store_true", help="also emit the KiroCrew-compatible app-registry.json")
     build.add_argument("--check", action="store_true", help="do not write; fail when the committed index differs from the rebuilt one")
     build.add_argument("--floofycrew", default=None, help="the FloofyCrew release to stamp into the index")
+    build.add_argument("--resolve-links", action="store_true", help="clone every unresolved link record at its tag and write commit, manifestSha256 and files[] into its release.json")
     build.set_defaults(func=cmd_build)
 
     sign = sub.add_parser("sign", help="write the detached signature of a JSON document")
@@ -233,7 +237,8 @@ def build_parser() -> argparse.ArgumentParser:
     verify.set_defaults(func=cmd_verify)
 
     submission = sub.add_parser("validate-submission", help="the CI gate for a registry pull request")
-    submission.add_argument("mod", help="the mod directory or release archive")
+    submission.add_argument("mod", nargs="?", default=None, help="the mod directory or release archive (omit with --record)")
+    submission.add_argument("--record", default=None, metavar="ID@VERSION", help="validate a link record of --registry: clone link.repo at the tag and compare with the record")
     submission.add_argument("--registry", default=None, help="the registry repository the submission targets")
     submission.add_argument("--tag", default=None, help="the release tag the assets were published under")
     submission.add_argument("--allowlist", default=None, help="masquerade allowlist file (in addition to REPO/masquerade-allow.txt)")

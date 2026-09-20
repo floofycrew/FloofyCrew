@@ -21,7 +21,10 @@ and ``which`` (hash lookup):
   wins; a ``yanked`` version is never picked automatically;
 * :func:`IndexCache.pick` — the version to install: an exact requested one, else
   :func:`IndexCache.best_version`;
-* :func:`IndexCache.by_hash` — ``mod@version`` for any file's SHA-256 (Requirement 8.5).
+* :func:`IndexCache.by_hash` — ``mod@version`` for any file's SHA-256 (Requirement 8.5),
+  over both record shapes: the ``files[]`` of an asset record name archives by
+  URL, those of a link record name the checkout's files by path (Requirement 8.9;
+  :attr:`IndexVersion.link` carries ``repo``/``tag``/``commit``/``manifestSha256``).
 
 The network side (sources, trust, signatures) is :mod:`floofy_core.registry_sources`.
 """
@@ -77,8 +80,24 @@ class IndexVersion:
         reason = self.raw.get("yanked")
         return reason if isinstance(reason, str) and reason else None
 
+    @property
+    def link(self) -> dict[str, Any] | None:
+        """The link record (``repo``, ``tag``, ``commit``, ``manifestSha256``[, ``path``]) when the version is link-based (Requirement 8.9), else ``None``."""
+        link = self.raw.get("link")
+        return dict(link) if isinstance(link, dict) and isinstance(link.get("repo"), str) else None
+
+    @property
+    def asset_files(self) -> list[dict[str, Any]]:
+        """The downloadable ``{url, sha256, size}`` entries (an asset record); empty for a link record."""
+        return [dict(f) for f in self.files if isinstance(f.get("url"), str)]
+
+    @property
+    def path_files(self) -> list[dict[str, Any]]:
+        """The ``{path, sha256, size}`` entries a link record lists for the checkout; empty for an asset record."""
+        return [dict(f) for f in self.files if isinstance(f.get("path"), str) and "url" not in f]
+
     def to_dict(self) -> dict[str, Any]:
-        return {"version": self.version, "kirocrew": self.kirocrew, "editions": list(self.editions), "compat": dict(self.compat), "files": [dict(f) for f in self.files], "dependencies": dict(self.dependencies), "channel": self.channel, "publishedAt": self.published_at, "yanked": self.yanked}
+        return {"version": self.version, "kirocrew": self.kirocrew, "editions": list(self.editions), "compat": dict(self.compat), "files": [dict(f) for f in self.files], "dependencies": dict(self.dependencies), "channel": self.channel, "publishedAt": self.published_at, "yanked": self.yanked, "link": self.link}
 
 
 @dataclass

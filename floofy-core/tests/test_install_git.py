@@ -237,3 +237,71 @@ def test_verify_files_checks_hash_and_size(tmp_path: Path):
     assert size.value.code == "FilesMismatch" and "5 bytes ≠ 4" in str(size.value) and "the record" in str(size.value)
     with pytest.raises(GitRefError):
         verify_files(root, [{"path": "b.txt", "sha256": digest}])
+
+
+
+# --- link records: the registry path through the same clone (Requirement 8.9) -------------------------------
+
+
+def _merged_cache(env, entry: dict) -> None:
+    """Write a merged ``cache/index.json`` (what ``floofy registry refresh`` produces from one usable source) holding one link-listed mod."""
+    document = {"schema": 1, "source": "test:forge", "generatedAt": "2026-09-20T00:00:00Z", "mods": [{"id": "example-theme", "name": "Example theme", "description": "", "authors": ["tests"], "tags": [], "repo": entry["link"]["repo"], "versions": [entry]}]}
+    env.paths.cache.mkdir(parents=True, exist_ok=True)
+    env.paths.index_cache.write_text(json.dumps({"schema": 1, "merged": True, "generatedAt": "2026-09-20T00:00:00Z", "documents": [{"source": "forge", "key": "forge", "url": "https://forge.example/registry/", "trust": "index", "signature": "verified", "document": document}]}), encoding="utf-8")
+
+
+def _link_entry(url: str, commit: str, root: Path) -> dict:
+    import hashlib  # noqa: PLC0415
+
+    files = []
+    for path in sorted(p for p in root.rglob("*") if p.is_file() and ".git" not in p.parts and p.name != "floofy.json"):
+        data = path.read_bytes()
+        files.append({"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
+    return {"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "editions": ["internal", "external"], "compat": {}, "dependencies": {"floofycrew": ">=0.0.0"}, "channel": "stable", "publishedAt": "2026-09-20T00:00:00Z", "link": {"repo": url, "tag": "1.0.0", "commit": commit, "manifestSha256": manifest_sha256(root)}, "files": files}
+
+
+def test_link_record_installs_through_the_clone_path_as_a_listed_source(env):
+    url, commit = make_bare_repo(env.scratch)
+    entry = _link_entry(url, commit, env.scratch / "work")
+    _merged_cache(env, entry)
+    result = env.run("--yes", "--json", "install", "example-theme")
+    assert result.exit == 0, result.stderr
+    source = result.json["source"]
+    assert source["kind"] == "registry" and source["tier"] == "listed" and source["commit"] == commit and source["link"]["manifestSha256"] == entry["link"]["manifestSha256"]
+    assert result.json["disclosure"]["tier"] == "listed" and result.json["disclosure"]["unlistedSource"] is None, "a registry record needs no unlisted-source consent"
+    record = read_source(env.paths.mods / "example-theme")
+    assert record["source"] == "registry" and record["tier"] == "listed" and record["registryKey"] == "example-theme" and record["link"]["commit"] == commit and record["git"]["url"] == url
+    row = read_audit(env.paths.audit)[-1]
+    assert row["tier"] == "listed" and row["commit"] == commit and row["source"]["link"]["repo"] == url
+    theme = next(f for f in entry["files"] if f["path"] == "theme/theme.json")
+    assert env.run("--json", "which", theme["sha256"]).json["hits"][0]["mod"] == "example-theme", "hash lookup covers a link record's files (Requirement 8.5)"
+
+
+def test_link_record_refuses_a_moved_tag_a_changed_manifest_and_changed_files(env):
+    url, commit = make_bare_repo(env.scratch)
+    work = env.scratch / "work"
+    good = _link_entry(url, commit, work)
+    # 1. the record says another commit: the tag moved since the curator merged it
+    _merged_cache(env, {**good, "link": {**good["link"], "commit": "0" * 40}})
+    moved = env.run("--yes", "install", "example-theme")
+    assert moved.exit == 1 and "refusing a moved tag" in moved.stderr and not (env.paths.mods / "example-theme").exists()
+    # 2. the record's manifest hash differs from the checkout's
+    _merged_cache(env, {**good, "link": {**good["link"], "manifestSha256": "f" * 64}})
+    manifest = env.run("--yes", "install", "example-theme")
+    assert manifest.exit == 1 and "floofy.json" in manifest.stderr and "differs from the registry record" in manifest.stderr
+    # 3. a file differs from the record (hash) or is missing
+    files = [dict(f) for f in good["files"]]
+    files[0]["sha256"] = "e" * 64
+    _merged_cache(env, {**good, "files": files})
+    hashed = env.run("--yes", "install", "example-theme")
+    assert hashed.exit == 1 and "the registry record's files[]" in hashed.stderr
+    _merged_cache(env, {**good, "files": [*good["files"], {"path": "extra.txt", "sha256": "a" * 64, "size": 1}]})
+    missing = env.run("--yes", "install", "example-theme")
+    assert missing.exit == 1 and "extra.txt: missing" in missing.stderr
+    # 4. a record naming a plaintext transport is unusable, whatever the index claims
+    _merged_cache(env, {**good, "link": {**good["link"], "repo": "git://forge.example/pkg/Example"}})
+    plaintext = env.run("--yes", "install", "example-theme")
+    assert plaintext.exit == 1 and "link record is unusable" in plaintext.stderr
+    # and the intact record still installs
+    _merged_cache(env, good)
+    assert env.run("--yes", "install", "example-theme").exit == 0

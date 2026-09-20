@@ -49,7 +49,7 @@ from .kinds import SEAMS, KindContext, PartOutcome, handlers
 from .modstore import code_kinds_of, parts_of, write_source
 from .netscan import is_loopback_host
 from .patches import PatchDescriptor, PatchDescriptorError
-from .registry import IndexCache
+from .registry import IndexCache, IndexVersion
 from .targets import DEFAULT_TARGET_POLICY, TargetClass, TargetPolicy
 from .tier import TIER_LISTED, TIER_UNLISTED
 from .validator import ValidationReport, validate_mod
@@ -65,6 +65,7 @@ __all__ = [
     "governance_targets",
     "place",
     "resolve_git",
+    "resolve_link",
     "resolve_source",
     "run_handlers",
     "sha256_of",
@@ -228,6 +229,42 @@ def resolve_git(reference: GitRef, *, home: DataHome, tier: str = TIER_UNLISTED)
     return source
 
 
+def resolve_link(key: str, picked: IndexVersion, *, home: DataHome) -> ResolvedSource:
+    """Resolve a **link record** through the git clone path and hold the checkout to the record (Requirement 8.9).
+
+    The record's ``repo`` is cloned at its ``tag`` (the user's own credentials,
+    :func:`resolve_git`); the checkout is refused when its commit is not the
+    record's ``commit`` (the tag moved), when the canonical-manifest hash is not
+    ``manifestSha256`` (the manifest changed), or when any of the record's
+    ``files[]`` differs in hash or size. What passes is a ``registry`` source of
+    tier ``listed`` carrying both the link record and the clone facts.
+    """
+    link = picked.link or {}
+    try:
+        reference = GitRef(url=str(link["repo"]), tag=str(link.get("tag") or picked.version), subdirectory=str(link.get("path") or ""))
+        GitRef.parse(reference.text)  # the same grammar and transport rule as a user-typed reference
+    except (KeyError, GitRefError) as exc:
+        raise InstallError(f"{key}@{picked.version}: the link record is unusable: {exc}") from exc
+    source = resolve_git(reference, home=home, tier=TIER_LISTED)
+    expected_commit = str(link.get("commit") or "").lower()
+    if expected_commit and source.commit != expected_commit:
+        raise InstallError(f"{key}@{picked.version}: the tag {reference.tag} now points at commit {source.commit[:12]}, the registry record says {expected_commit[:12]} — refusing a moved tag (Requirement 8.9)")
+    expected_manifest = str(link.get("manifestSha256") or "").lower()
+    if expected_manifest and source.sha256 != expected_manifest:
+        raise InstallError(f"{key}@{picked.version}: the checkout's floofy.json (canonical sha256 {source.sha256[:12]}…) differs from the registry record ({expected_manifest[:12]}…) — refusing (Requirement 8.9)")
+    try:
+        verify_files(source.root, picked.path_files, what="the registry record")
+    except GitRefError as exc:
+        raise InstallError(f"{key}@{picked.version}: {exc} — refusing (Requirement 8.9)") from exc
+    source.kind = "registry"
+    source.ref = f"{key}@{picked.version}"
+    source.version = picked.version
+    source.registry_key = key
+    source.tier = TIER_LISTED
+    source.link = {"repo": reference.url, "tag": reference.tag, "commit": source.commit, "manifestSha256": source.sha256, **({"path": reference.subdirectory} if reference.subdirectory else {})}
+    return source
+
+
 def resolve_source(
     ref: str,
     *,
@@ -296,7 +333,9 @@ def resolve_source(
     if entry is None or picked is None:
         hint = "; ".join(cache.notes) if cache.notes else "run `floofy search` to see what the cache knows"
         raise InstallError(f"{why} ({hint})")
-    archive_files = [f for f in picked.files if isinstance(f.get("url"), str)]
+    if picked.link is not None:
+        return resolve_link(entry.key, picked, home=home)
+    archive_files = picked.asset_files
     if not archive_files:
         raise InstallError(f"{entry.key}@{picked.version} lists no downloadable file in the index")
     file = archive_files[0]

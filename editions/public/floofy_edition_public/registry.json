@@ -14,6 +14,7 @@
     }
   ],
   "archiveUrlTemplate": "https://github.com/floofycrew/FloofyCrew/releases/download/{id}-{version}/{file}",
+  "recordKind": "archive",
   "keys": [
     {
       "schema": 1,

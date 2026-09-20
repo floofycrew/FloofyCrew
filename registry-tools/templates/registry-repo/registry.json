@@ -4,6 +4,8 @@
   "edition": "{{EDITION}}",
   "keyId": "{{KEY_ID}}",
   "archiveUrlTemplate": "{{ARCHIVE_URL_TEMPLATE}}",
+  "recordKind": "{{RECORD_KIND}}",
+  "repoUrlPattern": "{{REPO_URL_PATTERN}}",
   "hostRegistry": {
     "repo": "{{HOST_REPO}}",
     "branch": "{{HOST_BRANCH}}"

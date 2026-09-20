@@ -51,6 +51,19 @@ mods/<id>/<version>/release.json     {"tag": "<version or v<version>>", "channel
                                       "files": [{"url": "https://…/<id>-<version>.zip", "sha256": "<64 hex>", "size": 12345, "name": "…"}]}
 ```
 
+A registry whose forge has no release assets lists versions by **link** instead
+(`registry.json` `recordKind: link`): `release.json` then names your repository
+and the tag — `{"tag": "<id>-<version>", "channel": "stable", "publishedAt": "…Z",
+"link": {"repo": "<your repository URL>", "tag": "<id>-<version>", "path": "<mod directory, or omit>"}}` —
+and the tooling (`registry_tools build --resolve-links`) clones at the tag once
+to record the commit, the SHA-256 of the canonical `floofy.json` and every file
+with hash and size. A user's `floofy install <id>` then clones your repository
+at that tag with their own git credentials and refuses the checkout if the
+commit, the manifest hash or any file differs from the record. The repository
+URL must be `ssh://` or `https://`, and a registry may pin the forge it accepts
+by pattern. The tag may be `<version>`, `v<version>` or `<id>-<version>` (a
+repository holding several mods).
+
 For a pure App Kit app (a single `app` part) add `"app": {"name": "<the name in
 app.json>"}` when it differs from the mod id: the registry also emits a
 KiroCrew-compatible `app-registry.json`, so your app appears in the host's own
@@ -60,11 +73,13 @@ regenerated after merge.
 
 The registry's CI (`validate-submission.yml`, standard-library Python straight
 from a FloofyCrew checkout) downloads the assets named in `release.json` and runs
-`registry_tools validate-submission <archive> --registry . --tag <tag>`: the
-schema and `floofy validate`, the hashes and sizes against the archive, the
-licence, the masquerade check, the tag, and the record's `floofy.json` against
-the archive's; then `build --check` proves `index.json` was regenerated from the
-records. A curator reviews what the manager will disclose to users — the parts,
+`registry_tools validate-submission <archive> --registry . --tag <tag>` — or,
+for a link record, `registry_tools validate-submission --record <id>@<version>
+--registry .`, which clones at the tag and compares commit, manifest hash and
+files with the record: the schema and `floofy validate`, the hashes and sizes,
+the licence, the masquerade check, the tag, and the record's `floofy.json`
+against the mod's; then `build --check` proves `index.json` was regenerated from
+the records. A curator reviews what the manager will disclose to users — the parts,
 the seams they use, the declared network hosts, any governance flag — and
 merges.
 
@@ -109,4 +124,4 @@ maintained with the internal edition adapter, in its `docs/publishing-internal.m
 (under `editions/`), because they name internal systems this public page must not.
 
 ---
-Covers Requirements 8.1, 8.2, 8.3, 8.4, 8.6, 8.7, 9.2, 14.1, 14.2.
+Covers Requirements 8.1, 8.2, 8.3, 8.4, 8.6, 8.7, 8.9, 9.2, 14.1, 14.2.

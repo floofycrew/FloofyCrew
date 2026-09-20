@@ -123,7 +123,7 @@ reachable through the import map; the Patcher falls back to the in-place +
 alias-graph path for it.
 
 
-## Registry index (`index-1.json`, Requirement 8.1)
+## Registry index (`index-1.json`, Requirement 8.1, 8.9)
 
 `index.json` is the signed catalogue of one registry. Top level: `schema` (`1`),
 `source` (the registry's own label — informational; the manager namespaces
@@ -136,15 +136,32 @@ optional `license`, `links{}` and `icon`. Each version carries exactly the
 Requirement 8.1 list — `version`, `kirocrew` (the manifest's host range),
 `editions`, `compat{hostVersion: tested|expected|broken}` (the matrix cells for
 this `mod@version`, folded in from `compat.json` by the registry build so a client
-can grade versions before downloading anything), `files[]{url, sha256, size}`
-(HTTPS only; the manager checks both the hash and the size of every download),
-`dependencies` (the manifest's `dependsOn`), `channel` and `publishedAt` — and the
-optional `channels`, `strict`, `tag` (the release tag when it is not the bare
-version), `kinds` (the part kinds shipped), `app{name, subdirectory}` (present for
-a pure App Kit app, the facts the KiroCrew-compatible `app-registry.json` row
-needs — Requirement 8.6) and `yanked` (a withdrawal reason; never picked
-automatically). The index never embeds a signature: the detached
-`index.json.sig` beside it does that.
+can grade versions before downloading anything), `files[]`, `dependencies` (the
+manifest's `dependsOn`), `channel` and `publishedAt` — and the optional
+`channels`, `strict`, `tag` (the release tag when it is not the bare version),
+`kinds` (the part kinds shipped), `app{name, subdirectory}` (present for a pure
+App Kit app, the facts the KiroCrew-compatible `app-registry.json` row needs —
+Requirement 8.6) and `yanked` (a withdrawal reason; never picked automatically).
+The index never embeds a signature: the detached `index.json.sig` beside it does
+that.
+
+A version is **one of two record shapes** (`oneOf`; never mixed):
+
+- an **asset record** lists archives in `files[]{url, sha256, size[, name]}`
+  (HTTPS only; the manager checks both the hash and the size of every download);
+- a **link record** (Requirement 8.9) carries `link{repo, tag, commit,
+  manifestSha256[, path]}` — the mod's repository (`ssh://` or `https://`, the
+  transport a client clones over with its own credentials), the version tag, the
+  commit that tag pointed at when the record was made, the SHA-256 of the
+  canonical `floofy.json` (`floofy_core.canonical`), and the mod's directory
+  inside the checkout when it is not the root — and lists the checkout's files in
+  `files[]{path, sha256, size}` (no `url`). The manifest's own `files[]` already
+  pins those files; the record's list is the curator's independent statement,
+  lets `floofy which <sha256>` resolve a file of a link-listed mod and gives the
+  client a size to check. A client resolves a link record by shallow-cloning the
+  repository at the tag and refuses the checkout when its commit, canonical-manifest
+  hash or any file differs from the record. The internal registry lists every mod
+  this way (its forge has no release assets); the public one may use either shape.
 
 ## Compatibility matrix (`compat-1.json`, Requirement 9.1)
 

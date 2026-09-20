@@ -68,6 +68,7 @@ __all__ = [
     "LOCAL_GIT_ENV",
     "UNLISTED_SOURCE_LINE",
     "checkout_key",
+    "clone_into",
     "fetch",
     "git_env",
     "local_git_allowed",
@@ -274,22 +275,37 @@ def _run(args: list[str], *, cwd: Path | None, env: dict[str, str], timeout: int
 def fetch(ref: GitRef, home: DataHome, *, timeout: int = CLONE_TIMEOUT, allow_local: bool | None = None) -> tuple[Path, str]:
     """Shallow-clone ``ref`` into the cache and return ``(checkout root, commit)``.
 
-    A tag or branch is fetched with ``git clone --depth 1 --branch <name>
-    --single-branch``; an explicit commit with ``git init`` + ``git fetch --depth 1
-    origin <sha>`` (servers that refuse to serve an arbitrary commit make this fail
-    with their own message). The previous checkout of the same key is replaced.
+    The previous checkout of the same key is replaced; :func:`clone_into` does the
+    cloning (a tag or branch with ``git clone --depth 1 --branch <name>
+    --single-branch``, an explicit commit with ``git init`` + ``git fetch --depth 1
+    origin <sha>`` — servers that refuse to serve an arbitrary commit fail with
+    their own message).
+    """
+    destination = home.cache_git / checkout_key(ref)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_symlink():
+        destination.unlink()
+    elif destination.exists():
+        shutil.rmtree(destination, ignore_errors=True)
+    commit = clone_into(ref, destination, timeout=timeout, allow_local=allow_local)
+    return destination, commit
+
+
+def clone_into(ref: GitRef, destination: Path, *, timeout: int = CLONE_TIMEOUT, allow_local: bool | None = None) -> str:
+    """Shallow-clone ``ref`` into the (absent or empty) ``destination`` and return the checked-out commit.
+
+    Shared by the manager's cache (:func:`fetch`) and the registry tooling, which
+    clones link records into a scratch directory to validate them (Requirement 8.7,
+    8.10). ``destination`` is removed again on failure.
     """
     allow_local = local_git_allowed() if allow_local is None else allow_local
     if ref.scheme == "file" and not allow_local:
         raise GitRefError("LocalTransport", f"refusing {ref.url}: file:// references need {LOCAL_GIT_ENV}=1 (test-suite only)")
-    destination = home.cache_git / checkout_key(ref)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists() or destination.is_symlink():
-        shutil.rmtree(destination, ignore_errors=True) if not destination.is_symlink() else destination.unlink()
+    destination = Path(destination)
     env = git_env()
     git = _git_args(allow_local=allow_local)
     if ref.is_commit:
-        destination.mkdir(parents=True)
+        destination.mkdir(parents=True, exist_ok=True)
         steps = (
             [*git, "init", "-q", str(destination)],
             [*git, "-C", str(destination), "remote", "add", "origin", ref.url],
@@ -310,7 +326,7 @@ def fetch(ref: GitRef, home: DataHome, *, timeout: int = CLONE_TIMEOUT, allow_lo
     if head.returncode != 0 or not _HEX40.match(head.stdout.strip()):
         shutil.rmtree(destination, ignore_errors=True)
         raise GitCloneError(f"cannot read the commit of the clone of {ref.url}: {_tail(head.stderr) or head.stdout.strip()}")
-    return destination, head.stdout.strip()
+    return head.stdout.strip()
 
 
 def _tail(text: str, limit: int = 400) -> str:

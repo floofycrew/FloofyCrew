@@ -1,4 +1,4 @@
-"""Build ``index.json`` from the registry records (Requirement 8.1, 9.2).
+"""Build ``index.json`` from the registry records (Requirement 8.1, 8.9, 9.2).
 
 The index is derived — never edited by hand: every field comes from the mod
 records (:mod:`registry_tools.repo`) and the compatibility matrix. Per version:
@@ -6,7 +6,9 @@ records (:mod:`registry_tools.repo`) and the compatibility matrix. Per version:
 * the Requirement 8.1 fields from the manifest (``version``, ``kirocrew.version``
   → ``kirocrew``, ``kirocrew.editions`` → ``editions``, ``dependsOn`` →
   ``dependencies``) and the release record (``files[]``, ``channel``,
-  ``publishedAt``, ``tag``, ``yanked``);
+  ``publishedAt``, ``tag``, ``yanked``); a **link record** contributes
+  ``link{repo, tag, commit, manifestSha256[, path]}`` and its ``files[]`` as
+  ``{path, sha256, size}`` of the checkout instead of archive URLs (Requirement 8.9);
 * ``compat{hostVersion: verdict}`` folded in from ``compat.json``: every matrix
   row that has a cell for this ``id@version`` contributes ``hostVersion →
   verdict`` (overrides applied; when two rows disagree for one host version the
@@ -82,11 +84,20 @@ def _version_entry(record: VersionRecord, compat: CompatCache | None) -> dict[st
         "kirocrew": str(host.get("version") or "*"),
         "editions": [str(e) for e in (host.get("editions") or ["internal", "external"])],
         "compat": fold_compat(compat, record.mod_id, record.version),
-        "files": [{k: f[k] for k in ("url", "sha256", "size", "name") if k in f} for f in record.files],
+        "files": (
+            [{k: f[k] for k in ("path", "sha256", "size") if k in f} for f in record.files]
+            if record.is_link
+            else [{k: f[k] for k in ("url", "sha256", "size", "name") if k in f} for f in record.files]
+        ),
         "dependencies": _dependencies(manifest),
         "channel": str(release.get("channel") or "stable"),
         "publishedAt": str(release.get("publishedAt") or ""),
     }
+    if record.is_link:
+        link = record.link or {}
+        entry["link"] = {"repo": str(link.get("repo") or ""), "tag": record.link_tag, "commit": str(link.get("commit") or ""), "manifestSha256": str(link.get("manifestSha256") or "")}
+        if isinstance(link.get("path"), str) and link["path"]:
+            entry["link"]["path"] = link["path"]
     if isinstance(host.get("channels"), list) and host["channels"]:
         entry["channels"] = [str(c) for c in host["channels"]]
     if isinstance(host.get("strict"), bool) and host["strict"]:
@@ -103,8 +114,18 @@ def _version_entry(record: VersionRecord, compat: CompatCache | None) -> dict[st
     return entry
 
 
-def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, generated_at: str | None = None, floofycrew_version: str | None = None) -> BuildResult:
-    """Assemble the index document from every record; schema and record defects land in ``problems``."""
+def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, generated_at: str | None = None, floofycrew_version: str | None = None, resolve_links: bool = False) -> BuildResult:
+    """Assemble the index document from every record; schema and record defects land in ``problems``.
+
+    A link record must be **resolved** (``commit``, ``manifestSha256``, path-shaped
+    ``files[]``) before it can be indexed: ``resolve_links`` clones each unresolved
+    one at its tag and rewrites its ``release.json`` (Requirement 8.9); without it an
+    unresolved record is a problem. Every link record's ``manifestSha256`` is
+    checked against the record's own ``floofy.json`` on every build, and its
+    ``repo`` against the registry's ``repoUrlPattern`` when one is pinned.
+    """
+    from .links import LinkError, manifest_hash_matches, repo_matches_pattern, resolve_record, write_resolved  # noqa: PLC0415
+
     if compat is None and repo.compat_path.is_file():
         compat = CompatCache.load(repo.compat_path)
     result = BuildResult({"schema": 1, "source": repo.source, "generatedAt": generated_at or _now(), "mods": []})
@@ -122,6 +143,26 @@ def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, genera
         if repo_url is None:
             result.problems.append(f"{mod.mod_id}: no repository (mods/{mod.mod_id}/mod.json \"repo\" or a manifest links.repo)")
             repo_url = ""
+        for record in mod.versions:
+            if not record.is_link:
+                continue
+            link = record.link or {}
+            if not repo_matches_pattern(str(link.get("repo", "")), repo.repo_url_pattern):
+                result.problems.append(f"{record.mod_id}@{record.version}: link.repo {link.get('repo')!r} does not match this registry's repository pattern {repo.repo_url_pattern!r} (Requirement 8.10)")
+            if not record.link_resolved:
+                if not resolve_links:
+                    result.problems.append(f"{record.mod_id}@{record.version}: the link record is unresolved (no commit / manifestSha256 / files[]); run `registry_tools build --resolve-links` to clone {link.get('repo')} at {record.link_tag} and fill them in")
+                    continue
+                try:
+                    facts = resolve_record(record)
+                except LinkError as exc:
+                    result.problems.append(str(exc))
+                    continue
+                write_resolved(record, facts)
+                result.notes.append(f"{record.mod_id}@{record.version}: link record resolved from {link.get('repo')} at {record.link_tag} (commit {facts.commit[:12]}, {len(facts.files)} file(s))")
+            ok, why = manifest_hash_matches(record)
+            if not ok:
+                result.problems.append(why)
         entry: dict[str, Any] = {
             "id": mod.mod_id,
             "name": str(mod.field("name", mod.mod_id)),

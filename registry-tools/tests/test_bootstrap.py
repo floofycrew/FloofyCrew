@@ -53,8 +53,9 @@ def test_init_registry_repo_for_each_edition(edition: str, tmp_path: Path):
     pinned_key_id = config["sources"][0]["keyId"]
     target = tmp_path / f"registry-{edition}"
     payload = _fake_payload(tmp_path / "payload") if FIXTURE_DIST.is_dir() else None
-    summary = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel="beta", payload=payload, verdict="expected", run="https://forge.example/run/1")
-    assert summary["edition"] == edition and summary["keyId"] == pinned_key_id and summary["source"] == config["sourceLabel"]
+    # archive records on both editions here (the link shape has its own test in test_link_records.py)
+    summary = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel="beta", payload=payload, verdict="expected", run="https://forge.example/run/1", record_kind="archive")
+    assert summary["edition"] == edition and summary["keyId"] == pinned_key_id and summary["source"] == config["sourceLabel"] and summary["recordKind"] == "archive"
     repo = RegistryRepo.load(target)
     assert repo.source == config["sourceLabel"] and repo.key_id == pinned_key_id and repo.config["hostRegistry"]["repo"] == config["sources"][0]["repo"]
     # the template rendered without leftovers, per edition
