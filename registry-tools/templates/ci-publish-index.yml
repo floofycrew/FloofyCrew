@@ -1,0 +1,68 @@
+# FloofyCrew registry — rebuild and sign the index on merge (Requirement 8.3).
+#
+# Optional companion of ci-validate-submission.yml, installed as
+# .github/workflows/publish-index.yml. On every push to the default branch that
+# changed a record or the matrix, it rebuilds index.json (+ app-registry.json),
+# signs index.json and compat.json with the registry's private key held in the
+# repository secret FLOOFYCREW_SIGNING_KEY (the JSON private key file written by
+# `registry_tools keygen`) and commits the results. The public half is pinned in
+# the FloofyCrew edition adapter, so a client refuses an index this job did not
+# sign — keep the secret out of pull-request workflows (it is: pull_request runs
+# never see repository secrets from a fork).
+#
+# The maintainer may prefer to build and sign locally and commit; then this file
+# is simply not installed. Rotating the key = new pair, new adapter pin, new
+# secret, one re-sign.
+
+name: publish index
+
+on:
+  push:
+    branches: [main, mainline]
+    paths:
+      - "mods/**"
+      - "compat.json"
+
+permissions:
+  contents: write
+
+env:
+  FLOOFYCREW_REPO: floofycrew/FloofyCrew
+  FLOOFYCREW_REF: main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FLOOFYCREW_REPO }}
+          ref: ${{ env.FLOOFYCREW_REF }}
+          path: .floofycrew
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Rebuild and sign
+        shell: bash
+        env:
+          PYTHONPATH: .floofycrew/floofy-core:.floofycrew/registry-tools
+          FLOOFYCREW_SIGNING_KEY: ${{ secrets.FLOOFYCREW_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key=$(mktemp)
+          printf '%s' "$FLOOFYCREW_SIGNING_KEY" > "$key"
+          python -m registry_tools build . --app-registry --sign "$key"
+          [ -f compat.json ] && python -m registry_tools sign compat.json --key "$key"
+          rm -f "$key"
+      - name: Commit the regenerated files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "floofycrew-registry[bot]"
+          git config user.email "floofycrew-registry-bot@users.noreply.github.com"
+          git add index.json index.json.sig app-registry.json compat.json.sig 2>/dev/null || true
+          git diff --cached --quiet && { echo "nothing to publish"; exit 0; }
+          git commit -m "chore(index): Rebuild and sign the index"
+          git push
