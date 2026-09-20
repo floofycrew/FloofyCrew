@@ -50,6 +50,16 @@
         "method": "GET",
         "path": "/spa/{id}/{file...}",
         "purpose": "an enabled mod's spa part files (1-4 segments)"
+      },
+      {
+        "method": "POST",
+        "path": "/cli",
+        "purpose": "run one allowlisted floofy command in-process for the manager UI {argv}"
+      },
+      {
+        "method": "GET",
+        "path": "/registry",
+        "purpose": "registry cache summary and update availability per installed mod"
       }
     ]
   }

@@ -279,3 +279,46 @@ def test_4_import_map_remap_is_what_the_host_evaluates(harness: Harness):
     original = harness.gw.payload / "lib" / "python3.12" / "site-packages" / "kiro_crew" / "static" / "dist" / "assets"
     chunk = next(original.glob("useIsMobile-*.js"))
     assert "__floofy_remapped" not in chunk.read_text(encoding="utf-8"), "the original chunk is untouched"
+
+
+
+def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
+    """The manager page (task 6.7): unofficial banner, mod rows with state/seam/compat, disable through the in-process CLI."""
+    client = harness.gw.client()
+    assert client.post(f"{API}/reload").status == 200
+    enabled_path = FloofyPaths(harness.gw.data_home).enabled
+    assert json.loads(enabled_path.read_text(encoding="utf-8"))["spa-healthy"] is True
+    context, page = harness.page()
+    try:
+        page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-banner"]', timeout=60000)
+        banner = page.inner_text('[data-testid="floofycrew-banner"]')
+        assert "UNOFFICIAL" in banner and "not affiliated" in banner, banner
+        page.wait_for_selector('[data-testid="floofycrew-mod-row-rimuru-branding"]', timeout=30000)
+        row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
+        assert "rimuru-branding 1.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" in row, row
+        assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
+        assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')
+        healthy = page.inner_text('[data-testid="floofycrew-mod-row-spa-healthy"]')
+        assert "spa/spa" in healthy and "SPA host" in healthy
+        assert page.inner_text('[data-testid="floofycrew-enabled-spa-healthy"]').startswith("enabled")
+        # disable through the UI → POST /cli ["disable", "spa-healthy"] → enabled.json flips → the Loader reloads
+        page.click('[data-testid="floofycrew-toggle-spa-healthy"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-spa-healthy\"]')?.textContent.startsWith('disabled')", timeout=60000)
+        assert json.loads(enabled_path.read_text(encoding="utf-8"))["spa-healthy"] is False
+        output = page.inner_text('[data-testid="floofycrew-output"]')
+        assert "$ floofy disable spa-healthy" in output and "Loader reloaded" in output, output
+        state = client.get(f"{API}/state").json()
+        assert state["mods"]["spa-healthy"]["active"] is False and state["mods"]["spa-healthy"]["reason"] == "UserDisabled"
+        assert state["mods"]["rimuru-branding"]["active"] is True, "the other mods survived the reload"
+        rows = [json.loads(line) for line in (harness.gw.data_home / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+        assert any(r["op"] == "disable" and r["mod"] == "spa-healthy" and r["actor"] == "ui" for r in rows)
+        # the UI cannot run what needs a keyboard: init is refused by the route
+        refused = client.post(f"{API}/cli", {"argv": ["init", "--i-accept-the-risk"]})
+        assert refused.status == 403 and "CLI-only" in refused.json()["error"]
+        # re-enable so the module's other tests see the original state
+        page.click('[data-testid="floofycrew-toggle-spa-healthy"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-spa-healthy\"]')?.textContent.startsWith('enabled')", timeout=60000)
+        assert json.loads(enabled_path.read_text(encoding="utf-8"))["spa-healthy"] is True
+    finally:
+        context.close()

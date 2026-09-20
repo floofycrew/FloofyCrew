@@ -105,7 +105,7 @@ def _version_lines() -> list[str]:
     return [f"floofy {FRAMEWORK_VERSION} (api {API_VERSION}) — {UNOFFICIAL}"]
 
 
-def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway: bool = False, on_mutation: Callable[[str], None] | None = None, allow: frozenset[str] | None = None) -> tuple[int, dict[str, Any]]:
+def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway: bool = False, on_mutation: Callable[[str], None] | None = None, allow: frozenset[str] | None = None, live_state: Callable[[], dict[str, Any]] | None = None) -> tuple[int, dict[str, Any]]:
     """Parse and run one command; returns ``(exit code, result document)``."""
     parser = build_parser()
     try:
@@ -128,7 +128,7 @@ def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway
     if allow is not None and args.command not in allow:
         console.error(f"`floofy {args.command}` is not available from this surface (allowed: {', '.join(sorted(allow))})")
         return 2, {"error": f"command {args.command!r} not allowed here"}
-    ctx = build_context(args, console=console, actor=actor, in_gateway=in_gateway, on_mutation=on_mutation)
+    ctx = build_context(args, console=console, actor=actor, in_gateway=in_gateway, on_mutation=on_mutation, live_state=live_state)
     handler = getattr(args, "handler", None)
     if handler is None:
         console.error(f"`floofy {args.command}` has no handler")
@@ -165,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     return code
 
 
-def run(argv: list[str], *, home: Path | str | None = None, non_interactive: bool = True, actor: str = "ui", in_gateway: bool = False, allow: frozenset[str] | None = None, on_mutation: Callable[[str], None] | None = None, assume_yes: bool = False) -> RunResult:
+def run(argv: list[str], *, home: Path | str | None = None, non_interactive: bool = True, actor: str = "ui", in_gateway: bool = False, allow: frozenset[str] | None = None, on_mutation: Callable[[str], None] | None = None, assume_yes: bool = False, live_state: Callable[[], dict[str, Any]] | None = None) -> RunResult:
     """Run one command in-process and capture it (the manager UI's path, tests).
 
     ``non_interactive`` makes every ordinary confirmation take its default (``no``
@@ -177,5 +177,5 @@ def run(argv: list[str], *, home: Path | str | None = None, non_interactive: boo
     full = list(argv)
     if home is not None and "--home" not in full:
         full = ["--home", str(home), *full]
-    code, result = execute(full, console, actor=actor, in_gateway=in_gateway, on_mutation=on_mutation, allow=allow)
+    code, result = execute(full, console, actor=actor, in_gateway=in_gateway, on_mutation=on_mutation, allow=allow, live_state=live_state)
     return RunResult(code, out.getvalue(), result, err.getvalue())

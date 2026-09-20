@@ -61,6 +61,8 @@ class CliContext:
     result: dict[str, Any] = field(default_factory=dict)
     #: Gateway-side hook: called after a mutation so the runtime reloads (set by the Loader route).
     on_mutation: Callable[[str], None] | None = None
+    #: Gateway-side hook: the running Loader's live state document (``status`` inside the gateway reads it).
+    live_state: Callable[[], dict[str, Any]] | None = None
     _adapters: list[ModuleType] | None = field(default=None, repr=False)
     _discovery: DiscoveryResult | None = field(default=None, repr=False)
     _governance: GovernanceSnapshot | None = field(default=None, repr=False)
@@ -266,7 +268,7 @@ def _running_from_zipapp() -> str | None:
     return None
 
 
-def build_context(args: Any, *, console: Console, actor: str = "cli", in_gateway: bool = False, on_mutation: Callable[[str], None] | None = None) -> CliContext:
+def build_context(args: Any, *, console: Console, actor: str = "cli", in_gateway: bool = False, on_mutation: Callable[[str], None] | None = None, live_state: Callable[[], dict[str, Any]] | None = None) -> CliContext:
     home = Path(args.home).expanduser() if getattr(args, "home", None) else default_host_home()
     if actor == "cli" and os.environ.get("FLOOFY_ACTOR") in ("trigger", "forge"):
         actor = os.environ["FLOOFY_ACTOR"]  # the re-apply triggers mark their audit rows
@@ -283,6 +285,7 @@ def build_context(args: Any, *, console: Console, actor: str = "cli", in_gateway
         actor=actor,
         in_gateway=in_gateway,
         on_mutation=on_mutation,
+        live_state=live_state,
     )
 
 

@@ -64,7 +64,12 @@ def _read_json(path: Path) -> Any:
 
 
 def loader_state(ctx: CliContext, *, live: bool = True) -> tuple[dict[str, Any] | None, str]:
-    """The Loader's state document and where it came from (``live`` / ``file`` / ``none``)."""
+    """The Loader's state document and where it came from (``live`` / ``in-process`` / ``file`` / ``none``)."""
+    if ctx.in_gateway and ctx.live_state is not None:
+        try:
+            return ctx.live_state(), "in-process"
+        except Exception as exc:  # noqa: BLE001 - fall back to the file
+            ctx.warn(f"live state unavailable ({type(exc).__name__}: {exc})")
     if live and not ctx.in_gateway:
         session = ctx.session()
         if session is not None:
