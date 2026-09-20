@@ -148,18 +148,24 @@ def load_part_module(mod_id: str, mod_dir: Path, part: dict[str, Any], part_inde
         raise ActivationError(f"python-hook module file missing: {file}")
     name = module_key(mod_id, module)
     _ensure_namespace(mod_id, mod_dir)
-    spec = importlib.util.spec_from_file_location(name, str(file), submodule_search_locations=[str(file.parent)] if is_package else None)
-    if spec is None or spec.loader is None:
-        raise ActivationError(f"cannot build an import spec for {file}")
-    before = set(mod_module_keys(mod_id))
-    loaded = importlib.util.module_from_spec(spec)
-    sys.modules[name] = loaded
-    try:
-        spec.loader.exec_module(loaded)
-    except BaseException as exc:  # noqa: BLE001 - fail-open: the mod is disabled, the host continues
-        for key in set(mod_module_keys(mod_id)) - before:
-            sys.modules.pop(key, None)
-        raise ActivationError(f"importing {module} failed: {type(exc).__name__}: {exc}", exc) from exc
+    existing = sys.modules.get(name)
+    if existing is not None and getattr(existing, "__file__", None) == str(file):
+        # The early shim (floofy_early) imported this very file before platform
+        # bootstrap; reuse it so early() and activate() share one module object.
+        loaded = existing
+    else:
+        spec = importlib.util.spec_from_file_location(name, str(file), submodule_search_locations=[str(file.parent)] if is_package else None)
+        if spec is None or spec.loader is None:
+            raise ActivationError(f"cannot build an import spec for {file}")
+        before = set(mod_module_keys(mod_id))
+        loaded = importlib.util.module_from_spec(spec)
+        sys.modules[name] = loaded
+        try:
+            spec.loader.exec_module(loaded)
+        except BaseException as exc:  # noqa: BLE001 - fail-open: the mod is disabled, the host continues
+            for key in set(mod_module_keys(mod_id)) - before:
+                sys.modules.pop(key, None)
+            raise ActivationError(f"importing {module} failed: {type(exc).__name__}: {exc}", exc) from exc
     parent = sys.modules.get(f"{MOD_NAMESPACE}.{mod_id}")
     if parent is not None:
         setattr(parent, module.rsplit(".", 1)[-1], loaded)

@@ -28,6 +28,8 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 | `floofy_loader/pending.py` | staged installs/removals, `enabled.json`, `patch` part planning for the Patcher |
 | `floofy_loader/compat.py` | the `cache/compat.json` reader (`CompatCache.row_for`, verdicts) |
 | `floofy_loader/paths.py` | the data-home layout |
+| `floofy_early/` | the optional early shim: `zz_floofycrew.pth` (`import floofy_early`) + a stdlib-only package that runs mods' `early(ctx)` right after `kiro_crew.platform.bootstrap` is imported |
+| `floofy_loader/early_install.py` | installers/status for the shim: `install_user_site` / `install_venv_site` / `uninstall_*` / `status(interpreter, kind)` (`doctor` reads it) |
 | `floofy_loader/storage.py` | `ModConfig` (`ctx.config`, atomic JSON under `mods/<id>/.floofy/config.json`), `mod_logger` (`floofy.mods.<id>`, rotating `mods/<id>/.floofy/mod.log`, `[floofy:<id>]` prefix), `mod_data_dir` containment |
 | `floofy_loader/events.py` | `EventBus` / `ModEvents` (`ctx.events`, `floofy.events`): fail-open pub/sub with attribution and history |
 | `floofy_loader/routes.py` | the gateway routes (pure responders + the aiohttp `AppRoute` adapter) |
@@ -143,6 +145,37 @@ served in v1 (`NotImplementedError` after the check). `floofy.fetch(url, **kw)` 
 the same client, attributed to the calling mod by its `floofy_mods.<id>` module
 name; a caller that is not a mod gets the strictest policy (no declared hosts)
 under `unknown:<module>`. The state API lists every mod's client under `network{}`.
+
+## The early shim (Requirement 3.2, optional)
+
+For code that must run **before** the gateway's platform bootstrap, `floofy init
+--early` (task 6.x, through the edition adapter) installs `zz_floofycrew.pth`
+containing `import floofy_early` plus the `floofy_early` package into the site
+directory the host interpreter processes:
+
+* **user site** (`site.getusersitepackages()`, `~/.local/lib/python3.X/site-packages`)
+  on payloads whose bundled interpreter is started plainly — design "Spike
+  outcomes" 1.5 measured the `.pth` running in the gateway, the MCP gateway daemon,
+  the `kirocrew mcp-*` shims and every other `sys.executable -m …` child;
+* **venv site** (`sysconfig.get_paths()["purelib"]`) on venv payloads, where
+  `site.ENABLE_USER_SITE` is `False`; re-applied per venv (`crew-venv-<ver>`).
+
+The shim is a no-op unless `kiro_crew` is importable (`find_spec`, no import) and
+`<host home>/floofy/early.json` exists; `FLOOFY_EARLY_DISABLE=1` switches it off.
+It then arms a one-shot `sys.meta_path` finder for `kiro_crew.platform.bootstrap`
+and, once that module executed, runs `early(ctx)` of every listed mod
+(`{"mods": [{"id", "path", "module", "part"}]}`) under the Loader's
+`floofy_mods.<id>.<module>` key — the Loader reuses that module object at
+`activate`, so `early()` and `activate()` share state. Everything is inside one
+fail-open `try/except` (a raising `.pth` would print a traceback into every host
+process) and logs to `<data home>/early.log`. `ctx` carries `mod_id`, `mod_dir`,
+`host_home`, `data_home`, `bootstrap` (the module), `log()`, `state`.
+
+**Reach limit** (spike 1.5, reported by `early_install.status()`): the `-I -S`
+sandbox shims skip site processing entirely; children the host starts with `-s`
+(`kiro_crew/apps/bridges.py` L560, app-provided MCP servers wrapping the CLI) skip
+the *user* site but still process a venv site. The tests exercise both site kinds
+under a fake `HOME`/`PYTHONUSERBASE` and assert the real user site never appears.
 
 ## The execution gate and the `agent.apps_trusted` grant (Requirement 2.3)
 
