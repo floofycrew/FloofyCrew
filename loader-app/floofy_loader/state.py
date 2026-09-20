@@ -94,6 +94,8 @@ class ModState:
     mod_dir: str = ""
     #: Mod-published facts (``ctx.state[...]``) for tests and the UI.
     exports: dict[str, Any] = field(default_factory=dict)
+    #: The source tier (Requirement 8.11): ``unlisted`` / ``listed`` / ``tested``, from the install record and this host's matrix row.
+    tier: str = "unlisted"
 
     def set_reason(self, reason: str, detail: str = "") -> None:
         if reason not in REASONS:
@@ -119,6 +121,7 @@ class ModState:
             "errors": list(self.errors),
             "modDir": self.mod_dir,
             "exports": dict(self.exports),
+            "tier": self.tier,
         }
 
 

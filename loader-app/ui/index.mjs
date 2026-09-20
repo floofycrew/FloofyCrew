@@ -62,6 +62,14 @@ export function compatBadge(row) {
   return React.createElement("span", { style: { ...styles.badge, ...style }, "data-testid": `floofycrew-compat-${row.id}` }, text);
 }
 
+/** The source tier (Requirement 8.11): unlisted (a git reference, a path or an archive), listed (a registry record), tested (listed + a `tested` matrix cell for this host). */
+export function tierBadge(row) {
+  const tier = row.tier || "unlisted";
+  const style = tier === "tested" ? styles.ok : tier === "listed" ? {} : styles.warn;
+  const title = tier === "tested" ? "listed in a registry and graded tested on this host version by the Forge" : tier === "listed" ? "installed from a registry record (curated; index verified or allowed unsigned)" : "unlisted source: no curator review, no compatibility data — installed from a git reference, a path or an archive on your consent";
+  return React.createElement("span", { style: { ...styles.badge, ...style }, title, "data-testid": `floofycrew-tier-${row.id}` }, `tier: ${tier}`);
+}
+
 function stateBadge(row) {
   if (row.active) return React.createElement("span", { style: { ...styles.badge, ...styles.ok } }, "active");
   const reason = row.reason || (row.enabled === false ? "UserDisabled" : "inactive");
@@ -190,7 +198,7 @@ export default function FloofyCrewManager() {
     React.createElement(
       "div",
       { style: styles.card },
-      React.createElement("div", { style: { ...styles.row, ...styles.head } }, React.createElement("span", null, "Mod"), React.createElement("span", null, "State"), React.createElement("span", null, "Host compat"), React.createElement("span", null, "Parts (seam)"), React.createElement("span", null, "Actions")),
+      React.createElement("div", { style: { ...styles.row, ...styles.head } }, React.createElement("span", null, "Mod"), React.createElement("span", null, "State"), React.createElement("span", null, "Host compat · source tier"), React.createElement("span", null, "Parts (seam)"), React.createElement("span", null, "Actions")),
       rows.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.6rem 0" } }, "no mods installed (floofy install <mod>)") : null,
       rows.map((row) => {
         const update = updates[row.id];
@@ -205,7 +213,7 @@ export default function FloofyCrewManager() {
             update && update.update ? React.createElement("div", { style: styles.ok, "data-testid": `floofycrew-update-${row.id}` }, `update available: ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : ""}`) : null,
           ),
           React.createElement("div", null, stateBadge(row), row.detail ? React.createElement("div", { style: styles.muted, title: row.detail }, row.detail.length > 90 ? `${row.detail.slice(0, 90)}…` : row.detail) : null),
-          React.createElement("div", null, compatBadge(row), React.createElement("div", null, React.createElement(Warnings, { row }))),
+          React.createElement("div", null, compatBadge(row), tierBadge(row), React.createElement("div", null, React.createElement(Warnings, { row }))),
           React.createElement(Parts, { parts: row.parts }),
           React.createElement(
             "div",

@@ -16,7 +16,7 @@ the SPA file route is declared once per depth (1–4 segments below the mod id).
 | POST | ``/mods/{id}/fault`` | body ``{message, stack, source: "spa"}``: the SPA host reports a failed module; the mod is disabled with ``Error`` |
 | GET | ``/spa/{id}/{file...}`` | an enabled mod's ``spa`` part files from ``<data home>/spa/<id>/`` (``Cache-Control: no-cache``, typed by extension, path-escape safe) |
 | POST | ``/cli`` | body ``{"argv": [...]}``: run one **allowlisted** ``floofy`` command in-process (the manager UI's actions — task 6.7) and reload the Loader when it mutated the mod set |
-| GET | ``/registry`` | the registry cache summary, every source's trust settings and last-refresh verdict, the matrix row for this host, and the update available for each installed mod (graded like the CLI: ``best_version`` against the matrix) |
+| GET | ``/registry`` | the registry cache summary, every source's trust settings and last-refresh verdict, the matrix row for this host, the update available for each installed mod (graded like the CLI: ``best_version`` against the matrix) and each installed mod's source tier (``tiers``, Requirement 8.11) |
 
 The manager UI never gets more than the CLI offers, and less where a question
 needs a human at a keyboard: ``init`` (the consent acknowledgement) and any
@@ -44,7 +44,7 @@ Responder = tuple[int, dict[str, str], bytes]
 #: The ``floofy`` sub-commands the manager UI may run in-process (Requirement 7.3, design "Manager (CLI + UI)").
 #: ``init`` (the consent acknowledgement), ``install`` of arbitrary sources and anything needing a typed
 #: governance confirmation stay CLI-only.
-CLI_ALLOWLIST: frozenset[str] = frozenset({"enable", "disable", "uninstall", "update", "yeet", "apply", "status", "doctor", "profile", "search", "audit", "which", "vanilla"})
+CLI_ALLOWLIST: frozenset[str] = frozenset({"enable", "disable", "uninstall", "update", "yeet", "apply", "status", "doctor", "profile", "search", "info", "list", "audit", "which", "vanilla"})
 #: Commands after which the Loader reloads (the mod set or its flags changed).
 CLI_MUTATING: frozenset[str] = frozenset({"enable", "disable", "uninstall", "update", "yeet", "apply", "profile", "vanilla"})
 
@@ -177,6 +177,7 @@ def registry_response(runtime: Any) -> Responder:
     from floofy_core.registry import IndexCache  # noqa: PLC0415
     from floofy_core.registry_sources import SourceStore  # noqa: PLC0415
     from floofy_core.semver import InvalidVersion, Version  # noqa: PLC0415
+    from floofy_core.tier import tier_for_candidate, tier_of  # noqa: PLC0415
 
     paths = runtime.paths
     cache = IndexCache.load(paths)
@@ -184,15 +185,18 @@ def registry_response(runtime: Any) -> Responder:
     facts = runtime.facts
     row = compat.row_for(facts.edition, facts.channel, facts.version)
     updates: dict[str, Any] = {}
+    tiers: dict[str, str] = {}
     for mod in installed_mods(paths, include_broken=False):
-        key = read_source(mod.dir).get("registryKey") or mod.id
+        source = read_source(mod.dir)
+        key = source.get("registryKey") or mod.id
         best = cache.best_version(str(key), base_version=facts.base_version, edition=facts.edition, host_version=facts.version, channel=facts.channel, compat=compat)
         picked = best.version
         try:
             newer = picked is not None and Version.parse(picked.version) > Version.parse(mod.version)
         except InvalidVersion:
             newer = False
-        updates[mod.id] = {"installed": mod.version, "candidate": picked.version if picked else None, "verdict": best.verdict, "update": newer, "inRegistry": best.entry is not None, "why": best.why, "installedVerdict": row.verdict(mod.id, mod.version) if row is not None else None}
+        tiers[mod.id] = tier_of(source, mod_id=mod.id, version=mod.version, compat_row=row)
+        updates[mod.id] = {"installed": mod.version, "candidate": picked.version if picked else None, "verdict": best.verdict, "update": newer, "inRegistry": best.entry is not None, "why": best.why, "installedVerdict": row.verdict(mod.id, mod.version) if row is not None else None, "tier": tiers[mod.id], "candidateTier": tier_for_candidate(best.verdict) if picked is not None else None}
     sources: list[dict[str, Any]] = []
     try:
         store = SourceStore.load(paths)
@@ -205,7 +209,7 @@ def registry_response(runtime: Any) -> Responder:
         except (OSError, ValueError):
             meta = None
         sources.append({**source.to_dict(), "cache": meta})
-    return _json(200, {"ok": True, "cache": cache.to_dict(), "compat": compat.to_dict(row), "sources": sources, "updates": updates})
+    return _json(200, {"ok": True, "cache": cache.to_dict(), "compat": compat.to_dict(row), "sources": sources, "updates": updates, "tiers": tiers})
 
 
 def spa_response(spa_root: Path, mod_id: str, segments: list[str]) -> Responder:

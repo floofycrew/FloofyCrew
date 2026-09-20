@@ -198,6 +198,20 @@ class CliContext:
             "compat": CompatCache.load(self.home.compat_cache),
         }
 
+    def current_compat_row(self) -> Any | None:
+        """The cached matrix row for the running host (``edition × channel × hostVersion``), or ``None`` — what grades a mod ``tested`` (Requirement 8.11)."""
+        target = self.registry_target()
+        if not target["host_version"]:
+            return None
+        return target["compat"].row_for(target["edition"], target["channel"], target["host_version"])
+
+    def tier_of(self, mod: InstalledMod, compat_row: Any | None = None) -> str:
+        """The source tier of an installed mod (:func:`floofy_core.tier.tier_of`) against the running host's matrix row."""
+        from ..modstore import read_source  # noqa: PLC0415
+        from ..tier import tier_of  # noqa: PLC0415
+
+        return tier_of(read_source(mod.dir), mod_id=mod.id, version=mod.version, compat_row=compat_row if compat_row is not None else self.current_compat_row())
+
     def launcher(self) -> Path | None:
         return find_launcher(self.kirocrew, self.current_payload())
 

@@ -283,7 +283,7 @@ def test_4_import_map_remap_is_what_the_host_evaluates(harness: Harness):
 
 
 def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
-    """The manager page (task 6.7): unofficial banner, mod rows with state/seam/compat, disable through the in-process CLI."""
+    """The manager page (task 6.7, 7.10): unofficial banner, mod rows with state/seam/compat/tier badges, disable through the in-process CLI."""
     client = harness.gw.client()
     assert client.post(f"{API}/reload").status == 200
     enabled_path = FloofyPaths(harness.gw.data_home).enabled
@@ -298,6 +298,7 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
         assert "rimuru-branding 1.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" in row, row
         assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
+        assert page.inner_text('[data-testid="floofycrew-tier-rimuru-branding"]') == "tier: unlisted", "copied in without a registry record: the source tier badge says so (Requirement 8.11)"
         assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')
         healthy = page.inner_text('[data-testid="floofycrew-mod-row-spa-healthy"]')
         assert "spa/spa" in healthy and "SPA host" in healthy

@@ -40,7 +40,9 @@ from typing import Any, Callable
 from floofy_core import __version__ as FRAMEWORK_VERSION
 from floofy_core.governance import LOADER_APP_NAME, GovernanceSnapshot, GovernanceWarning, warnings_for
 from floofy_core.resolver import HostFacts as ResolverHost
+from floofy_core.modstore import read_source
 from floofy_core.resolver import ModRecord, Reason, resolve
+from floofy_core.tier import tier_of
 from floofy_core.validator import validate_mod
 
 from .activation import ActivationError, ModContext, PartHandle, activate_part, deactivate_part, drop_mod_modules, load_part_module
@@ -372,6 +374,7 @@ def boot(deps: BootDeps) -> BootResult:
     for mod_id, mod_dir, manifest in scanned:
         version = str(manifest.get("version") or "0.0.0")
         mod_state = ModState(mod_id, version, name=str(manifest.get("name") or ""), mod_dir=str(mod_dir), parts=_parts(manifest))
+        mod_state.tier = tier_of(read_source(mod_dir), mod_id=mod_id, version=version, compat_row=row)
         is_enabled, why = _is_enabled(mod_id, manifest, enabled)
         if vanilla:
             is_enabled, why = False, "vanilla boot requested (floofy --vanilla): every mod is disabled for this boot only"

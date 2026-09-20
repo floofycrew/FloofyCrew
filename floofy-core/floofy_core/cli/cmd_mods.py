@@ -1,4 +1,4 @@
-"""``floofy search / install / uninstall / enable / disable / update / dev`` (Requirement 7.1, 7.6, 11.3, 11.4, 11.7, 14.2).
+"""``floofy search / info / list / install / uninstall / enable / disable / update / dev`` (Requirement 7.1, 7.6, 8.11, 11.3, 11.4, 11.7, 14.2).
 
 The install flow, in the order the user experiences it:
 
@@ -47,16 +47,24 @@ from ..installer import CONFIRM_KINDS, InstallError, ResolvedSource, disclose, m
 from ..modstore import code_kinds_of, read_source
 from ..registry import IndexCache
 from ..semver import InvalidVersion, Version
+from ..tier import describe, tier_for_candidate
 from .actions import kind_context, reapply, reload_gateway
 from .context import CliContext, CliError
 
-__all__ = ["register", "install", "uninstall", "enable", "disable", "search", "update", "dev"]
+__all__ = ["register", "install", "uninstall", "enable", "disable", "search", "info", "list_mods", "update", "dev"]
 
 
 def register(sub: argparse._SubParsersAction) -> None:
-    s = sub.add_parser("search", help="search the registry cache (floofy registry refresh fills it)")
+    s = sub.add_parser("search", help="search the registry cache (floofy registry refresh fills it); shows the tier an install would have here")
     s.add_argument("query", nargs="?", default="", help="words to match in id, name, description and tags")
     s.set_defaults(handler=search)
+
+    n = sub.add_parser("info", help="everything about one mod: manifest summary, source record, tier, compat verdict, files")
+    n.add_argument("id", help="an installed mod id, or one in the registry cache")
+    n.set_defaults(handler=info)
+
+    l = sub.add_parser("list", help="installed mods, one line each: version, enabled, tier, source")
+    l.set_defaults(handler=list_mods)
 
     i = sub.add_parser("install", help="install a mod from a path, an archive, an https URL, a git reference (ssh://…@tag, https://…@tag) or the registry (id[@version])")
     i.add_argument("ref", help="mod directory, .zip/.tar.gz, https://… URL, git reference ssh://<host>/<path>[@<tag>][#<subdir>] / https://<host>/<owner>/<repo>[.git][@<tag>], or registry id[@version]")
@@ -105,11 +113,13 @@ def search(ctx: CliContext, args: argparse.Namespace) -> int:
     cache = IndexCache.load(ctx.home)
     hits = cache.search(args.query)
     target = ctx.registry_target()
+    installed = {mod.id: mod for mod in ctx.mods(include_broken=False)}
     rows = []
     for entry in hits:
         newest = entry.versions[-1] if entry.versions else None
         best = cache.best_version(entry.key, **target)
-        rows.append({**entry.to_dict(), "newest": newest.version if newest else None, "worksHere": best.version.version if best.version else None, "verdict": best.verdict, "why": best.why})
+        # the tier an install from this record WOULD have here (Requirement 8.11): tested when the graded verdict is tested, else listed
+        rows.append({**entry.to_dict(), "newest": newest.version if newest else None, "worksHere": best.version.version if best.version else None, "verdict": best.verdict, "why": best.why, "tier": tier_for_candidate(best.verdict), "record": "link" if best.version is not None and best.version.link is not None else "archive", "installed": installed[entry.id].version if entry.id in installed else None})
     ctx.set_result(query=args.query, cache=cache.to_dict(), mods=rows, compat=target["compat"].to_dict(target["compat"].row_for(target["edition"], target["channel"], target["host_version"]) if target["host_version"] else None))
     if not cache.mods:
         ctx.say("the registry cache is empty: " + ("; ".join(cache.notes) if cache.notes else "no mods listed"))
@@ -117,7 +127,90 @@ def search(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.say(f"{len(rows)} mod(s) match {args.query!r} in the registry cache ({cache.source}):")
     for row in rows:
         works = f"works here: {row['worksHere']}" + (f" ({row['verdict']})" if row["verdict"] else " (untested)") if row["worksHere"] else f"nothing known to work on this host ({row['why']})"
-        ctx.say(f"  {row['key']} — {row['name']}: {row['description'][:80]} [newest {row['newest']}; {works}]")
+        ctx.say(f"  {row['key']} — {row['name']}: {row['description'][:80]} [newest {row['newest']}; {works}; tier {row['tier']}]" + (f" (installed {row['installed']})" if row["installed"] else ""))
+    return 0
+
+
+# --- info / list --------------------------------------------------------------------------------------
+
+
+def info(ctx: CliContext, args: argparse.Namespace) -> int:
+    """``floofy info <id>``: the manifest summary, the source record, the tier, the compat verdict and the files (Requirement 8.11)."""
+    row = ctx.current_compat_row()
+    installed = next((m for m in ctx.mods() if m.id == args.id), None)
+    cache = IndexCache.load(ctx.home)
+    entry = cache.find(args.id)
+    if installed is None and entry is None:
+        raise CliError(f"{args.id!r} is neither installed nor in the registry cache (floofy search; floofy registry refresh)")
+    result: dict[str, Any] = {"id": args.id, "installed": None, "registry": None}
+    if installed is not None:
+        manifest = installed.manifest
+        source = read_source(installed.dir)
+        tier = ctx.tier_of(installed, row)
+        result["installed"] = {
+            "version": installed.version,
+            "name": installed.name,
+            "description": str(manifest.get("description") or ""),
+            "authors": [str(a) for a in (manifest.get("authors") or [])],
+            "license": manifest.get("license"),
+            "kirocrew": manifest.get("kirocrew"),
+            "dir": str(installed.dir),
+            "link": installed.is_link,
+            "problem": installed.problem,
+            "enabled": ctx.enabled().get(installed.id, not installed.has_code),
+            "source": source,
+            "tier": tier,
+            "tierMeaning": describe(tier),
+            "verdict": row.verdict(installed.id, installed.version) if row is not None else None,
+            "run": row.runs.get(f"{installed.id}@{installed.version}") if row is not None else None,
+            "parts": [{"index": i, "kind": p.get("kind"), "side": p.get("side"), "path": p.get("path")} for i, p in enumerate(installed.parts)],
+            "files": [{"path": f.get("path"), "sha256": f.get("sha256")} for f in (manifest.get("files") or []) if isinstance(f, dict)],
+        }
+    if entry is not None:
+        target = ctx.registry_target()
+        best = cache.best_version(entry.key, **target)
+        result["registry"] = {**entry.to_dict(), "worksHere": best.version.version if best.version else None, "verdict": best.verdict, "why": best.why, "tier": tier_for_candidate(best.verdict)}
+    ctx.set_result(**result)
+    if installed is not None:
+        i = result["installed"]
+        ctx.say(f"{i['name']} ({installed.id} {i['version']}) — installed{' (dev link)' if i['link'] else ''}{'; PROBLEM: ' + i['problem'] if i['problem'] else ''}")
+        ctx.say(f"  {i['description'][:200]}")
+        ctx.say(f"  authors: {', '.join(i['authors']) or '-'}; license: {i['license'] or '-'}; host range: {(i['kirocrew'] or {}).get('version', '*') if isinstance(i['kirocrew'], dict) else '*'}")
+        source = i["source"]
+        where = f"{source.get('source', 'unknown')} {source.get('ref', '')}".strip()
+        if source.get("commit"):
+            where += f" at commit {str(source['commit'])[:12]}"
+        ctx.say(f"  source: {where or 'no record (copied in by hand)'}; installed {source.get('installedAt', '?')}")
+        if source.get("link"):
+            link = source["link"]
+            ctx.say(f"  link record: {link.get('repo')} at {link.get('tag')} (commit {str(link.get('commit') or '')[:12]}, manifest {str(link.get('manifestSha256') or '')[:12]}…)")
+        ctx.say(f"  tier: {i['tier']} — {i['tierMeaning']}")
+        ctx.say(f"  compat on this host: {i['verdict'] or 'no matrix cell'}" + (f" (run {i['run']})" if i["run"] else ""))
+        ctx.say(f"  enabled: {i['enabled']}; parts: " + ", ".join(f"{p['kind']}/{p['side']} {p['path']}" for p in i["parts"]))
+        ctx.say(f"  files ({len(i['files'])}):")
+        for f in i["files"]:
+            ctx.say(f"    {str(f['sha256'])[:12]}  {f['path']}")
+    if entry is not None:
+        r = result["registry"]
+        newest = entry.versions[-1].version if entry.versions else None
+        ctx.say(f"{'also ' if installed is not None else ''}in the registry cache ({entry.source}): {entry.key} newest {newest}; works here: {r['worksHere'] or 'nothing'}" + (f" ({r['verdict']})" if r["verdict"] else "") + f"; tier of an install from here: {r['tier']}")
+    return 0
+
+
+def list_mods(ctx: CliContext, args: argparse.Namespace) -> int:
+    """``floofy list``: one line per installed mod — id, version, enabled, tier, source (Requirement 8.11)."""
+    row = ctx.current_compat_row()
+    enabled = ctx.enabled()
+    rows: list[dict[str, Any]] = []
+    for mod in ctx.mods():
+        source = read_source(mod.dir)
+        rows.append({"id": mod.id, "version": mod.version, "name": mod.name, "enabled": enabled.get(mod.id, not mod.has_code), "tier": ctx.tier_of(mod, row), "source": source.get("source"), "ref": source.get("ref"), "commit": source.get("commit"), "link": mod.is_link, "problem": mod.problem})
+    ctx.set_result(mods=rows)
+    if not rows:
+        ctx.say("no mods installed (floofy install <id | path | archive | https URL | git reference>)")
+        return 0
+    for r in rows:
+        ctx.say(f"  {r['id']} {r['version']}  enabled={r['enabled']}  tier={r['tier']}  source={r['source'] or 'none'}{' ' + str(r['ref']) if r['ref'] else ''}" + (f" @{str(r['commit'])[:12]}" if r["commit"] else "") + (" (dev link)" if r["link"] else "") + (f" PROBLEM: {r['problem']}" if r["problem"] else ""))
     return 0
 
 

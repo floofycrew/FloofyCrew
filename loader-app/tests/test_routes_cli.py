@@ -69,7 +69,8 @@ def test_registry_route_reports_update_availability(tmp_path: Path, monkeypatch)
     assert empty["sources"] == [] and empty["compat"]["row"] is None
     data.index_cache.write_text(json.dumps({"schema": 1, "source": "test", "mods": [{"id": "alpha", "name": "Alpha", "versions": [{"version": "1.1.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {"0.7.0.5": "expected"}, "files": [{"url": "https://example.invalid/a.zip", "sha256": "0" * 64}]}]}]}), encoding="utf-8")
     document = _body(registry_response(runtime))
-    assert document["updates"]["alpha"] == {"installed": "1.0.0", "candidate": "1.1.0", "verdict": "expected", "update": True, "inRegistry": True, "why": "", "installedVerdict": None}
+    assert document["updates"]["alpha"] == {"installed": "1.0.0", "candidate": "1.1.0", "verdict": "expected", "update": True, "inRegistry": True, "why": "", "installedVerdict": None, "tier": "unlisted", "candidateTier": "listed"}
+    assert document["tiers"] == {"alpha": "unlisted"}, "a mod without an install record is unlisted (Requirement 8.11)"
     assert document["cache"]["mods"] == 1
     # the matrix row for this host grades the candidates (Requirement 9.2) and the sources carry their last verdict
     facts = runtime.facts
@@ -83,3 +84,8 @@ def test_registry_route_reports_update_availability(tmp_path: Path, monkeypatch)
     assert alpha["update"] is False and alpha["candidate"] is None and "1.1.0 (broken on" in alpha["why"] and alpha["installedVerdict"] == "tested"
     assert graded["compat"]["row"]["mods"] == {"alpha@1.0.0": "tested", "alpha@1.1.0": "broken"}
     assert graded["sources"][0]["label"] == "ex" and graded["sources"][0]["cache"]["signature"]["status"] == "verified" and graded["sources"][0]["allowUnsigned"] is False
+    # a registry install record lifts the tier to listed, and the matrix row's `tested` cell for this host to tested
+    (data.mods / "alpha" / ".floofy").mkdir(parents=True, exist_ok=True)
+    (data.mods / "alpha" / ".floofy" / "source.json").write_text(json.dumps({"source": "registry", "ref": "alpha@1.0.0", "tier": "listed", "registryKey": "alpha"}), encoding="utf-8")
+    tested = _body(registry_response(runtime))
+    assert tested["tiers"] == {"alpha": "tested"} and tested["updates"]["alpha"]["tier"] == "tested"

@@ -28,10 +28,12 @@ unofficial and says so in every banner.
 | `init` | acknowledge the one-time warning, install the Loader app (through the host's App Kit) and the re-apply trigger; offers the `agent.apps_trusted` grant | `--i-accept-the-risk` (automation; recorded), `--reaccept`, `--loader-app PATH`, `--no-loader-app`, `--reinstall-loader`, `--no-grant`, `--no-trigger`, `--early` (also the early shim) |
 | `deinit` | remove the trigger(s), the early shim and the Loader app; restore every payload to vanilla | `--purge` (also the data home: mods, consent, audit log), `--keep-loader-app` |
 | `doctor` | diagnose: host edition/version/channel/payloads, Loader state, early shim, triggers, governance warnings, consent record, drift per payload, the compat verdict for this host version | `--no-live` |
-| `status` | installed mods with state, seam, compat badge, typed reason and warnings; dormant payloads marked | `--no-live` |
+| `status` | installed mods with state, seam, compat badge, source tier, typed reason and warnings; dormant payloads marked | `--no-live` |
+| `list` | installed mods, one line each: version, enabled, source tier, source kind and reference, commit | |
+| `info <id>` | everything about one mod — manifest summary, the install record (kind, reference, commit, link facts), the source tier and what it means, the compat verdict for this host, parts and files; for a mod that is only in the registry cache, its record and the tier an install would have | |
 | `vanilla` | boot the host with every mod disabled, once (marker consumed by the next gateway start) | `--cancel` |
-| `search [query]` | search the registry cache (`registry refresh` fills it); shows the newest version known to work here | |
-| `install <id[@version] \| path \| archive \| https URL>` | disclose parts, seams, declared hosts and flags; confirm code kinds; stage into `pending/` while a gateway runs, else install now; code mods land disabled | `--now`, `--enable`, `--sha256`, `--confirm-governance-target PATH` (per file, typed), `--accept-flags` |
+| `search [query]` | search the registry cache (`registry refresh` fills it); shows the newest version known to work here, the record shape and the source tier an install would have (`listed`, or `tested` on a `tested` matrix cell) | |
+| `install <id[@version] \| path \| archive \| https URL \| git reference>` | disclose parts, seams, declared hosts, flags and the source tier; confirm code kinds; stage into `pending/` while a gateway runs, else install now; code mods land disabled. A **git reference** — `ssh://<host>/<path>[@<tag>][#<subdir>]`, `https://<host>/<owner>/<repo>[.git][@<tag>][#<subdir>]` — is shallow-cloned at the tag with your own git credentials, its `files[]` verified and `floofy validate` run on the checkout, and the disclosure gains the line *unlisted source: no curator review, no compatibility data*, confirmed by typing `I ACCEPT` ([installing-from-a-link.md](installing-from-a-link.md)); a registry link record is resolved through the same clone and held to the record's commit, manifest hash and files | `--now`, `--enable`, `--sha256`, `--ref BRANCH\|COMMIT` (git reference without `@tag`, on purpose), `--accept-unlisted-source` (automation; recorded — `--yes` never accepts the line), `--confirm-governance-target PATH` (per file, typed), `--accept-flags` |
 | `uninstall <id>` | reverse the seam parts, restore recorded values, re-apply the patch set | `--now`, `--keep-config` |
 | `enable <id>` / `disable <id>` | flip the flag, reload a running gateway, re-apply patches | `--no-reload` |
 | `update [ids] [--all]` | move installed registry mods to the newest version the matrix knows to work on this host | `--check`, `--now`, `--accept-flags` |
@@ -43,7 +45,7 @@ unofficial and says so in every banner.
 | `new <kind>` | scaffold a valid mod: manifest, README, LICENSE stub, smoke test, CI workflow | `--id`, `--name`, `--dir`, `--author` |
 | `yeet [ids]` | park mods in the per-host-version quarantine, list it, or restore a parked set | `--list`, `--restore HOSTVER`, `--reason` |
 | `hold` | pause the host's own auto-update — explicit and logged, never a default | `--duration`, `--release` |
-| `profile {list,save,use,export,import}` | named mod sets with pinned versions (lockfiles); export/import as one file | |
+| `profile {list,save,use,export,import}` | named mod sets with pinned versions (lockfiles); export/import as one file | `use`: `--now`, `--check`, `--confirm-governance-target PATH`, `--accept-unlisted-source` |
 | `registry {add,remove,list,refresh,defaults,host-registry}` | sources and their trust, the local cache, the edition's default source (verified against the pinned key), the host App Store rows | `add`: `--trust`, `--allow-unsigned` (audited), `--public-key`, `--key-id`, `--name`, `--host-registry` |
 | `audit` | read the audit log (every mutating operation) | `--tail N`, `--op OP` |
 | `which <sha256>` | resolve a file's hash to `mod@version` (registry cache and installed mods) | |
@@ -59,7 +61,7 @@ route, which runs an allowlisted subset of these commands in-process.
 
 ```
 <host home>/floofy/
-  consent.json      the acknowledgement          mods/<id>/           installed mods (+ .floofy/ runtime state)
+  consent.json      the acknowledgement          mods/<id>/           installed mods (+ .floofy/ runtime state: source.json — kind, reference, commit, tier)
   enabled.json      per-mod flags                pending/             staged installs and removals
   deploy/<payload>.json  deployment manifests    quarantine/<hostver>/  yeeted mods per host version
   cache/            registry index + compat      profiles/            named sets, floofy.lock.json
@@ -72,4 +74,4 @@ host; FloofyCrew never writes under a host payload root except through the
 Patcher, with a manifest and backups ([patching.md](patching.md)).
 
 ---
-Covers Requirements 6.1, 6.6, 7.1, 7.2, 7.4, 7.5, 7.6, 8.4, 8.5, 14.1, 14.2.
+Covers Requirements 6.1, 6.6, 7.1, 7.2, 7.4, 7.5, 7.6, 8.4, 8.5, 8.8, 8.11, 14.1, 14.2.

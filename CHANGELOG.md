@@ -13,6 +13,38 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Added
 
+- `floofy install <git reference>` — `ssh://<host>/<path>@<tag>` or
+  `https://<host>/<owner>/<repo>[.git]@<tag>` (optional `#<subdirectory>`): a
+  shallow clone at the tag with your own git credentials, the commit recorded,
+  every manifest `files[]` entry verified, `floofy validate` on the checkout, and
+  one extra consent line — *unlisted source: no curator review, no compatibility
+  data* — confirmed by typing `I ACCEPT` or with `--accept-unlisted-source`
+  (recorded); `--yes` never accepts it. An unpinned reference needs an explicit
+  `--ref <branch|commit>`. Only `ssh://` and `https://` are accepted
+  (Requirement 8.8).
+- Link-based registry records (Requirement 8.9): a version record may carry
+  `link{repo, tag, commit, manifestSha256[, path]}` and the checkout's
+  `files[]{path, sha256, size}` instead of archive URLs; the client resolves it
+  through the same clone and refuses a moved tag, a changed manifest or any
+  differing file. `registry_tools build --resolve-links`, `validate-submission
+  --record <id>@<version>`, `bootstrap --record link --link-source DIR --replace`;
+  the internal registry lists mods by link to the tag `<id>-<version>` of the
+  `FloofyCrew` package, which now ships `mods/<id>/`.
+- The internal registry as a gated package (Requirement 8.10): rendered by
+  `init_registry_repo.sh --edition internal` — a standard-library gate module and
+  its tests (the package's own build is the merge gate: records, reserved names, a
+  `contact` per mod, tag rule, manifest hash, signatures, `index.json` /
+  `app-registry.json` / README mod table in sync, every link record cloned at its
+  tag and compared), the adapter's build files and CR template, the vendored
+  tooling under `vendor/`, `RENDERED.md`; `registry_tools readme [--check]`
+  generates the README mod table.
+- The source tier (Requirement 8.11): `unlisted` (a git reference, a path or an
+  archive), `listed` (a registry record), `tested` (listed + a `tested` matrix
+  cell for the running host) — in `floofy search` (the tier an install would
+  have), the new `floofy info <id>` and `floofy list`, `floofy status`, the
+  Loader's `/state` and `/registry` payloads and the manager page's tier badge.
+  The install record (`.floofy/source.json`) and the audit row of an install
+  carry `tier`, `commit` and the clone facts. Docs: `installing-from-a-link.md`.
 - Branding: the FloofyCrew mark (fox-eared fluffy ghost with a brush tail on the
   sunset card), icon PNGs, `favicon.ico`, a `currentColor` mono mark and the
   horizontal wordmark, all generated from `branding/gen_logos.py`. The Loader app

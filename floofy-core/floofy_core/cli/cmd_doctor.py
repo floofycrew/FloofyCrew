@@ -327,6 +327,7 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
     base = str(current.host_version.base) if current else "0.0.0"
     compat = compat_row(ctx)["row"]
     enabled = ctx.enabled()
+    compat_row_obj = ctx.current_compat_row()
     rows: list[dict[str, Any]] = []
     state_mods = (state or {}).get("mods") or {}
     kctx = None
@@ -349,6 +350,7 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
             "detail": published.get("detail") if published else (mod.problem or ""),
             "quarantined": published.get("quarantined", False),
             "hostCompat": host_compat_badge(mod.manifest, base, compat, mod.id, mod.version) if not mod.problem else "unknown",
+            "tier": ctx.tier_of(mod, compat_row_obj),
             "parts": _merge_parts(published.get("parts") or [{"index": i, "kind": p.get("kind"), "side": p.get("side"), "path": p.get("path"), "status": "unknown", "seam": _seam(p.get("kind")), "modifiesPayload": p.get("kind") == "patch"} for i, p in enumerate(mod.parts)], seam_status),
             "warnings": published.get("warnings") or [],
             "governance": _merge_governance(published.get("governance") or [], seam_status),
@@ -362,7 +364,7 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
     for row in rows:
         marker = "on " if row["active"] else ("--" if row["enabled"] is False else "off")
         reason = f" reason={row['reason']}" if row["reason"] else ""
-        ctx.say(f"  [{marker}] {row['id']} {row['version']}  enabled={row['enabled']} compat={row['hostCompat']}{reason}" + (f" — {row['detail']}" if row["detail"] else "") + (" (dev link)" if row["link"] else ""))
+        ctx.say(f"  [{marker}] {row['id']} {row['version']}  enabled={row['enabled']} compat={row['hostCompat']} tier={row['tier']}{reason}" + (f" — {row['detail']}" if row["detail"] else "") + (" (dev link)" if row["link"] else ""))
         for part in row["parts"]:
             seam_note = f"; on disk: {part['seamStatus']}" if part.get("seamStatus") else ""
             ctx.say(f"       part {part['index']} {part['kind']}/{part.get('side', '?')} {part.get('path', '')}: {part.get('status', '?')} via {part.get('seam', '')}{seam_note}" + (" [modifies payload files]" if part.get("modifiesPayload") else ""))

@@ -108,6 +108,20 @@ contacts are declared in `floofy.json` `network.hosts[]` and shown at install;
 code contains a plaintext `http://` / `ws://` URL to a non-loopback host or an
 undeclared host — a flag you may accept ([python-api.md](python-api.md)).
 
+## Unlisted sources — your explicit choice
+
+`floofy install <git reference>` (`ssh://…@<tag>`, `https://…[.git]@<tag>`)
+clones a repository nobody but you vouches for. The manager verifies what the
+mod says about itself (`floofy validate`, every `files[]` hash) and records the
+commit, then adds one line to the consent screen — **unlisted source: no curator
+review, no compatibility data** — which you confirm like the one-time warning:
+typed `I ACCEPT`, or `--accept-unlisted-source` for automation you own, recorded
+in the audit row as such. `--yes` never accepts it. Nothing about the source is
+trusted beyond that consent, and the mod carries the source tier `unlisted`
+wherever it appears (`search`, `info`, `list`, `status`, the manager page); a
+registry record is `listed`, and `tested` when the matrix says so for your host
+([installing-from-a-link.md](installing-from-a-link.md)).
+
 ## Registry trust controls — yours
 
 The defaults are safe: an index whose signature does not verify against the keys
@@ -134,7 +148,8 @@ Every mutating operation appends one JSON line to `<host home>/floofy/audit.json
 `net-denied`, …), the mod and version,
 the payload and files touched, the actor, the result, and `consentRef` — the
 warning version and the hash of the exact `consent.json` the operation ran
-under. `floofy audit` reads it. Governance-crossing steps and trust loosenings
+under; an `install` row also carries the source (kind, reference, commit), the
+tier and, for a git reference, how the unlisted-source line was accepted. `floofy audit` reads it. Governance-crossing steps and trust loosenings
 are recorded with their confirmation. This is in addition to whatever the host's
 own audit records for app and theme installs.
 
@@ -148,4 +163,4 @@ trigger, the early shim and the Loader app and restores every payload; `floofy
 ([updating.md](updating.md)).
 
 ---
-Covers Requirements 2.8, 5.9, 5.10, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8.
+Covers Requirements 2.8, 5.9, 5.10, 8.8, 8.11, 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8.
