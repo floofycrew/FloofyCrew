@@ -1,6 +1,8 @@
 {
   "schema": 1,
   "edition": "external",
+  "sourceLabel": "github:floofycrew/floofycrew-registry",
+  "floofycrewRepo": "https://github.com/floofycrew/FloofyCrew",
   "sources": [
     {
       "name": "floofycrew",

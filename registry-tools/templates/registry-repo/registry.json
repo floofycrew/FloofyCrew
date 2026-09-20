@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "source": "{{SOURCE_LABEL}}",
+  "edition": "{{EDITION}}",
+  "keyId": "{{KEY_ID}}",
+  "archiveUrlTemplate": "{{ARCHIVE_URL_TEMPLATE}}",
+  "hostRegistry": {
+    "repo": "{{HOST_REPO}}",
+    "branch": "{{HOST_BRANCH}}"
+  },
+  "floofycrew": "{{FLOOFYCREW_REPO}}"
+}

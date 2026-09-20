@@ -1,0 +1,3 @@
+# archives built by init_registry_repo.sh for upload as release assets (public edition); never committed
+.dist/
+__pycache__/

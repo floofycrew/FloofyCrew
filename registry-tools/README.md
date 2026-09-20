@@ -47,8 +47,24 @@ assets of the mod's own repository, tagged identically to the version
 `mods/<id>/<version>/` directory; `templates/ci-validate-submission.yml`
 downloads the named assets and runs `validate-submission` against them, then
 `build --check`. `templates/ci-publish-index.yml` (optional) rebuilds and signs
-on merge with the private key held as a repository secret. `templates/registry-repo/`
-and `scripts/init_registry_repo.sh` instantiate a new registry (task 7.5).
+on merge with the private key held as a repository secret.
+
+## Bootstrapping a registry (task 7.5)
+
+`scripts/init_registry_repo.sh <target> --edition public|internal [--host-version V
+--channel C --payload <payload copy> --verdict tested|expected --run URL --sign KEY
+--seed MOD_ID | --no-seed]` instantiates `templates/registry-repo/` for one
+edition: every value (source label, signing key id, archive URL template, host
+App Store row, FloofyCrew repository) comes from the edition adapter's
+`registry.json` — found by its `edition` field, so nothing here names an edition.
+It seeds the first records from the monorepo's `mods/<id>/` (manifest copy, a
+deterministic archive — byte-identical across editions — and `release.json`),
+writes the first `compat.json` row (the framework block measured offline against
+the payload copy: bundle fingerprints + Python anchors), builds `index.json` and
+`app-registry.json` and signs them. A GitHub-hosted registry also gets the two CI
+workflows. Archives land under `archives/<id>/` when the edition's URL template
+points into the repository, else under `.dist/` (gitignored) for upload as a
+release asset. `python -m registry_tools.bootstrap --help` lists the options.
 
 ## Signing
 

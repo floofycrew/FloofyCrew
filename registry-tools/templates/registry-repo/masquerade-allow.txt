@@ -1,0 +1,4 @@
+# Mod ids the curators cleared of the host-name masquerade check, one per line.
+# The check (registry_tools validate-submission) flags an id or display name that
+# reads as the host's or its vendor's name after homoglyph normalisation. List an
+# id here only after reviewing that the mod is honest about what it is.
