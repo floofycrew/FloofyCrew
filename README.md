@@ -14,7 +14,7 @@ the public open-source edition from one codebase.
 > every mod you install is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md)
 > before `floofy init`.
 
-Status: **1.0.0 — the first release.** Every package of the plan is
+Status: **1.0.1** (patch on the 1.0.0 first release). Every package of the plan is
 implemented; the internal package and the public release tree are built
 reproducibly by `packaging/`; the compatibility matrix rows come from the Forge.
 What the release supports is in [CHANGELOG.md](CHANGELOG.md), in
@@ -43,7 +43,7 @@ two-track measurements.
 One repository, one shared core, two thin edition adapters (design decision
 DR-3). The shared core and the docs are edition-neutral by construction; CI
 enforces it, and CI measures that ≥ 80 % of the shipped files are byte-identical
-across the two editions (86.7 % of files, 95.8 % of bytes on 1.0.0).
+across the two editions (87.1 % of files, 95.7 % of bytes on the current tree; the per-release figures are in `docs/two-track.md`).
 
 | Path | What |
 |---|---|

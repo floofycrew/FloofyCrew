@@ -27,7 +27,10 @@ CONFIG_PATH = Path(__file__).resolve().with_name("registry.json")
 
 @lru_cache(maxsize=1)
 def registry_config() -> dict[str, Any]:
-    document = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    from floofy_core.resources import read_package_text  # noqa: PLC0415 - stdlib-only core module
+
+    # importlib.resources, not CONFIG_PATH.read_text(): the zipapp form of floofy cannot read a path inside itself
+    document = json.loads(read_package_text(__package__, "registry.json", fallback=CONFIG_PATH))
     if not isinstance(document, dict):
         raise ValueError(f"{CONFIG_PATH} is not a JSON object")
     return document
