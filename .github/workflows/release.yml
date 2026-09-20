@@ -2,8 +2,9 @@ name: release
 
 # The public track (task 9.2; Requirement 10.4, 10.5): a `vX.Y.Z` (or `floofycrew-vX.Y.Z`)
 # tag builds the public release tree twice (byte-identical), refuses internal
-# identifiers in the artifacts, installs the wheel into a scratch venv, attaches the assets to the GitHub
-# release, publishes the Loader app tree to the generated `loader-app` branch
+# identifiers in the artifacts, measures the byte-identity across editions and
+# installs the same mod archive on both, installs the wheel into a scratch venv,
+# attaches the assets to the GitHub release, publishes the Loader app tree to the generated `loader-app` branch
 # (a federated app registry the host can clone) and, when a registry token is
 # configured, stamps the FloofyCrew version into the public registry's index
 # through registry_tools (a pull request; the compatibility rows themselves come
@@ -53,6 +54,11 @@ jobs:
           python scripts/check_no_internal_identifiers.py --paths build/public/app build/public/install.sh build/public/README.md build/public/RELEASE.md build/public/app-registry.json
           rm -rf /tmp/wheel && mkdir /tmp/wheel && (cd /tmp/wheel && unzip -q "$GITHUB_WORKSPACE"/build/public/dist/floofycrew-*.whl)
           python scripts/check_no_internal_identifiers.py --root /tmp/wheel --allowlist /dev/null --paths floofy_core floofy_edition_public "floofycrew-$VERSION.dist-info"
+
+      - name: Byte-identity across editions (>= 80 % of shipped files) and the same archive on both
+        run: |
+          python scripts/artifact_identity_report.py
+          python scripts/install_both_editions.py
 
       - name: The wheel installs into a scratch venv and floofy runs
         run: |

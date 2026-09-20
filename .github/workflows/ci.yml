@@ -18,6 +18,27 @@ jobs:
           python-version: "3.12"
       - run: python scripts/check_no_internal_identifiers.py
 
+  two-track:
+    # One codebase, two editions (design DR-3): the shared core, Loader app and
+    # SPA host ship byte-identical (>= 80 % of shipped files; only the adapters
+    # differ) and the same mod archive installs and activates on both editions
+    # (Requirement 10.3, 10.4). Both scripts are standard-library only.
+    name: two-track byte-identity and same-archive install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Byte-identity across editions
+        run: python scripts/artifact_identity_report.py
+      - name: The same mod archive installs on both editions
+        run: python scripts/install_both_editions.py
+      - name: The release trees build reproducibly
+        run: |
+          python packaging/internal/build.py --check
+          python packaging/public/build.py --check
+
   test:
     name: pytest
     runs-on: ubuntu-latest
