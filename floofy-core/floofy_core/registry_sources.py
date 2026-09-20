@@ -405,6 +405,7 @@ def refresh(home: DataHome, store: SourceStore, *, opener: Callable[..., Any] | 
             signature = fetch("index.json.sig", optional=True)
             compat_bytes = fetch("compat.json", optional=True)
             compat_signature = fetch("compat.json.sig", optional=True) if compat_bytes is not None else None
+            app_registry = fetch("app-registry.json", optional=True)
         except InstallError as exc:
             record.update({"error": str(exc), "usable": False})
             outcome.sources.append(record)
@@ -424,7 +425,7 @@ def refresh(home: DataHome, store: SourceStore, *, opener: Callable[..., Any] | 
         verdict = VERIFIER(index_bytes, signature, source)
         usable = is_usable(verdict.status, source)
         generated_at = document.get("generatedAt") if isinstance(document.get("generatedAt"), str) else None
-        record.update({"signature": verdict.to_dict(), "usable": usable, "mods": len(document["mods"]), "compat": compat_bytes is not None, "declaredSource": document.get("source") if isinstance(document.get("source"), str) else None, "generatedAt": generated_at})
+        record.update({"signature": verdict.to_dict(), "usable": usable, "mods": len(document["mods"]), "compat": compat_bytes is not None, "declaredSource": document.get("source") if isinstance(document.get("source"), str) else None, "generatedAt": generated_at, "appRegistry": app_registry is not None, "hostRegistry": dict(source.host_registry) if source.host_registry else None})
         if not usable:
             record["refusal"] = refusal_text(verdict.status, source)
         elif not verdict.verified:

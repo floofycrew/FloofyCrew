@@ -271,6 +271,38 @@ def test_9_loader_tag_is_patched_into_the_served_shell(gateway: ScratchGateway):
     assert served.status == 200 and b"createHost" in served.body and served.headers["cache-control"] == "no-cache"
 
 
+def test_9b_host_registry_operator_row_round_trips_through_put(gateway: ScratchGateway):
+    """Requirement 8.6: FloofyCrew's operator row lands via PUT /api/apps/registries, respects the pinned ids, and is removable."""
+    from floofy_core.gateway import GatewaySession
+    from floofy_core.hostregistry import REGISTRIES_ROUTE, HostRegistryError, HostRegistryRow, apply_row, current_rows, remove_row
+
+    session = GatewaySession(gateway.home, int(gateway.ready["port"]), token=str(gateway.ready["token"]))
+    before = current_rows(gateway.home, session)
+    assert before["how"] == "gateway" and before["registries"] == []
+    pinned_ids = [p["name"] for p in before["pinned"]]
+    row = HostRegistryRow("floofycrew-test", "https://git.example/floofycrew/floofycrew-registry", "main")
+    outcome = apply_row(gateway.home, row, session=session, pinned_ids=pinned_ids)
+    assert outcome["how"] == "gateway" and outcome["written"] is True and outcome["rows"][-1]["trust"] == "index"
+    listed = session.get(REGISTRIES_ROUTE).json()
+    assert [r["name"] for r in listed["registries"]] == ["floofycrew-test"] and listed["registries"][0]["repo"] == row.repo and listed["registries"][0]["branch"] == "main"
+    assert [p["name"] for p in listed["pinned"]] == pinned_ids, "the build's pinned rows are reported separately and untouched"
+    on_disk = json.loads((gateway.home / "config.json").read_text(encoding="utf-8"))["registries"]
+    assert on_disk == [{"name": "floofycrew-test", "repo": row.repo, "branch": "main", "trust": "index"}], "the host persisted the operator row (routes.py L4029)"
+    again = apply_row(gateway.home, row, session=session, pinned_ids=pinned_ids)
+    assert again["written"] is False, "idempotent"
+    for pinned in pinned_ids:
+        with pytest.raises(HostRegistryError, match="pins"):
+            apply_row(gateway.home, HostRegistryRow(pinned, row.repo, "main"), session=session, pinned_ids=pinned_ids)
+    if pinned_ids:
+        refused = session.request("PUT", REGISTRIES_ROUTE, {"registries": [{"name": pinned_ids[0], "repo": row.repo, "branch": "main"}]})
+        assert refused.status == 400 and "this build" in refused.body.decode("utf-8"), "the host itself refuses a pinned name (routes.py L3950)"
+    with pytest.raises(HostRegistryError, match="never plaintext"):
+        apply_row(gateway.home, HostRegistryRow("plain", "http://git.example/x/y", "main"), session=session)
+    removed = remove_row(gateway.home, "floofycrew-test", session=session)
+    assert removed["removed"] is True and session.get(REGISTRIES_ROUTE).json()["registries"] == []
+    assert json.loads((gateway.home / "config.json").read_text(encoding="utf-8"))["registries"] == []
+
+
 def test_4_vanilla_boot_when_the_loader_itself_fails(gateway: ScratchGateway):
     """A second gateway on the same scratch home with the self-test failure switch: the host boots as shipped."""
     gateway.stop()

@@ -29,6 +29,7 @@ import json
 from typing import Any
 
 from ..audit import read_audit
+from ..hostregistry import DEFAULT_ROW_NAME, HostRegistryError, HostRegistryRow, apply_row, current_rows, remove_row
 from ..installer import InstallError
 from ..registry import IndexCache
 from ..registry_sources import STATUS_VERIFIED, TRUST_LEVELS, Source, SourceStore, rebuild_merged, refresh
@@ -55,13 +56,18 @@ def register(sub: argparse._SubParsersAction) -> None:
     add.add_argument("--public-key", default=None, help="pin the source's Ed25519 public key (base64 or hex) in addition to the edition's pinned keys")
     add.add_argument("--name", default=None, help="a short name for the source (also the namespace prefix when a mod id collides across sources)")
     add.add_argument("--no-refresh", action="store_true", help="do not fetch right away")
-    rm = actions.add_parser("remove", help="remove a source (by url, key or name)")
+    add.add_argument("--host-registry", default=None, metavar="REPO[@BRANCH]", help="also list the source's app-kind mods in the host's App Store: add its git repository as an operator row of the host's federated app registries (PUT /api/apps/registries, or config.json when no gateway runs)")
+    add.add_argument("--host-registry-name", default=None, help=f"the id of that operator row (default the source name, else {DEFAULT_ROW_NAME!r}; never an id the edition pins)")
+    rm = actions.add_parser("remove", help="remove a source (by url, key or name); its host-registry row goes too")
     rm.add_argument("ref")
     actions.add_parser("list", help="list the sources and their cache state")
     rf = actions.add_parser("refresh", help="fetch index.json/compat.json of every (or one) source into the cache")
     rf.add_argument("source", nargs="?", default=None)
-    df = actions.add_parser("defaults", help="record the edition's default registry source(s) (verified against the keys pinned per edition)")
+    df = actions.add_parser("defaults", help="record the edition's default registry source(s) (verified against the keys pinned per edition) and their host-registry rows")
     df.add_argument("--no-refresh", action="store_true", help="do not fetch right away")
+    df.add_argument("--no-host-registry", action="store_true", help="do not add the host App Store rows")
+    hr = actions.add_parser("host-registry", help="show or re-apply the host App Store rows of the configured sources")
+    hr.add_argument("--apply", action="store_true", help="(re-)add the rows of every source that has one")
     r.set_defaults(handler=registry)
 
     a = sub.add_parser("audit", help="read the audit log (every mutating operation)")
@@ -93,30 +99,113 @@ def registry(ctx: CliContext, args: argparse.Namespace) -> int:
         ctx.audit.record("registry-remove", result="ok", detail=f"{removed.url} ({removed.label})", files=[str(ctx.home.registries), str(ctx.home.index_cache)])
         ctx.set_result(removed=removed.to_dict(), mergedMods=mods, mergedCompatRows=rows)
         ctx.say(f"removed {removed.url}; merged cache now holds {mods} mod(s) and {rows} compat row(s)")
+        if removed.host_registry:
+            _drop_host_row(ctx, removed)
         return 0
     if action == "refresh":
         return _refresh(ctx, store, only=args.source)
     if action == "defaults":
         return _defaults(ctx, store, args)
+    if action == "host-registry":
+        return _host_registry(ctx, store, apply=args.apply)
     raise CliError(f"unknown registry action {action!r}", exit_code=2)
+
+
+# --- the host's federated app registries (Requirement 8.6) --------------------------------------------------------
+
+
+def _host_row(source: Source) -> HostRegistryRow | None:
+    if not source.host_registry or not isinstance(source.host_registry.get("repo"), str):
+        return None
+    return HostRegistryRow(str(source.host_registry.get("name") or source.name or DEFAULT_ROW_NAME), source.host_registry["repo"], str(source.host_registry.get("branch") or "main"))
+
+
+def _pinned_ids(ctx: CliContext) -> list[str]:
+    if ctx.isolated:
+        return []
+    from ..editions import pinned_registry_ids  # noqa: PLC0415
+
+    return pinned_registry_ids(ctx.adapters(), edition=ctx.edition())
+
+
+def _apply_host_row(ctx: CliContext, source: Source, *, ask: bool = True) -> dict[str, Any] | None:
+    """Add the source's operator row to the host's registries (confirmed, audited); ``None`` when declined or the source has no row."""
+    row = _host_row(source)
+    if row is None:
+        return None
+    where = f"the running gateway ({ctx.session().label})" if ctx.session() is not None else f"{ctx.host_home / 'config.json'} (no gateway running)"
+    if ask and not ctx.console.confirm(f"Add {row.repo}@{row.branch} as the operator app-registry row {row.name!r} of the host via {where}? The host will clone it and list its apps in the App Store; it audits this as a trust grant.", default=False):
+        ctx.say(f"host registry row {row.name!r} not added")
+        return {"declined": True, "row": row.to_dict()}
+    try:
+        outcome = apply_row(ctx.host_home, row, session=ctx.session(), pinned_ids=_pinned_ids(ctx))
+    except HostRegistryError as exc:
+        ctx.warn(f"host registry row {row.name!r} not added: {exc}")
+        ctx.audit.record("host-registry-add", result="refused", detail=str(exc), files=[str(ctx.host_home / "config.json")])
+        return {"error": str(exc), "row": row.to_dict()}
+    ctx.audit.record("host-registry-add", result="ok" if outcome["written"] else "unchanged", detail=f"{row.name}: {row.repo}@{row.branch} via {outcome['how']}", files=[str(ctx.host_home / "config.json")], sourceUrl=source.url)
+    ctx.say(f"host registry row {row.name!r} -> {row.repo}@{row.branch} ({'added' if outcome['written'] else 'already present'} via {outcome['how']}); the host's App Store lists the source's apps under it")
+    return outcome
+
+
+def _drop_host_row(ctx: CliContext, source: Source) -> None:
+    row = _host_row(source)
+    if row is None:
+        return
+    try:
+        outcome = remove_row(ctx.host_home, row.name, session=ctx.session())
+    except HostRegistryError as exc:
+        ctx.warn(f"host registry row {row.name!r} not removed: {exc}")
+        return
+    ctx.audit.record("host-registry-remove", result="ok" if outcome["removed"] else "unchanged", detail=f"{row.name} via {outcome['how']}", files=[str(ctx.host_home / "config.json")])
+    ctx.set_result(hostRegistry=outcome)
+    if outcome["removed"]:
+        ctx.say(f"host registry row {row.name!r} removed ({outcome['how']})")
+
+
+def _host_registry(ctx: CliContext, store: SourceStore, *, apply: bool) -> int:
+    rows = [(s, _host_row(s)) for s in store.sources]
+    with_rows = [(s, r) for s, r in rows if r is not None]
+    try:
+        state = current_rows(ctx.host_home, ctx.session())
+    except HostRegistryError as exc:
+        raise CliError(str(exc)) from exc
+    ctx.set_result(host=state, sources=[{"label": s.label, "row": r.to_dict()} for s, r in with_rows], pinnedIds=_pinned_ids(ctx))
+    ctx.say(f"host operator rows ({state['how']}): " + (", ".join(f"{r.get('name')} -> {r.get('repo')}@{r.get('branch')}" for r in state["registries"]) or "none"))
+    if state["pinned"]:
+        ctx.say("pinned by this build (never touched): " + ", ".join(str(p.get("name")) for p in state["pinned"]))
+    if not with_rows:
+        ctx.say("no configured source carries a host-registry row (floofy registry add <url> --host-registry <repo>[@branch])")
+        return 0
+    outcomes = []
+    for source, row in with_rows:
+        present = any(r.get("name") == row.name and r.get("repo") == row.repo for r in state["registries"])
+        ctx.say(f"{source.label}: {row.name} -> {row.repo}@{row.branch} ({'present' if present else 'absent'})")
+        if apply and not present:
+            outcomes.append(_apply_host_row(ctx, source))
+    if apply:
+        ctx.set_result(applied=outcomes)
+    return 0
 
 
 def _defaults(ctx: CliContext, store: SourceStore, args: argparse.Namespace) -> int:
     rows = ctx.default_registry_sources()
     if not rows:
         raise CliError("no edition adapter supplies default registry sources here (floofy registry add <url> to add one by hand)")
-    added: list[dict[str, Any]] = []
+    added: list[Source] = []
     for row in rows:
         try:
             source, _loosened = store.add(Source.from_default(row))
         except InstallError as exc:
             raise CliError(f"{row.get('url')}: {exc}") from exc
-        added.append(source.to_dict())
+        added.append(source)
     store.save()
-    ctx.audit.record("registry-add", result="ok", detail="edition defaults: " + ", ".join(f"{s['url']} ({s['label']})" for s in added), files=[str(ctx.home.registries)])
+    ctx.audit.record("registry-add", result="ok", detail="edition defaults: " + ", ".join(f"{s.url} ({s.label})" for s in added), files=[str(ctx.home.registries)])
     for source in added:
-        ctx.say(f"registry source recorded: {source['url']} (label {source['label']}, trust={source['trust']}, keyId={source['keyId'] or '-'})")
-    ctx.set_result(sources=added)
+        ctx.say(f"registry source recorded: {source.url} (label {source.label}, trust={source.trust}, keyId={source.key_id or '-'})")
+    ctx.set_result(sources=[s.to_dict() for s in added])
+    if not args.no_host_registry:
+        ctx.set_result(hostRegistry=[_apply_host_row(ctx, s) for s in added if s.host_registry])
     if args.no_refresh:
         mods, rows_count = rebuild_merged(ctx.home, store)
         ctx.set_result(mergedMods=mods, mergedCompatRows=rows_count)
@@ -140,17 +229,37 @@ def _list(ctx: CliContext, store: SourceStore) -> int:
         cache = row["cache"] or {}
         state = "never fetched" if not cache else ("usable" if cache.get("usable") else f"refused: {cache.get('refusal') or cache.get('error')}")
         ctx.say(f"{row['label']}: {row['url']} trust={row['trust']} allowUnsigned={row['allowUnsigned']} keyId={row['keyId'] or '-'} — {state}" + (f" ({cache.get('mods')} mod(s), signature {cache.get('signature', {}).get('status')}, fetched {cache.get('fetchedAt')})" if cache.get("mods") is not None else ""))
+        if row.get("hostRegistry"):
+            ctx.say(f"  host App Store row: {row['hostRegistry'].get('name')} -> {row['hostRegistry'].get('repo')}@{row['hostRegistry'].get('branch')}")
+        elif cache.get("appRegistry"):
+            ctx.say(f"  publishes an app-registry.json: `floofy registry add {row['url']} --host-registry <git repo>[@branch]` lists its apps in the host's App Store")
     return 0
 
 
 def _add(ctx: CliContext, store: SourceStore, args: argparse.Namespace) -> int:
+    host_registry: dict[str, Any] | None = None
+    if args.host_registry:
+        repo, _, branch = str(args.host_registry).partition("@")
+        host_registry = {"repo": repo, "branch": branch or "main", "name": args.host_registry_name or args.name or DEFAULT_ROW_NAME}
+        try:
+            HostRegistryRow(host_registry["name"], host_registry["repo"], host_registry["branch"]).validate(_pinned_ids(ctx))
+        except HostRegistryError as exc:
+            raise CliError(str(exc)) from exc
+    previous_row = (store.find(args.url).host_registry if store.find(args.url) is not None else None)
     try:
-        source, loosened = store.add(Source(args.url, args.trust, args.allow_unsigned, args.key_id, args.name, public_key=(args.public_key or "").strip() or None))
+        source, loosened = store.add(Source(args.url, args.trust, args.allow_unsigned, args.key_id, args.name, public_key=(args.public_key or "").strip() or None, host_registry=host_registry))
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     store.save()
-    ctx.audit.record("registry-add", result="ok", detail=f"{source.url} ({source.label}) trust={source.trust} allowUnsigned={source.allow_unsigned} keyId={source.key_id or '-'} pinnedPublicKey={bool(source.public_key)}", files=[str(ctx.home.registries)])
+    ctx.audit.record("registry-add", result="ok", detail=f"{source.url} ({source.label}) trust={source.trust} allowUnsigned={source.allow_unsigned} keyId={source.key_id or '-'} pinnedPublicKey={bool(source.public_key)} hostRegistry={source.host_registry or '-'}", files=[str(ctx.home.registries)])
     ctx.say(f"registry source recorded: {source.url} (label {source.label}, trust={source.trust}" + (f", pinned key {source.key_id}" if source.public_key else "") + ")")
+    if host_registry:
+        applied = _apply_host_row(ctx, source)
+        ctx.set_result(hostRegistry=applied)
+        if applied is None or applied.get("declined") or applied.get("error"):
+            # not applied: do not remember a row the host never got
+            source.host_registry = previous_row
+            store.save()
     if source.allow_unsigned:
         ctx.warn(LOOSENING_WARNING.format(url=source.url))
         if loosened:

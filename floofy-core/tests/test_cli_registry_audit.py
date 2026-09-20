@@ -345,6 +345,43 @@ def test_plaintext_remote_source_is_refused(env):
     assert env.run("registry", "add", "ftp://registry.example.com/").exit == 1
 
 
+def test_host_registry_row_lands_in_config_when_no_gateway_runs(env, monkeypatch: pytest.MonkeyPatch):
+    """Requirement 8.6 without a gateway: the operator row is written to the host config.json under its lock, pinned ids refused."""
+    from floofy_core.cli import cmd_registry
+
+    monkeypatch.setattr(cmd_registry, "_pinned_ids", lambda ctx: ["internal", "internal-community"])
+    env.publish(INDEX, signed=False)
+    _Registry.files["/reg/app-registry.json"] = b"[]"
+    added = env.run("--json", "--yes", "registry", "add", env.base, "--name", "alpha", "--allow-unsigned", "--host-registry", "https://git.example/floofycrew/registry@release")
+    assert added.exit == 0, added.stderr
+    assert added.json["hostRegistry"]["how"] == "config" and added.json["hostRegistry"]["written"] is True
+    config = json.loads((env.paths.host_home / "config.json").read_text(encoding="utf-8"))
+    assert config["registries"] == [{"name": "alpha", "repo": "https://git.example/floofycrew/registry", "branch": "release", "trust": "index"}]
+    assert SourceStore.load(env.paths).sources[0].host_registry == {"repo": "https://git.example/floofycrew/registry", "branch": "release", "name": "alpha"}
+    rows = read_audit(env.paths.audit)
+    assert any(r["op"] == "host-registry-add" and r["result"] == "ok" and "via config" in r["detail"] for r in rows)
+    shown = env.run("registry", "host-registry")
+    assert "alpha -> https://git.example/floofycrew/registry@release" in shown.stdout and "(present)" in shown.stdout
+    listed = env.run("registry", "list")
+    assert "host App Store row: alpha" in listed.stdout
+    # a pinned id is refused before anything is written; so is a plaintext repo
+    pinned = env.run("--yes", "registry", "add", f"http://127.0.0.1:{env.port}/reg2/", "--name", "beta", "--allow-unsigned", "--no-refresh", "--host-registry", "https://git.example/x/y", "--host-registry-name", "internal")
+    assert pinned.exit == 1 and "pins" in pinned.stderr and len(SourceStore.load(env.paths).sources) == 1
+    assert env.run("--yes", "registry", "add", env.base, "--no-refresh", "--host-registry", "http://git.example/x/y").exit == 1
+    # declining leaves the config alone; a non-interactive run without --yes declines (nothing mutates on a silent default)
+    declined = env.run("--json", "registry", "add", env.base, "--no-refresh", "--host-registry", "https://git.example/other/repo", "--host-registry-name", "other")
+    assert declined.exit == 0 and declined.json["hostRegistry"] == {"declined": True, "row": {"name": "other", "repo": "https://git.example/other/repo", "branch": "main", "trust": "index"}}
+    assert json.loads((env.paths.host_home / "config.json").read_text(encoding="utf-8"))["registries"][0]["name"] == "alpha"
+    # removing the source drops its row
+    removed = env.run("--json", "registry", "remove", "alpha")
+    assert removed.exit == 0 and removed.json["hostRegistry"]["removed"] is True
+    assert json.loads((env.paths.host_home / "config.json").read_text(encoding="utf-8"))["registries"] == []
+    assert read_audit(env.paths.audit)[-1]["op"] == "host-registry-remove"
+    # a source that publishes app-registry.json but has no row gets the hint
+    assert env.run("registry", "add", env.base, "--name", "alpha", "--allow-unsigned").exit == 0
+    assert "publishes an app-registry.json" in env.run("registry", "list").stdout
+
+
 def test_update_writes_a_summary_row_next_to_each_install_row(env):
     mod = write_mod(env.work / "reggy", "reggy", parts=[{"kind": "agent", "side": "gateway", "path": "agents/r.json"}], files={"agents/r.json": "{}"})
     archive = _zip(mod, "reggy")
