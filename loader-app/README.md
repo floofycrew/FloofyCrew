@@ -54,7 +54,25 @@ installed app directory is self-contained and puts itself on `sys.path`.**
    vendoring. `floofy dev` (task 6.x) may write it; the build script never does.
 
 Mods import the mod-facing API as `floofy` (`floofy_loader.api`, registered
-under `sys.modules["floofy"]` before any mod is activated — task 4.2).
+under `sys.modules["floofy"]` before any mod is activated).
+
+## Mod-facing API (`import floofy`)
+
+| Name | Meaning |
+|---|---|
+| `floofy.api_version` | the SemVer API version mods pin on (`floofy_core.API_VERSION`, `1.0.0`); `floofy.framework_version` is the FloofyCrew release |
+| `floofy.host` | `floofy_loader.host.HostFacts`: `version` (the full string the host reports, stamp applied), `build_version` (`X.Y.Z.N` or `None`), `base_version` (`X.Y.Z` `Version`), `channel` (`stable`/`insider`/`nightly`, the adapter's channel for a recognised internal payload, `None` when an internal build's channel is unknown), `edition` (`internal`/`external`), `profile` (`KIROCREW_PROFILE`, else `enterprise`/`standalone`), `payload_root`, `package_dir`, `host_home`, `data_home` (`<host_home>/floofy`), `interpreter`, plus `source`/`payload_id`/`notes` for `doctor` |
+| `floofy.fetch(url, **kw)` | the sanctioned network client (task 4.5) |
+| `floofy.events` | the Loader event bus (task 4.6) |
+| `floofy.deprecated_name(old, new, removed_in)` | the deprecation helper: a `DeprecationWarning` + log line naming the caller's module; renamed API names stay for two FloofyCrew minors via `api.DEPRECATED_NAMES` |
+| `floofy.unofficial` | always `True` (Requirement 11.8) |
+
+`floofy.host` sources (host file:line in `floofy_loader/host.py`): `kiro_crew.__version__`
+with the `BUILD_VERSION` stamp applied by the host itself (`kiro_crew/__init__.py`
+L10–L109); channel from the edition adapter's payload provider when it recognises
+the running payload, else the host's `release_channel.channel()` rule
+(`release_channel.py` L83–L96); edition from `floofy_core.editions.combined_edition_probe`;
+`host_home` from `kiro_crew.config.paths.config_dir()` (`KIROCREW_HOME` or `~/.kiro/crew`).
 
 ## The execution gate and the `agent.apps_trusted` grant (Requirement 2.3)
 
