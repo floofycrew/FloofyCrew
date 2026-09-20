@@ -34,7 +34,7 @@ Standard library only; no dependency on ``floofy_core`` or ``floofy_loader``.
 """
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 #: The host module whose import completes platform bootstrap.
 TRIGGER_MODULE = "kiro_crew.platform.bootstrap"

@@ -21,6 +21,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ..resources import read_package_text
+
 #: Directory holding the ``*.schema.json`` files.
 SCHEMA_DIR: Path = Path(__file__).resolve().parent
 
@@ -62,8 +64,9 @@ def load_schema(name: str) -> dict[str, Any]:
 
     The result is cached and shared: treat it as read-only.
     """
-    with schema_path(name).open("r", encoding="utf-8") as handle:
-        document = json.load(handle)
+    path = schema_path(name)
+    # importlib.resources reads the schema from a directory install and from inside the zipapp alike
+    document = json.loads(read_package_text(__package__, path.name, fallback=path))
     if not isinstance(document, dict):
         raise ValueError(f"schema {name!r} is not a JSON object")
     return document

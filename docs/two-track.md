@@ -20,12 +20,12 @@ tree counts as different). Every differing file must be an adapter module
 edition stamp; a difference anywhere else fails the report, as does a share of
 identical files below 80 %.
 
-Measured on the 1.0.0 tree:
+Measured on the 1.0.1 tree:
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 169 | 195 | 86.7 % |
-| bytes | 1 803 003 | 1 882 435 | 95.8 % |
+| files | 171 | 197 | 86.8 % |
+| bytes | 1 806 523 | 1 890 995 | 95.5 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:

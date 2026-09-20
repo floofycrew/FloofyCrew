@@ -11,8 +11,35 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.0.1 — 2026-09-20
+
+A patch release for the internal edition's first real consumer: the shipped
+1.0.0 client could not fetch its own registry from a fresh home, for two
+independent reasons fixed here. Same `supports` list as 1.0.0;
+`floofy.api_version` unchanged at 1.0.0.
+
 ### Fixed
 
+- zipapp: the bundled data files are now read through `importlib.resources`
+  (`floofy_core.resources.read_package_text`) instead of
+  `Path(__file__).with_name(...)`, which cannot read a member of
+  `dist/floofy.pyz`. In 1.0.0 the adapters' `default_sources()` and
+  `registry_keys()` swallowed that error, so `floofy registry defaults` from the
+  zipapp reported "no edition adapter supplies default registry sources" and no
+  key was pinned; `anchors.json` and the JSON Schemas were equally unreadable
+  (`floofy check`, `floofy validate`). Directory installs (the Loader app, the
+  wheel, a checkout) were unaffected, which is why the release verification
+  passed. `test_internal_package.py` now runs the built pyz on a bare
+  interpreter and reads every bundled file through the CLI's code paths.
+- internal edition: the ***REMOVED*** adapter's ***REMOVED*** opener now presents a
+  `curl/8 FloofyCrew (unofficial KiroCrew mod manager)` User-Agent on every hop
+  of the redirect chain (configurable as `identity.userAgent`). Sentry selects
+  the login flow by agent: a `curl/…` agent receives the cookie-based SSO
+  redirect the `***REMOVED***` jar satisfies, while any other non-browser agent is
+  given a Kerberos Negotiate challenge the standard library cannot answer, so
+  `floofy registry defaults` failed with HTTP 401 at `sentry.***REMOVED***`
+  although `curl -b ~/.***REMOVED***/cookie` fetched the same URL. Verified against
+  the pushed `FloofyCrewRegistry` with the pinned key `bf253dc3e34a0a1b`.
 - `registry-tools`: `index.schema.json` now accepts the same host-version
   shapes as `compat.schema.json` (PEP 440 pre-releases such as `0.7.0rc5`
   were refused as compat cell keys, so a public insider row could not be

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .payloads import Payload
+from .resources import read_package_text
 
 __all__ = ["AnchorReport", "check_anchors", "load_anchors"]
 
@@ -25,7 +26,11 @@ ANCHORS_FILE = Path(__file__).with_name("anchors.json")
 
 
 def load_anchors(path: Path | None = None) -> list[dict[str, Any]]:
-    document = json.loads(Path(path or ANCHORS_FILE).read_text(encoding="utf-8"))
+    if path is not None:
+        text = Path(path).read_text(encoding="utf-8")
+    else:  # the bundled anchors.json — readable from a directory and from inside the zipapp
+        text = read_package_text(__package__, "anchors.json", fallback=ANCHORS_FILE)
+    document = json.loads(text)
     anchors = document.get("anchors") if isinstance(document, dict) else document
     return [a for a in (anchors or []) if isinstance(a, dict) and isinstance(a.get("module"), str)]
 
