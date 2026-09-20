@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -48,6 +48,7 @@ __all__ = [
     "PatchResult",
     "SKIP_CODES",
     "Skip",
+    "UiAsset",
     "apply_descriptor",
     "drop_modulepreload",
     "find_import_map",
@@ -80,6 +81,9 @@ class PatchOp:
     regex: bool = False
     marker: str | None = None
     description: str = ""
+    #: ``only`` (default: exactly one match), ``first`` or ``last`` (the fingerprint names a class of
+    #: locations and the op picks one — e.g. "before the first <script").
+    occurrence: str = "only"
 
     @property
     def effective_marker(self) -> str:
@@ -88,6 +92,20 @@ class PatchOp:
 
     def already_applied(self, text: str) -> bool:
         return bool(self.effective_marker) and self.effective_marker in text
+
+
+@dataclass(frozen=True)
+class UiAsset:
+    """A file the Patcher copies under the Loader app's ``ui/`` for a descriptor (boot favicon/logo).
+
+    Not part of the JSON descriptor: attached in memory by the generator
+    (:mod:`floofy_core.boot_script`) and recorded in the deployment manifest as an
+    added file, so ``restore`` removes it and ``verify`` checks it through the app-UI route.
+    """
+
+    source: Path
+    dest: str  # relative to ui/, POSIX
+    mod: str
 
 
 @dataclass(frozen=True)
@@ -107,6 +125,11 @@ class PatchDescriptor:
     mode: str = "in-place"
     #: Optional literal that must occur in the target text before any op applies (module identification).
     find: str | None = None
+    #: Files copied under the Loader app's ``ui/`` when the descriptor applies (in-memory only).
+    ui_assets: tuple[UiAsset, ...] = ()
+
+    def with_ui_assets(self, assets: Iterable[UiAsset]) -> "PatchDescriptor":
+        return replace(self, ui_assets=tuple(assets))
 
     @property
     def is_import_map(self) -> bool:
@@ -164,6 +187,7 @@ class PatchDescriptor:
                     regex=bool(raw.get("regex", False)),
                     marker=raw.get("marker"),
                     description=raw.get("description", ""),
+                    occurrence=str(raw.get("occurrence") or "only"),
                 )
             )
         if problems:
@@ -277,9 +301,9 @@ def _apply_op(text: str, op: PatchOp, target: str, index: int) -> tuple[str, App
     spans = _find_matches(text, fingerprint, regex)
     if len(spans) == 0:
         return text, None, Skip(target, index, "FingerprintMiss", f"{label}: fingerprint {fingerprint[:80]!r} matches nowhere in {target}")
-    if len(spans) > 1:
+    if len(spans) > 1 and op.occurrence == "only":
         return text, None, Skip(target, index, "FingerprintAmbiguous", f"{label}: fingerprint {fingerprint[:80]!r} matches {len(spans)} times in {target}; exactly one match is required")
-    start, end = spans[0]
+    start, end = spans[-1] if op.occurrence == "last" else spans[0]
     if op.op in ("insert-before", "append-head"):
         new_text, position = text[:start] + op.content + text[start:], start
     elif op.op == "insert-after":
@@ -359,7 +383,7 @@ def fingerprint_report(text: str, descriptors: Iterable[PatchDescriptor], host_v
                 continue
             fingerprint, regex = (_HEAD_CLOSE, False) if op.op == "append-head" else (op.fingerprint or "", op.regex)
             count = len(_find_matches(text, fingerprint, regex))
-            if count == 1:
+            if count == 1 or (count > 1 and op.occurrence != "only"):
                 report.matched.append(key)
                 report.details[key] = "matched"
             else:

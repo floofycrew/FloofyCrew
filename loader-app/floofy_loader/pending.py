@@ -32,7 +32,7 @@ from typing import Any, Callable, Iterable
 
 from .paths import FloofyPaths
 
-__all__ = ["PendingReport", "apply_pending", "read_enabled", "write_enabled"]
+__all__ = ["PendingReport", "apply_pending", "plan_boot", "plan_patches", "read_enabled", "write_enabled"]
 
 REMOVE_SUFFIX = ".remove"
 
@@ -143,3 +143,28 @@ def plan_patches(mod_dirs: Iterable[tuple[str, Path, dict[str, Any]]]):
             except (PatchDescriptorError, OSError, ValueError) as exc:
                 problems.append(f"{mod_id}#{index}: {exc}")
     return planned, problems
+
+
+def plan_boot(mod_dirs: Iterable[tuple[str, Path, dict[str, Any]]], host_home: Path):
+    """The generated ``index.html`` descriptor (loader tag + boot activation, Requirement 4.3) for the active mods.
+
+    Returns ``(planned_or_None, problems)``: the descriptor carries the SPA host
+    loader tag whenever any active mod has a ``spa`` part, plus the boot script
+    and baked CSS of every ``activation: boot`` part in load order. Owned by the
+    Loader itself (mod id ``floofycrew``) in the deployment manifest.
+    """
+    from floofy_core.boot_script import BootScriptError, boot_mods_from_manifests, build_boot_descriptor, has_spa_parts  # noqa: PLC0415
+    from floofy_core.governance import LOADER_APP_NAME  # noqa: PLC0415
+    from floofy_core.patcher import PlannedPatch  # noqa: PLC0415
+
+    mods = list(mod_dirs)
+    any_spa = any(has_spa_parts(manifest) for _id, _dir, manifest in mods)
+    if not any_spa:
+        return None, []
+    try:
+        descriptor = build_boot_descriptor(boot_mods_from_manifests(mods), host_home=Path(host_home), loader_tag=True)
+    except (BootScriptError, OSError, ValueError) as exc:
+        return None, [f"boot: {exc}"]
+    if descriptor is None:
+        return None, []
+    return PlannedPatch(LOADER_APP_NAME, "boot", descriptor), []

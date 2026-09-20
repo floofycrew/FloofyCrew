@@ -48,7 +48,7 @@ from .compat import CompatCache
 from .consent import REASON_CONSENT_REQUIRED, read_consent
 from .host import HostFacts
 from .paths import FloofyPaths
-from .pending import PendingReport, apply_pending, plan_patches, read_enabled
+from .pending import PendingReport, apply_pending, plan_boot, plan_patches, read_enabled
 from .state import LoaderState, ModState, PartState, utc_now
 
 __all__ = ["BootDeps", "BootResult", "ModActivation", "boot", "deactivate_all", "default_governance_snapshot", "default_patch_runner"]
@@ -424,6 +424,10 @@ def boot(deps: BootDeps) -> BootResult:
         active_dirs = [(mod_id, dirs[mod_id], manifests[mod_id]) for mod_id in resolution.order if state.mods[mod_id].active]
         planned, problems = plan_patches(active_dirs)
         state.errors.extend(f"patch descriptor: {p}" for p in problems)
+        boot_plan, boot_problems = plan_boot(active_dirs, facts.host_home)
+        state.errors.extend(f"boot descriptor: {p}" for p in boot_problems)
+        if boot_plan is not None:
+            planned.append(boot_plan)
         if planned:
             runner = deps.patch_runner or default_patch_runner
             try:

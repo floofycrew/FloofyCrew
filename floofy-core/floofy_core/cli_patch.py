@@ -52,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     apply = sub.add_parser("apply", help="revert-then-patch every payload with the given descriptors")
     apply.add_argument("--patch", action="append", default=[], type=Path, metavar="DESCRIPTOR", help="patch descriptor JSON (repeatable)")
     apply.add_argument("--mod", default="cli", help="mod id recorded as the owner of the patches")
+    apply.add_argument("--boot-mod", action="append", default=[], type=Path, metavar="MOD_DIR", help="a mod directory whose spa parts with activation boot are baked into index.html (repeatable; Requirement 4.3)")
+    apply.add_argument("--loader-tag", action="store_true", help="also inject the SPA host loader tag into index.html (spike 1.3); implied by --boot-mod")
     apply.add_argument("--confirm-governance", action="append", default=[], metavar="TARGET", help="confirm one governance-file target (repeatable)")
     apply.add_argument("--no-verify", action="store_true", help="skip the gateway verification")
     apply.add_argument("--yes", "-y", action="store_true", help="answer the update-survival question with yes (non-interactive)")
@@ -75,7 +77,7 @@ def _discover(args: argparse.Namespace) -> DiscoveryResult:
     return discover_payloads(edition_providers(), extra_roots=args.root, edition_probe=combined_edition_probe())
 
 
-def _load_patches(args: argparse.Namespace, parser: argparse.ArgumentParser) -> list[PlannedPatch]:
+def _load_patches(args: argparse.Namespace, parser: argparse.ArgumentParser, host_home: Path) -> list[PlannedPatch]:
     patches: list[PlannedPatch] = []
     for path in args.patch:
         try:
@@ -83,6 +85,24 @@ def _load_patches(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         except PatchDescriptorError as exc:
             parser.error(str(exc))
         patches.append(PlannedPatch(args.mod, Path(path).stem, descriptor))
+    boot_mods = getattr(args, "boot_mod", [])
+    if boot_mods or getattr(args, "loader_tag", False):
+        from .boot_script import BootScriptError, boot_mods_from_manifests, build_boot_descriptor  # noqa: PLC0415
+        from .governance import LOADER_APP_NAME  # noqa: PLC0415
+
+        mods = []
+        for mod_dir in boot_mods:
+            try:
+                manifest = json.loads((Path(mod_dir) / "floofy.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                parser.error(f"{mod_dir}: not a mod directory ({exc})")
+            mods.append((str(manifest.get("id") or Path(mod_dir).name), Path(mod_dir), manifest))
+        try:
+            descriptor = build_boot_descriptor(boot_mods_from_manifests(mods), host_home=host_home, loader_tag=True)
+        except BootScriptError as exc:
+            parser.error(str(exc))
+        if descriptor is not None:
+            patches.append(PlannedPatch(LOADER_APP_NAME, "boot", descriptor))
     return patches
 
 
@@ -137,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.command == "apply":
-        report = patcher.apply(_load_patches(args, parser), verify=not args.no_verify)
+        report = patcher.apply(_load_patches(args, parser, host_home), verify=not args.no_verify)
         if args.json:
             print(json.dumps(report.to_dict(), indent=2))
         else:

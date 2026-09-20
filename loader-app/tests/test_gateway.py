@@ -20,7 +20,7 @@ from floofy_loader.consent import REASON_CONSENT_REQUIRED, write_consent
 from floofy_loader.paths import FloofyPaths
 from floofy_loader.storage import RUNTIME_DIR
 
-from loader_testing import EXAMPLES_DIR, ScratchGateway, build_loader_app, fresh_scratch, scratch_payload
+from loader_testing import EXAMPLES_DIR, ScratchGateway, ShellGuard, build_loader_app, fresh_scratch, scratch_payload
 
 pytestmark = pytest.mark.skipif(scratch_payload() is None, reason="no payload copy under .scratch (set FLOOFY_SCRATCH_PAYLOAD)")
 
@@ -131,6 +131,8 @@ def gateway():
     app_dir = build_loader_app(scratch / "app" / "floofycrew")
     gw = ScratchGateway(payload, scratch)
     paths = FloofyPaths(gw.data_home).ensure()
+    # the Loader patches the copy's index.html (loader tag for gw-spa); the guard puts every byte back at the end
+    guard = ShellGuard(payload, gw.data_home)
 
     stage_example_python_hook(paths)
     write_mod(paths, "gw-hooker", code=HOOKER)
@@ -161,6 +163,7 @@ def gateway():
         yield gw
     finally:
         gw.stop()
+        guard.check()
 
 
 def state_of(client) -> dict:
@@ -252,6 +255,20 @@ def test_8_spa_route_serves_an_active_mods_files(gateway: ScratchGateway):
     assert client.get(f"{API}/spa/gw-spa/lib/../floofy.json").status in (400, 404)
     assert client.get(f"{API}/spa/gw-raiser/hook/__init__.py").status == 404, "an inactive mod serves nothing"
     assert client.get(f"{API}/spa/gw-spa/missing.js").status == 404
+
+
+def test_9_loader_tag_is_patched_into_the_served_shell(gateway: ScratchGateway):
+    """A spa mod is active, so the Loader (a re-apply trigger) baked the spike-1.3 loader tag into the copy's shell."""
+    client = gateway.client()
+    state = state_of(client)
+    assert state["patches"].get("ran") is True, state["patches"]
+    applied = [a for p in state["patches"]["report"]["payloads"] for a in p["applied"]]
+    assert any("floofycrew#boot" in a for a in applied), applied
+    shell = client.get("/", auth=False).body.decode("utf-8")
+    tag = '<script type="module" src="/apps/floofycrew/ui/host.mjs" id="floofy-host"></script>'
+    assert tag in shell and shell.index(tag) < shell.index('src="/assets/main-')
+    served = client.get("/apps/floofycrew/ui/host.mjs", auth=False)
+    assert served.status == 200 and b"createHost" in served.body and served.headers["cache-control"] == "no-cache"
 
 
 def test_4_vanilla_boot_when_the_loader_itself_fails(gateway: ScratchGateway):

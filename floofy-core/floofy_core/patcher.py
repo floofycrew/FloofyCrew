@@ -57,6 +57,7 @@ from .gateway import GatewayEndpoint, find_endpoints, served_version
 from .governance import AlwaysConfirm, Confirmer, GovernanceSnapshot, GovernanceWarning, survival_check, survival_prompt
 from .patches import PatchDescriptor, PatchResult, Skip, apply_descriptor
 from .payloads import Payload
+from .boot_script import BOOT_ASSETS_DIR
 from .spa_patches import PATCHED_DIR, apply_import_map_patch, default_ui_root, refresh_patched_index, resolve_chunk_target, ui_url_for
 from .targets import DEFAULT_TARGET_POLICY, TargetClass, TargetPolicy
 
@@ -412,6 +413,8 @@ class Patcher:
                 if index_text is not None and index_work is not None:
                     index_text = self._apply_import_maps(payload, import_map_patches, index_text, index_work, drift, old, new, result, seeds, skipped_targets)
 
+        self._copy_ui_assets(patches, new, result)
+
         if seeds:
             shell_skipped = str(payload.index_html) in skipped_targets
             shell = index_text if index_text is not None else (None if shell_skipped else self._original_bytes(payload.index_html, DriftAction.NONE, result))
@@ -580,6 +583,28 @@ class Patcher:
             index_work.patches.append(planned)
         return index_text
 
+    def _copy_ui_assets(self, patches: list[PlannedPatch], new: DeployManifest, result: PayloadApply) -> None:
+        """Files a descriptor wants under the Loader app's ``ui/`` (boot favicon/logo): copied once, recorded as added."""
+        for planned in patches:
+            for asset in planned.descriptor.ui_assets:
+                dest = (self.ui_root / asset.dest).resolve()
+                try:
+                    dest.relative_to(self.ui_root.resolve())
+                except ValueError:
+                    result.errors.append(f"{planned.label}: ui asset {asset.dest!r} escapes the Loader app's ui/")
+                    continue
+                if not Path(asset.source).is_file():
+                    result.errors.append(f"{planned.label}: ui asset source {asset.source} is missing")
+                    continue
+                data = Path(asset.source).read_bytes()
+                if not dest.is_file() or dest.read_bytes() != data:
+                    atomic_write_bytes(dest, data)
+                    result.written.append(str(dest))
+                    self.say(f"ui asset: {dest}")
+                else:
+                    result.unchanged.append(str(dest))
+                new.record_added(dest, sha256_bytes(data), asset.mod or planned.mod)
+
     def _refresh_patched_index(self) -> None:
         manifests = [m for _path, m in iter_manifests(self.data_home)]
         try:
@@ -733,16 +758,25 @@ class Patcher:
         self._refresh_patched_index()
         return report
 
+    def _ui_dirs(self) -> tuple[Path, ...]:
+        """The directories FloofyCrew owns under the Loader app's ``ui/``: patched chunk copies and boot assets."""
+        return (self.ui_root / PATCHED_DIR, self.ui_root / BOOT_ASSETS_DIR)
+
     def _sweep_ui_patched(self) -> list[str]:
-        """Remove every patched chunk copy (and sidecar) under ``ui/patched/`` — the restore-all sweep."""
+        """Remove every patched chunk copy, sidecar and boot asset under ``ui/`` — the restore-all sweep."""
         removed: list[str] = []
-        patched_dir = self.ui_root / PATCHED_DIR
-        if not patched_dir.is_dir():
-            return removed
-        for path in sorted(patched_dir.iterdir()):
-            if path.is_file() and not path.is_symlink():
-                path.unlink()
-                removed.append(str(path))
+        for directory in self._ui_dirs():
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.rglob("*")):
+                if path.is_file() and not path.is_symlink():
+                    path.unlink()
+                    removed.append(str(path))
+            for sub in sorted((p for p in directory.rglob("*") if p.is_dir()), reverse=True):
+                try:
+                    sub.rmdir()
+                except OSError:
+                    pass
         return removed
 
     def _sweep(self, root: Path) -> tuple[list[str], list[str]]:
@@ -863,9 +897,10 @@ class Patcher:
             else:
                 report.kept.append(str(path))
         referenced = {Path(a.path).resolve() for _p, m in iter_manifests(self.data_home) for a in m.added}
-        patched_dir = self.ui_root / PATCHED_DIR
-        if patched_dir.is_dir():
-            for path in sorted(patched_dir.iterdir()):
+        for directory in self._ui_dirs():
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.rglob("*")):
                 if path.is_file() and path.name != "index.json" and path.resolve() not in referenced:
                     path.unlink()
                     report.removed.append(str(path))

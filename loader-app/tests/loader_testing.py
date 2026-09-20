@@ -230,3 +230,51 @@ def fresh_scratch(name: str) -> Path:
         shutil.rmtree(target)
     target.mkdir(parents=True)
     return target
+
+
+
+# --- the payload copy's shell: restore + byte-identity guard --------------------------------------
+
+import hashlib  # noqa: E402
+
+
+def shell_path(payload: Path) -> Path:
+    """``kiro_crew/static/dist/index.html`` of the payload copy."""
+    site = site_packages(payload)
+    assert site is not None
+    return site / "kiro_crew" / "static" / "dist" / "index.html"
+
+
+def sha256_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def restore_payload_copy(payload: Path, data_home: Path) -> str:
+    """Return the payload COPY to vanilla through the Patcher (manifest + sweep) and return the shell's sha256.
+
+    The gateway-backed tests patch the copy's ``index.html`` on purpose (the
+    Loader is a re-apply trigger; the boot script and loader tag land there);
+    this puts every byte back — a lost manifest still restores through the
+    ``*.floofybak`` sweep — so the copy stays reusable. Never touches a live install.
+    """
+    from floofy_core.cli_patch import main as patch_main  # noqa: PLC0415
+
+    home = Path(data_home).parent
+    patch_main(["--quiet", "--data-home", str(data_home), "--host-home", str(home), "--root", str(payload), "--no-adapters", "restore", "--all"])
+    return sha256_of(shell_path(payload))
+
+
+class ShellGuard:
+    """Restore the copy before and after a test module and assert the shell came back byte-identical."""
+
+    def __init__(self, payload: Path, data_home: Path):
+        self.payload = payload
+        self.data_home = data_home
+        self.vanilla_sha = restore_payload_copy(payload, data_home)
+
+    def check(self) -> None:
+        after = restore_payload_copy(self.payload, self.data_home)
+        assert after == self.vanilla_sha, f"the payload copy's index.html did not come back byte-identical ({after} != {self.vanilla_sha})"
+        assets = shell_path(self.payload).parent / "assets"
+        leftovers = [p.name for p in assets.iterdir() if p.name.endswith(".floofybak") or "-floofy." in p.name]
+        assert not leftovers, f"leftover Patcher files in the copy: {leftovers}"

@@ -318,7 +318,14 @@ Released Feature Unsupported MissingFiles Quarantined UserDisabled` plus
 
 Enabled `patch` parts are handed to the Patcher at boot (revert-then-patch,
 pre-consented, no live verify) — the Loader is one of the re-apply triggers
-(Requirement 6.1).
+(Requirement 6.1). Whenever any active mod has a `spa` part, the Loader adds the
+generated `index.html` descriptor (`floofy_loader.pending.plan_boot` →
+`floofy_core.boot_script`): the spike-1.3 loader tag for the always-on SPA host
+plus the boot script and baked CSS of every `activation: boot` part, owned by
+mod id `floofycrew` in the deployment manifest. Patched chunk copies and boot
+assets the Patcher writes live in the installed app's own `ui/patched/` and
+`ui/boot/` (served by the unauthenticated app-UI route) and are removed by
+`restore`.
 
 ## Dev-host recipe (never the live install)
 

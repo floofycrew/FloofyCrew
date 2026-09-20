@@ -33,6 +33,7 @@ idempotent; `window.floofy` is installed once, non-writable).
 | `surfaces.mjs` + `surfaces.json` | `window.floofy.surfaces` — stable names for host UI surfaces located by **content fingerprints** (below) |
 | `patches.mjs` | `window.floofy.patches` — inspection of the import-map remaps the Patcher applied (below) |
 | `reporter.mjs` | `window.floofy.report()` — every surface and patch fingerprint evaluated against the live document and bundle (below) |
+| `boot.mjs` | the pre-hydration boot script TEMPLATE the Patcher renders into `index.html` for `activation: boot` parts (below) |
 
 ## `window.floofy`
 
@@ -65,7 +66,41 @@ tells the Loader (which records reason `Error` and stops serving the mod's
 files). Other mods and the host UI are unaffected; nothing rethrows into the host.
 
 Parts with `activation: "boot"` are not loaded here: the Patcher inlines them
-into `index.html` for first-frame effects (task 5.4).
+into `index.html` for first-frame effects (below).
+
+## Boot activation (Requirement 4.3)
+
+`boot.mjs` is a TEMPLATE: `floofy_core.boot_script` copies the `floofyBoot`
+function between its marker comments into ONE inline classic script
+`<script id="floofy-boot">…floofyBoot({defaults, themeBootstrap, mods:[…]})</script>`
+inserted before the **first** `<script` of every payload's `index.html`
+(`occurrence: first`) so it runs before anything can paint. Generalised from
+the O3R theme patcher's boot block:
+
+1. theme bootstrap — the host's own formula for `data-theme` / `data-mode` /
+   `data-mode-pref` from `localStorage` (`mc-color-theme`, `mc-theme`), with the
+   host config's `dashboard.theme_color` / `theme_mode` captured at patch time
+   as the fallback, so a cold client (empty storage, pre-auth page) still paints
+   the configured theme;
+2. per boot mod, in load order, gated by `when.theme` when declared: `attributes`
+   on `<html>`, a `<link rel=icon id="floofy-boot-favicon-<id>">`, the host's
+   `--theme-logo` custom property, `document.title`, the mod's own hook (its
+   `spa` part file, inlined as `function (ctx)`, ES5 only);
+3. drift guard — `MutationObserver`s re-assert the attributes until the host
+   settles (its `<style id="mc-custom-theme-…">` or `<link id="mc-theme-favicon">`
+   lands, or 5 s pass), then remove the boot favicon links so the host's
+   authoritative icon is the only one. `window.__floofyBoot` records
+   `{color, mode, pref, applied[], skipped[], settled, errors[]}`.
+
+The baked CSS is separate: one `<style id="floofy-boot-css-<id>">` per mod
+appended just before `</head>`, after the host's stylesheets (source order wins
+on equal specificity). Favicon/logo files are copied under
+`/apps/floofycrew/ui/boot/<id>/` (unauthenticated app-UI route). The same
+generated descriptor carries the spike-1.3 loader tag, so both land in one
+`index.html` op set; the Loader adds it whenever any active mod has a `spa`
+part (`floofy_loader.pending.plan_boot`), the CLI with
+`floofy-patch apply --boot-mod <dir> [--loader-tag]`. Everything is reverted by
+`restore` (backups, manifest, `ui/boot/` sweep).
 
 ## Surfaces (Requirement 4.4)
 

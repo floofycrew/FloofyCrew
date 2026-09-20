@@ -112,6 +112,12 @@
             "op": { "type": "string", "enum": ["insert-before", "insert-after", "replace"] },
             "fingerprint": { "type": "string", "minLength": 1 },
             "regex": { "type": "boolean", "default": false },
+            "occurrence": {
+              "description": "'only' (default): the fingerprint must match exactly once. 'first' / 'last': the fingerprint names a class of locations (for example every <script tag) and the op takes the first or last one — still a content fingerprint, never an offset.",
+              "type": "string",
+              "enum": ["only", "first", "last"],
+              "default": "only"
+            },
             "content": { "$ref": "#/$defs/opCommon/properties/content" },
             "marker": { "$ref": "#/$defs/opCommon/properties/marker" },
             "description": { "$ref": "#/$defs/opCommon/properties/description" }

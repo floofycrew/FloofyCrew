@@ -321,7 +321,7 @@
       }
     },
     "partSpa": {
-      "description": "Requirement 2.5, Requirement 4: an ES module loaded by the SPA host inside an error boundary. 'activation' runtime (default) loads after the host bundle through the Loader app's ui entry; 'boot' is injected into index.html by the Patcher for first-frame effects.",
+      "description": "Requirement 2.5, Requirement 4: an ES module loaded by the SPA host inside an error boundary. 'activation' runtime (default) loads after the host bundle through the Loader app's ui entry; 'boot' is injected into index.html by the Patcher for first-frame effects, described by the optional 'boot' object (Requirement 4.3).",
       "type": "object",
       "required": ["kind", "side", "path"],
       "additionalProperties": false,
@@ -330,7 +330,31 @@
         "side": { "$ref": "#/$defs/side" },
         "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(js|mjs)$" } ] },
         "activation": { "type": "string", "enum": ["runtime", "boot"], "default": "runtime" },
+        "boot": { "$ref": "#/$defs/bootActivation" },
         "description": { "type": "string" }
+      }
+    },
+    "bootActivation": {
+      "description": "First-frame effects the Patcher bakes into every payload's index.html for a spa part with activation 'boot' (Requirement 4.3, design 'boot script'): baked CSS placed before </head>, favicon / logo / title asserted before the host hydrates, attributes re-asserted on <html> until the host settles. 'when.theme' gates favicon, logo, title and attributes on the active colour theme (localStorage 'mc-color-theme', else the host config's dashboard.theme_color captured at patch time); the CSS is always baked and must scope itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "css": { "description": "Relative path to the baked stylesheet (also listed in files[]).", "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.css$" } ] },
+        "favicon": { "description": "Relative path to an icon (png, svg, jpg, webp, gif) served from the Loader app's ui/boot/<id>/ and set as <link rel=icon> at boot.", "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(png|svg|jpg|jpeg|webp|gif)$" } ] },
+        "logo": { "description": "Relative path to a logo image served the same way and set as the host's --theme-logo custom property at boot.", "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(png|svg|jpg|jpeg|webp|gif)$" } ] },
+        "title": { "description": "document.title to set at boot.", "type": "string", "minLength": 1, "maxLength": 120 },
+        "attributes": {
+          "description": "Attributes asserted on <html> at boot and re-asserted by the drift guard until the host settles (data-* names only).",
+          "type": "object",
+          "propertyNames": { "pattern": "^data-[a-z][a-z0-9-]*$" },
+          "additionalProperties": { "type": "string", "maxLength": 200 }
+        },
+        "when": {
+          "description": "Only act when the active colour theme equals 'theme' (for example custom-<slug>); the CSS is baked regardless.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "theme": { "type": "string", "pattern": "^[a-z0-9-]{1,72}$" } }
+        }
       }
     },
     "partPatch": {

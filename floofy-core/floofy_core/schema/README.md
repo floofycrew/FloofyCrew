@@ -75,6 +75,20 @@ that is not listed is a warning. Packages are a plain directory or a `.zip` /
 `.tar.gz` of it; archives with symlinks, absolute paths or `..` segments are
 rejected before extraction.
 
+### `spa` parts with `activation: "boot"` (Requirement 4.3)
+
+A `boot` object describes the first-frame effects the Patcher bakes into every
+payload's `index.html` (task 5.4): `css` (a stylesheet appended before
+`</head>`, after the host's own — it must scope itself, e.g. to
+`[data-theme="custom-<slug>-dark"]`), `favicon` and `logo` (files served from
+the Loader app's `ui/boot/<id>/` and asserted as `<link rel=icon>` /
+`--theme-logo` before the host hydrates), `title`, `attributes` (`data-*` on
+`<html>`, re-asserted by the drift guard until the host settles) and `when.theme`
+(only act when the active colour theme — `localStorage` `mc-color-theme`, else
+the host config's `dashboard.theme_color` captured at patch time — equals it).
+The part's `path` is the mod's boot hook, inlined as `function (ctx)` with
+`{id, color, mode, pref, element}` — ES5 only, no `</script`, at most 32 KB.
+
 ## Patch descriptor (`patch-1.json`)
 
 Referenced by `kind: patch` parts and applied by the Patcher (Requirement 5).
@@ -85,7 +99,9 @@ files are allowed and flagged governance-altering per Requirement 11.4).
 `toBuild` gate on the full host version (inclusive lower, exclusive upper).
 `ops[]` run in order: `insert-before`, `insert-after` and `replace` need a
 `fingerprint` (literal, or a regular expression with `regex: true`) that matches
-exactly once, plus `content`; `append-head` needs only `content`. `marker` names
+exactly once — or, with `occurrence: first|last`, names a class of locations
+("the first `<script`") and takes one of them — plus `content`; `append-head`
+needs only `content`. `marker` names
 a literal whose presence means the op is already applied. `cacheBust` marks a
 content-hashed immutable target (Requirement 5.6); `importMap` carries import-map
 keys for the chunk-remap path recorded in design spike 1.4 and is deliberately
