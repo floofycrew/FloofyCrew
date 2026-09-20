@@ -268,6 +268,8 @@ def _running_from_zipapp() -> str | None:
 
 def build_context(args: Any, *, console: Console, actor: str = "cli", in_gateway: bool = False, on_mutation: Callable[[str], None] | None = None) -> CliContext:
     home = Path(args.home).expanduser() if getattr(args, "home", None) else default_host_home()
+    if actor == "cli" and os.environ.get("FLOOFY_ACTOR") in ("trigger", "forge"):
+        actor = os.environ["FLOOFY_ACTOR"]  # the re-apply triggers mark their audit rows
     return CliContext(
         host_home=home,
         console=console,

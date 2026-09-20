@@ -33,3 +33,19 @@ def governance_locations(host_home: Path, payload=None):
     from .governance import locations
 
     return locations(host_home, payload)
+
+
+def reapply_triggers(host_home: Path, command: list[str], **kwargs):
+    """The edition's re-apply trigger managers (core ``floofy_core.triggers.trigger_managers``).
+
+    Named ``reapply_triggers`` on purpose: importing the ``triggers`` submodule
+    would rebind a package attribute of the same name to the module.
+    """
+    from .triggers import triggers as _triggers
+
+    return _triggers(host_home, command, **kwargs)
+
+
+def early_shim_kind(payload) -> str:
+    """A venv payload processes only its venv site; a bundle/desktop payload its user site (spike 1.5)."""
+    return "venv-site" if payload is not None and (payload.root / "pyvenv.cfg").is_file() else "user-site"

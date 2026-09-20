@@ -15,9 +15,9 @@ DR-3 "Re-apply trigger"):
   (:class:`PathWrapperTrigger`: ``~/.local/bin/kirocrew`` runs
   ``floofy apply --if-changed`` then ``exec``\\ s the real launcher).
 
-Edition adapters expose ``triggers(host_home, floofy_command) -> list[TriggerManager]``
-composing these classes with their own paths; :func:`trigger_managers` collects
-them. Everything is unit-file generation plus a few ``systemctl --user`` /
+Edition adapters expose ``reapply_triggers(host_home, floofy_command, **hooks) ->
+list[TriggerManager]`` composing these classes with their own paths;
+:func:`trigger_managers` collects them. Everything is unit-file generation plus a few ``systemctl --user`` /
 ``launchctl`` calls behind an injectable runner, so tests exercise the generated
 files and a dry ``systemd-analyze verify`` without enabling anything on the
 machine that runs them.
@@ -429,7 +429,7 @@ def trigger_managers(host_home: Path, adapters: Iterable[ModuleType], *, command
     for adapter in ordered:
         if edition is not None and getattr(adapter, "EDITION", None) not in (None, edition):
             continue
-        factory = getattr(adapter, "triggers", None)
+        factory = getattr(adapter, "reapply_triggers", None)
         if not callable(factory):
             continue
         try:
