@@ -35,6 +35,7 @@ __all__ = [
     "HOST_MODULE_URL",
     "PlaywrightMissing",
     "SpaReport",
+    "bundle_stems",
     "check_bundle_fingerprints",
     "default_registry_path",
     "discover_chunks",
@@ -177,33 +178,51 @@ class SpaReport:
         return report
 
 
+def bundle_stems(fingerprint: dict[str, Any]) -> list[str]:
+    """The chunk stems a bundle fingerprint may live in, in fallback order (``chunk`` is a string or a list)."""
+    chunk = fingerprint.get("chunk")
+    stems = chunk if isinstance(chunk, list) else [chunk]
+    return [str(stem) for stem in stems if isinstance(stem, str) and stem]
+
+
 def check_bundle_fingerprints(dist_dir: Path, registry: dict[str, Any] | None = None, *, host_version: str | None = None) -> SpaReport:
-    """Evaluate every ``bundle`` fingerprint of the registry against ``dist_dir`` on disk (no browser)."""
+    """Evaluate every ``bundle`` fingerprint of the registry against ``dist_dir`` on disk (no browser).
+
+    A fingerprint's ``chunk`` may list several stems (a hook the bundler folds into a
+    differently named shared chunk on another build): the stems are tried in order and
+    the first referenced chunk whose text matches wins; a miss reports the last stem found.
+    """
     document = registry or load_registry()
     surfaces = [s for s in document["surfaces"] if isinstance(s, dict) and isinstance(s.get("bundle"), dict)]
-    wanted = {str(s["bundle"].get("chunk")) for s in surfaces}
+    wanted = {stem for s in surfaces for stem in bundle_stems(s["bundle"])}
     chunks = discover_chunks(Path(dist_dir), wanted=wanted)
     report = SpaReport(host_version=host_version, chunks=chunks)
     texts: dict[str, str | None] = {}
     for surface in surfaces:
         name = f"{surface['name']}#bundle"
-        stem = str(surface["bundle"].get("chunk"))
-        file_name = chunks.get(stem)
-        if file_name is None:
-            report.missed.append({"name": name, "kind": "bundle", "reason": f"no chunk with stem {stem} is referenced by the shell", "chunk": None})
-            continue
-        if file_name not in texts:
-            path = Path(dist_dir) / "assets" / file_name
-            texts[file_name] = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else None
-        text = texts[file_name]
-        if not text:
-            report.missed.append({"name": name, "kind": "bundle", "reason": f"chunk {file_name} is missing or empty", "chunk": file_name})
-            continue
-        status, reason = match_bundle(surface["bundle"], text)
-        if status == "matched":
+        stems = bundle_stems(surface["bundle"])
+        outcome: dict[str, Any] | None = None
+        for stem in stems:
+            file_name = chunks.get(stem)
+            if file_name is None:
+                continue
+            if file_name not in texts:
+                path = Path(dist_dir) / "assets" / file_name
+                texts[file_name] = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else None
+            text = texts[file_name]
+            if not text:
+                outcome = {"name": name, "kind": "bundle", "status": "missed", "reason": f"chunk {file_name} is missing or empty", "chunk": file_name}
+                continue
+            status, reason = match_bundle(surface["bundle"], text)
+            outcome = {"name": name, "kind": "bundle", "status": status, "reason": reason, "chunk": file_name}
+            if status == "matched":
+                break
+        if outcome is None:
+            report.missed.append({"name": name, "kind": "bundle", "reason": f"no chunk with stem {'|'.join(stems) or '?'} is referenced by the shell", "chunk": None})
+        elif outcome["status"] == "matched":
             report.matched.append(name)
         else:
-            report.missed.append({"name": name, "kind": "bundle", "reason": reason, "chunk": file_name})
+            report.missed.append({k: v for k, v in outcome.items() if k != "status"})
     return report
 
 
