@@ -11,6 +11,14 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- Branding: the FloofyCrew mark (fox-eared fluffy ghost with a brush tail on the
+  sunset card), icon PNGs, `favicon.ico`, a `currentColor` mono mark and the
+  horizontal wordmark, all generated from `branding/gen_logos.py`. The Loader app
+  declares the mark as its store icon (`iconPath: art/icon.svg`), served by the
+  host from `/apps/floofycrew/art/`; `build_loader_app.py` ships `art/`.
+
 ### Fixed
 
 - `registry-tools`: `index.schema.json` now accepts the same host-version

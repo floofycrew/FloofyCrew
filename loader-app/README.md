@@ -18,7 +18,8 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 
 | Path | Purpose |
 |---|---|
-| `app.json` | the host manifest (`kiro_crew/apps/manifest.py` `AppManifest`): name `floofycrew`, hooks `floofy_loader.hooks:{register_routes,on_startup,on_shutdown}`, `ui.entry` `index.mjs`, `permissions` `{}` |
+| `app.json` | the host manifest (`kiro_crew/apps/manifest.py` `AppManifest`): name `floofycrew`, hooks `floofy_loader.hooks:{register_routes,on_startup,on_shutdown}`, `ui.entry` `index.mjs`, `permissions` `{}`, `iconPath` `art/icon.svg` |
+| `art/icon.svg` | the store / sidebar icon — a copy of `branding/logo.svg` (the test pins them byte-equal; rebuild with `python branding/build_icons.py && cp branding/logo.svg loader-app/art/icon.svg`). The host serves only the paths the manifest declares, from `/apps/floofycrew/art/<path>` for an installed app and through its blob proxy for a registry row (`routes.py` `handle_app_art_file`, `_ART_MANIFEST_FIELDS`), so `iconPath` is the one field to touch |
 | `floofy_loader/hooks.py` | the shim the host imports: puts the app directory on `sys.path`, delegates to `floofy_loader.runtime`, and turns any failure into `<data home>/loader-failure.json` so the gateway boots vanilla (Requirement 3.6) |
 | `floofy_loader/runtime.py` | the process-wide `LoaderRuntime` (`startup` / `shutdown` / `register_routes`): reads the host facts, runs the manager's host-version-change handling in-process (`floofy apply --if-changed`, actor `loader`) when the previous `loader-state.json` ran another host version — reporter, anchors, compat, re-apply, yeet BEFORE the mods boot — then `boot()`, keeps the live activations, writes `loader-state.json` (`hostChange` carries that outcome) |
 | `floofy_loader/boot.py` | the boot sequence (`boot(BootDeps) -> BootResult`, `deactivate_all`) with injectable collaborators (context factory, governance reader, patch runner) |

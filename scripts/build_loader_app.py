@@ -12,6 +12,7 @@ script builds that layout::
 
     <out>/
       app.json                 version stamped from floofy_core.__version__
+      art/                     store art declared by app.json (iconPath -> art/icon.svg)
       ui/                      manager page entry (loader-app/ui) + the SPA host
                                modules and surface registry (spa-host/src, task 5.x);
                                the Patcher later adds ui/patched/ and ui/boot/ at
@@ -100,6 +101,11 @@ def build(out: Path, editions: list[str]) -> Path:
 
     shutil.copytree(LOADER_APP / "ui", out / "ui", ignore=_ignore)
     copy_spa_host(out / "ui")
+    # Store art the manifest declares (``iconPath`` etc.); the host serves only the
+    # declared paths from ``/apps/floofycrew/art/`` (``kiro_crew/apps/routes.py``
+    # ``handle_app_art_file``), so the directory is part of the installable tree.
+    if (LOADER_APP / "art").is_dir():
+        shutil.copytree(LOADER_APP / "art", out / "art", ignore=_ignore)
     shutil.copytree(LOADER_APP / "floofy_loader", out / "floofy_loader", ignore=_ignore)
     if (LOADER_APP / "floofy_early").is_dir():
         shutil.copytree(LOADER_APP / "floofy_early", out / "floofy_early", ignore=_ignore)

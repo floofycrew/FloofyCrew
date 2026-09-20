@@ -26,6 +26,10 @@ def manifest() -> dict:
     return json.loads(MANIFEST.read_text(encoding="utf-8"))
 
 
+def built_icon_path(out: Path) -> str:
+    return json.loads((out / "app.json").read_text(encoding="utf-8"))["iconPath"]
+
+
 def test_manifest_shape_matches_the_host_grammar():
     doc = manifest()
     assert doc["name"] == "floofycrew" and KEBAB_RE.fullmatch(doc["name"])
@@ -41,6 +45,21 @@ def test_manifest_shape_matches_the_host_grammar():
     assert not doc["ui"]["entry"].startswith("ui/")  # UIConfig.entry resolves against ui/ already (manifest.py L616-620)
     assert "crons" not in doc and "mcpServers" not in doc and "entryPoint" not in doc["backend"]
     assert doc["permissions"] == {}
+
+
+def test_store_icon_is_declared_and_single_sourced():
+    """``iconPath`` is the store icon: the host serves ONLY manifest-declared paths from
+    ``/apps/<name>/art/`` (``kiro_crew/apps/routes.py`` ``_ART_MANIFEST_FIELDS``), images only,
+    relative to the app dir. The bytes are the branding mark, not a second drawing."""
+    doc = manifest()
+    icon = doc["iconPath"]
+    assert not icon.startswith(("/", "./")) and ".." not in icon
+    assert Path(icon).suffix == ".svg"
+    installed = LOADER_APP_DIR / icon
+    assert installed.is_file(), installed
+    assert installed.read_bytes() == (REPO_ROOT / "branding" / "logo.svg").read_bytes(), "loader-app/art/icon.svg must be a copy of branding/logo.svg"
+    assert installed.read_text(encoding="utf-8").lstrip().startswith("<svg")
+    assert "<script" not in installed.read_text(encoding="utf-8")
 
 
 def test_hook_modules_exist_and_never_register_a_plugins_entry_point():
@@ -63,6 +82,7 @@ def test_build_assembles_a_self_contained_app_dir(tmp_path: Path):
     for package in build_loader_app.EDITIONS.values():
         assert (out / package / "__init__.py").is_file(), package
     assert (out / "ui" / "index.mjs").is_file()
+    assert (out / built_icon_path(out)).is_file(), "the declared store icon ships in the built app"
     for name in ("host.mjs", "boundary.mjs", "events.mjs", "surfaces.mjs", "patches.mjs", "reporter.mjs"):
         assert (out / "ui" / name).is_file(), f"the SPA host module {name} is shipped in ui/"
         assert (out / "ui" / name).read_bytes() == (REPO_ROOT / "spa-host" / "src" / name).read_bytes()

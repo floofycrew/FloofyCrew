@@ -5,6 +5,7 @@
   "description": "Unofficial mod loader for KiroCrew. Not affiliated with Kiro or KiroCrew. Runs the FloofyCrew mods you chose, on your consent, inside the gateway; serves the mod manager page.",
   "author": "FloofyCrew contributors",
   "license": "MIT",
+  "iconPath": "art/icon.svg",
   "tags": [
     "mods",
     "unofficial",
