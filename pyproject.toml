@@ -27,9 +27,10 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["floofy-core/tests", "editions/toolbox/tests", "editions/public/tests", "loader-app/tests", "spa-host/tests", "registry-tools/tests"]
-pythonpath = ["floofy-core", "floofy-core/tests", "editions/toolbox", "editions/public", "scripts", "loader-app", "loader-app/tests", "registry-tools", "registry-tools/tests"]
+testpaths = ["floofy-core/tests", "editions/toolbox/tests", "editions/public/tests", "loader-app/tests", "spa-host/tests", "registry-tools/tests", "forge/tests"]
+pythonpath = ["floofy-core", "floofy-core/tests", "editions/toolbox", "editions/public", "scripts", "loader-app", "loader-app/tests", "registry-tools", "registry-tools/tests", "forge"]
 addopts = "-ra"
 markers = [
     "registry: the registry and compatibility-matrix suite (task 7.6, Requirement 13.3); `pytest -m registry`",
+    "forge: the Forge suite — ledger, watchers on recorded feeds, provision/check/release with fake commands, runner fallback, notify dry-run (task 8.8, Requirement 13.3); `pytest -m forge`",
 ]
