@@ -146,16 +146,24 @@ def _dict_set_create(document: dict[str, Any], key: str, value: Any) -> None:
 
 
 def _dict_delete(document: dict[str, Any], key: str) -> bool:
+    """Delete a dotted key; intermediate objects left empty by the deletion are pruned (the restore of an absent key)."""
     parts = key.split(".")
+    chain: list[dict[str, Any]] = [document]
     current: Any = document
     for part in parts[:-1]:
         if not isinstance(current, dict) or part not in current:
             return False
         current = current[part]
-    if isinstance(current, dict) and parts[-1] in current:
-        del current[parts[-1]]
-        return True
-    return False
+        chain.append(current)
+    if not isinstance(current, dict) or parts[-1] not in current:
+        return False
+    del current[parts[-1]]
+    for depth in range(len(chain) - 1, 0, -1):
+        if chain[depth] == {}:
+            del chain[depth - 1][parts[depth - 1]]
+        else:
+            break
+    return True
 
 
 @dataclass

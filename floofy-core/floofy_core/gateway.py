@@ -103,7 +103,12 @@ class GatewayEndpoint:
             connection.request(method, path, body=body, headers=request_headers)
             response = connection.getresponse()
             payload = response.read()
-            return Response(response.status, {k.lower(): v for k, v in response.getheaders()}, payload)
+            headers: dict[str, str] = {}
+            for key, value in response.getheaders():
+                name = key.lower()
+                # repeated headers (two Set-Cookie lines: the session and the refresh cookie) are joined, never dropped
+                headers[name] = f"{headers[name]}, {value}" if name in headers else value
+            return Response(response.status, headers, payload)
         finally:
             connection.close()
 
@@ -192,7 +197,7 @@ class GatewaySession:
     host: str = "127.0.0.1"
     timeout: float = 20.0
     ttl: str = "10m"
-    _cookies: dict[str, str] = field(default_factory=dict)
+    _cookies: dict[str, tuple[str, str]] = field(default_factory=dict)  # name -> (value, path)
 
     @property
     def endpoint(self) -> GatewayEndpoint:
@@ -228,8 +233,10 @@ class GatewaySession:
         """An authenticated call; ``body`` (any JSON value) is encoded as ``application/json``."""
         token = self.mint()
         request_headers = dict(headers or {})
-        if self._cookies:
-            request_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
+        route = path.split("?", 1)[0]
+        applicable = {name: value for name, (value, cookie_path) in self._cookies.items() if route.startswith(cookie_path)}
+        if applicable:
+            request_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in applicable.items())
         else:
             path += ("&" if "?" in path else "?") + "token=" + token
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -238,14 +245,21 @@ class GatewaySession:
         return response
 
     def _remember_cookies(self, response: Response) -> None:
+        """Keep the cookies the exchange set (``mc_token_<port>`` on ``/``; a deletion is ``Max-Age=0``)."""
         raw = response.headers.get("set-cookie")
         if not raw:
             return
         for cookie in re.split(r",(?=\s*[A-Za-z0-9_]+=)", raw):
-            pair = cookie.split(";", 1)[0].strip()
-            if "=" in pair:
-                name, value = pair.split("=", 1)
-                self._cookies[name.strip()] = value.strip()
+            parts = [p.strip() for p in cookie.split(";")]
+            if "=" not in parts[0]:
+                continue
+            name, value = parts[0].split("=", 1)
+            attributes = {k.strip().lower(): v.strip() for k, _, v in (a.partition("=") for a in parts[1:])}
+            value = value.strip().strip('"')
+            if attributes.get("max-age") == "0" or not value:
+                self._cookies.pop(name.strip(), None)
+                continue
+            self._cookies[name.strip()] = (value, attributes.get("path") or "/")
 
     def get(self, path: str, **kw: Any) -> Response:
         return self.request("GET", path, **kw)

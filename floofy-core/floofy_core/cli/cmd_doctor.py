@@ -318,8 +318,16 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
     enabled = ctx.enabled()
     rows: list[dict[str, Any]] = []
     state_mods = (state or {}).get("mods") or {}
+    kctx = None
     for mod in ctx.mods():
         published = state_mods.get(mod.id) or {}
+        seam_status: dict[int, dict[str, Any]] = {}
+        if not mod.problem and any(k in SEAM_KINDS for k in mod.kinds):
+            from ..installer import run_handlers  # noqa: PLC0415
+            from .actions import kind_context  # noqa: PLC0415
+
+            kctx = kctx or kind_context(ctx)
+            seam_status = {o.index: o.to_dict() for o in run_handlers(kctx, mod.id, mod.dir, mod.manifest, "status") if o.kind in SEAM_KINDS}
         row = {
             "id": mod.id,
             "version": mod.version,
@@ -330,9 +338,9 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
             "detail": published.get("detail") if published else (mod.problem or ""),
             "quarantined": published.get("quarantined", False),
             "hostCompat": host_compat_badge(mod.manifest, base, compat, mod.id, mod.version) if not mod.problem else "unknown",
-            "parts": published.get("parts") or [{"index": i, "kind": p.get("kind"), "side": p.get("side"), "path": p.get("path"), "status": "unknown", "seam": _seam(p.get("kind")), "modifiesPayload": p.get("kind") == "patch"} for i, p in enumerate(mod.parts)],
+            "parts": _merge_parts(published.get("parts") or [{"index": i, "kind": p.get("kind"), "side": p.get("side"), "path": p.get("path"), "status": "unknown", "seam": _seam(p.get("kind")), "modifiesPayload": p.get("kind") == "patch"} for i, p in enumerate(mod.parts)], seam_status),
             "warnings": published.get("warnings") or [],
-            "governance": published.get("governance") or [],
+            "governance": _merge_governance(published.get("governance") or [], seam_status),
             "link": mod.is_link,
             "stateSource": "published" if published else "manifest",
         }
@@ -345,7 +353,8 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
         reason = f" reason={row['reason']}" if row["reason"] else ""
         ctx.say(f"  [{marker}] {row['id']} {row['version']}  enabled={row['enabled']} compat={row['hostCompat']}{reason}" + (f" — {row['detail']}" if row["detail"] else "") + (" (dev link)" if row["link"] else ""))
         for part in row["parts"]:
-            ctx.say(f"       part {part['index']} {part['kind']}/{part.get('side', '?')} {part.get('path', '')}: {part.get('status', '?')} via {part.get('seam', '')}" + (" [modifies payload files]" if part.get("modifiesPayload") else ""))
+            seam_note = f"; on disk: {part['seamStatus']}" if part.get("seamStatus") else ""
+            ctx.say(f"       part {part['index']} {part['kind']}/{part.get('side', '?')} {part.get('path', '')}: {part.get('status', '?')} via {part.get('seam', '')}{seam_note}" + (" [modifies payload files]" if part.get("modifiesPayload") else ""))
         for warning in row["warnings"]:
             ctx.say(f"       warning {warning.get('code')}: {warning.get('message')}")
         for warning in row["governance"]:
@@ -356,6 +365,38 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
     if quarantine:
         ctx.say(f"quarantine: {quarantine}")
     return 0
+
+
+#: Kinds whose handler can say whether the part is in place on this machine (Requirement 2.7).
+SEAM_KINDS = frozenset({"theme", "agent", "skill", "appearance", "config", "app"})
+
+
+def _merge_parts(parts: list[dict[str, Any]], seam_status: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach the kind handler's presence verdict (``seamStatus``) to the Loader's part rows."""
+    merged = []
+    for part in parts:
+        row = dict(part)
+        verdict = seam_status.get(int(part.get("index", -1)))
+        if verdict is not None:
+            row["seamStatus"] = verdict.get("status")
+            row["seamDetail"] = verdict.get("detail")
+            row["seam"] = verdict.get("seam") or row.get("seam")
+            if verdict.get("modifiesPayload"):
+                row["modifiesPayload"] = True
+        merged.append(row)
+    return merged
+
+
+def _merge_governance(published: list[dict[str, Any]], seam_status: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    seen = {(g.get("code"), g.get("message")) for g in published}
+    merged = list(published)
+    for verdict in seam_status.values():
+        for warning in verdict.get("governance") or []:
+            key = (warning.get("code"), warning.get("message"))
+            if key not in seen:
+                seen.add(key)
+                merged.append(warning)
+    return merged
 
 
 def _seam(kind: Any) -> str:
