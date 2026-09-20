@@ -11,7 +11,9 @@
 //   re-resolved on route change and DOM mutation; `surfaces.changed` fires
 //   when a node identity or a match status changed.
 // * `bundle` — a literal (or regex) expected in the module text of a hashed
-//   chunk named by its STEM (`App`, `main`, `useTheme`): the real file name is
+//   chunk named by its STEM (`App`, `main`, `useTheme`) — or by a list of
+//   fallback stems tried in order, for a module the bundler folds into a
+//   differently named shared chunk on another build. The real file name is
 //   discovered from the never-cached shell (`<script src>`, `modulepreload`
 //   hints) or, for a lazy chunk, from a `./<stem>-<hash>.js` reference inside
 //   an already-fetched chunk. Chunk text is fetched same-origin from
@@ -48,6 +50,13 @@ export function addChunks(into, text) {
     if (!into.has(stem)) into.set(stem, `${stem}-${hash}.js`);
   }
   return into;
+}
+
+/** The chunk stems a bundle fingerprint may live in, in fallback order (`chunk` is a string or a list). */
+export function bundleStems(fingerprint) {
+  const chunk = fingerprint?.chunk;
+  const stems = Array.isArray(chunk) ? chunk : [chunk];
+  return stems.filter((stem) => typeof stem === "string" && stem);
 }
 
 /**
@@ -215,13 +224,22 @@ export function createSurfaces({ document: doc, window: win, bus, definitions, f
         rows.push({ name: def.name, kind: "dom", status: dom.status, reason: dom.reason });
       }
       if (def.bundle) {
-        const { file, text } = await chunkTextFor(def.bundle.chunk);
-        if (!text) {
-          rows.push({ name: def.name, kind: "bundle", status: "missed", reason: file ? `chunk ${file} could not be fetched` : `no chunk with stem ${def.bundle.chunk} is referenced by the shell`, chunk: file });
-          continue;
+        // stems are tried in order: the first referenced chunk whose text matches wins,
+        // a miss reports the last stem that was found, no stem found reports them all
+        const stems = bundleStems(def.bundle);
+        let outcome = null;
+        for (const stem of stems) {
+          const { file, text } = await chunkTextFor(stem);
+          if (!file) continue;
+          if (!text) {
+            outcome = { name: def.name, kind: "bundle", status: "missed", reason: `chunk ${file} could not be fetched`, chunk: file };
+            continue;
+          }
+          const verdict = matchBundle(def.bundle, text);
+          outcome = { name: def.name, kind: "bundle", status: verdict.status, reason: verdict.reason, chunk: file };
+          if (verdict.status === "matched") break;
         }
-        const verdict = matchBundle(def.bundle, text);
-        rows.push({ name: def.name, kind: "bundle", status: verdict.status, reason: verdict.reason, chunk: file });
+        rows.push(outcome ?? { name: def.name, kind: "bundle", status: "missed", reason: `no chunk with stem ${stems.join("|") || "?"} is referenced by the shell`, chunk: null });
       }
     }
     return rows;

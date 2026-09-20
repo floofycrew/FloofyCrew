@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { createBus } from "../src/events.mjs";
 import { foldReport } from "../src/reporter.mjs";
-import { addChunks, chunksFromDocument, createSurfaces, matchBundle, resolveDom, routeApplies } from "../src/surfaces.mjs";
+import { addChunks, bundleStems, chunksFromDocument, createSurfaces, matchBundle, resolveDom, routeApplies } from "../src/surfaces.mjs";
 
 const REGISTRY = JSON.parse(readFileSync(new URL("../src/surfaces.json", import.meta.url), "utf8"));
 
@@ -30,7 +30,9 @@ test("the shipped registry is well-formed: unique names, fromBuild, dom and/or b
     assert.match(surface.fromBuild, /^\d+\.\d+\.\d+/, surface.name);
     assert.ok(surface.dom || surface.bundle, `${surface.name} has neither dom nor bundle`);
     if (surface.bundle) {
-      assert.match(surface.bundle.chunk, /^[A-Za-z][A-Za-z0-9_.]*$/, `${surface.name}: a chunk is named by its stem, never by hash`);
+      const stems = bundleStems(surface.bundle);
+      assert.ok(stems.length >= 1, `${surface.name}: at least one chunk stem`);
+      for (const stem of stems) assert.match(stem, /^[A-Za-z][A-Za-z0-9_.]*$/, `${surface.name}: a chunk is named by its stem, never by hash`);
       assert.ok(surface.bundle.contains || surface.bundle.regex, surface.name);
       if (surface.bundle.regex) assert.doesNotThrow(() => new RegExp(surface.bundle.regex));
     }
@@ -89,8 +91,9 @@ test("createSurfaces: get/refresh emit surfaces.changed on change, check() folds
   const changes = [];
   bus.on("surfaces.changed", (_n, p) => changes.push(p));
   const chunkTexts = {
-    "/assets/main-AAAAAAAA.js": 'import("./App-BBBBBBBB.js"); const x = "in-main";',
+    "/assets/main-AAAAAAAA.js": 'import("./App-BBBBBBBB.js");import"./terminal-CCCCCCCC.js"; const x = "in-main";',
     "/assets/App-BBBBBBBB.js": 'const y = "in-app";',
+    "/assets/terminal-CCCCCCCC.js": "r.dataset.theme=ne(e,t)",
   };
   const fetchImpl = async (url) => ({ ok: url in chunkTexts, text: async () => chunkTexts[url] });
   const surfaces = createSurfaces({
@@ -104,9 +107,12 @@ test("createSurfaces: get/refresh emit surfaces.changed on change, check() folds
       { name: "elsewhere", fromBuild: "0.7.0.5", dom: { selector: "main#main-content", route: "/settings" } },
       { name: "gone", fromBuild: "0.7.0.5", bundle: { chunk: "Nowhere", contains: "x" } },
       { name: "stale", fromBuild: "0.7.0.5", bundle: { chunk: "App", contains: "removed-in-this-build", count: "once" } },
+      { name: "theme.tokens", fromBuild: "0.6.0", bundle: { chunk: ["useTheme", "terminal"], contains: ".dataset.theme=", count: "once" } },
+      { name: "moved-away", fromBuild: "0.6.0", bundle: { chunk: ["useTheme", "Nowhere"], contains: ".dataset.theme=" } },
+      { name: "wrong-in-both", fromBuild: "0.6.0", bundle: { chunk: ["main", "App"], contains: "absent" } },
     ],
   });
-  assert.deepEqual(surfaces.names(), ["shell.root", "apps.page", "elsewhere", "gone", "stale"]);
+  assert.deepEqual(surfaces.names(), ["shell.root", "apps.page", "elsewhere", "gone", "stale", "theme.tokens", "moved-away", "wrong-in-both"]);
   assert.equal(surfaces.get("shell.root"), rootNode);
   assert.equal(surfaces.get("apps.page"), null);
   const first = surfaces.refresh();
@@ -131,12 +137,19 @@ test("createSurfaces: get/refresh emit surfaces.changed on change, check() folds
   assert.equal(byKey["gone#bundle"].status, "missed");
   assert.match(byKey["gone#bundle"].reason, /no chunk with stem Nowhere/);
   assert.equal(byKey["stale#bundle"].status, "missed");
+  assert.equal(byKey["theme.tokens#bundle"].status, "matched", "a fallback stem is tried when the first one is not referenced (useTheme folded into terminal on public 0.6.0)");
+  assert.equal(byKey["theme.tokens#bundle"].chunk, "terminal-CCCCCCCC.js");
+  assert.equal(byKey["moved-away#bundle"].status, "missed");
+  assert.match(byKey["moved-away#bundle"].reason, /no chunk with stem useTheme\|Nowhere/);
+  assert.equal(byKey["wrong-in-both#bundle"].status, "missed");
+  assert.equal(byKey["wrong-in-both#bundle"].chunk, "App-BBBBBBBB.js", "a miss names the last stem that was found");
+  assert.match(byKey["wrong-in-both#bundle"].reason, /no occurrence/);
 
   const report = foldReport(rows, { matched: [], missed: [] }, { hostVersion: "0.7.0.5", route: "/apps", chunks: Object.fromEntries(surfaces.chunks()) });
-  assert.deepEqual(report.matched, ["shell.root#dom", "shell.root#bundle", "apps.page#dom", "apps.page#bundle"]);
-  assert.deepEqual(report.missed.map((m) => m.name), ["gone#bundle", "stale#bundle"]);
+  assert.deepEqual(report.matched, ["shell.root#dom", "shell.root#bundle", "apps.page#dom", "apps.page#bundle", "theme.tokens#bundle"]);
+  assert.deepEqual(report.missed.map((m) => m.name), ["gone#bundle", "stale#bundle", "moved-away#bundle", "wrong-in-both#bundle"]);
   assert.deepEqual(report.notApplicable.map((m) => m.name), ["elsewhere#dom"]);
-  assert.deepEqual(report.spaFingerprints, { matched: 4, total: 6, missed: ["gone#bundle", "stale#bundle"] });
+  assert.deepEqual(report.spaFingerprints, { matched: 5, total: 9, missed: ["gone#bundle", "stale#bundle", "moved-away#bundle", "wrong-in-both#bundle"] });
   assert.equal(report.hostVersion, "0.7.0.5");
   assert.equal(report.chunks.main, "main-AAAAAAAA.js");
 });

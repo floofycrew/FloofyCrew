@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from floofy_core import cli_spa, spa_report
-from floofy_core.spa_report import SpaReport, check_bundle_fingerprints, discover_chunks, load_registry, match_bundle
+from floofy_core.spa_report import SpaReport, bundle_stems, check_bundle_fingerprints, discover_chunks, load_registry, match_bundle
 
 from floofy_testing import REPO_ROOT
 
@@ -24,9 +24,22 @@ def fake_dist(root: Path) -> Path:
         '<link rel="modulepreload" crossorigin href="/assets/useTheme-BBBBBBBB.js"></head><body><div id="root"></div></body></html>',
         encoding="utf-8",
     )
-    (dist / "assets" / "main-AAAAAAAA.js").write_text('import("./App-CCCCCCCC.js");const marker="in-main";', encoding="utf-8")
+    (dist / "assets" / "main-AAAAAAAA.js").write_text('import("./App-CCCCCCCC.js");import"./terminal-DDDDDDDD.js";const marker="in-main";', encoding="utf-8")
     (dist / "assets" / "App-CCCCCCCC.js").write_text('"data-testid":`dashboard-shell`; path:`/apps`; path:`/apps`;', encoding="utf-8")
     (dist / "assets" / "useTheme-BBBBBBBB.js").write_text("r.dataset.theme=U(e,t);mc-theme-favicon", encoding="utf-8")
+    (dist / "assets" / "terminal-DDDDDDDD.js").write_text("r.dataset.theme=ne(e,t);mc-theme-favicon;mc-custom-theme-", encoding="utf-8")
+    return dist
+
+
+def public_0_6_0_dist(root: Path) -> Path:
+    """The public 0.6.0 shape: no useTheme chunk; the hook lives in the preloaded `terminal` chunk."""
+    dist = fake_dist(root)
+    (dist / "assets" / "useTheme-BBBBBBBB.js").unlink()
+    (dist / "index.html").write_text(
+        '<html><head><script type="module" crossorigin src="/assets/main-AAAAAAAA.js"></script>\n'
+        '<link rel="modulepreload" crossorigin href="/assets/terminal-DDDDDDDD.js"></head><body><div id="root"></div></body></html>',
+        encoding="utf-8",
+    )
     return dist
 
 
@@ -40,7 +53,21 @@ def test_default_registry_is_found_and_well_formed():
         assert surface.get("dom") or surface.get("bundle"), surface["name"]
         bundle = surface.get("bundle")
         if bundle:
-            assert "-" not in bundle["chunk"] or not any(ch.isdigit() for ch in bundle["chunk"]), f"{surface['name']}: a chunk is named by its stem, never by hash"
+            stems = bundle_stems(bundle)
+            assert stems, f"{surface['name']}: at least one chunk stem"
+            for stem in stems:
+                assert "-" not in stem or not any(ch.isdigit() for ch in stem), f"{surface['name']}: a chunk is named by its stem, never by hash"
+    # the theme hook is its own useTheme chunk on 0.7.0.x and folded into `terminal` on public 0.6.0
+    for name in ("favicon", "theme.tokens", "theme.custom-style", "theme.reset-site"):
+        surface = next(s for s in registry["surfaces"] if s["name"] == name)
+        assert bundle_stems(surface["bundle"]) == ["useTheme", "terminal"], name
+
+
+def test_bundle_stems_accepts_a_string_or_a_list():
+    assert bundle_stems({"chunk": "App"}) == ["App"]
+    assert bundle_stems({"chunk": ["useTheme", "terminal"]}) == ["useTheme", "terminal"]
+    assert bundle_stems({"chunk": ["", None, "main"]}) == ["main"]
+    assert bundle_stems({}) == []
 
 
 def test_discover_chunks_reads_the_shell_and_expands_lazy_stems(tmp_path: Path):
@@ -80,6 +107,31 @@ def test_check_bundle_fingerprints_reports_matches_misses_and_the_matrix_shape(t
     assert data["spaFingerprints"] == {"matched": 3, "total": 5, "missed": ["gone#bundle", "stale#bundle"]}
     assert data["hostVersion"] == "9.9.9" and data["source"] == "offline" and data["chunks"]["App"] == "App-CCCCCCCC.js"
     assert not report.ok
+
+
+def test_check_bundle_fingerprints_tries_fallback_stems_in_order(tmp_path: Path):
+    """public 0.6.0: the useTheme hook is folded into `terminal`; the registry lists both stems."""
+    dist = public_0_6_0_dist(tmp_path)
+    registry = {
+        "schema": 1,
+        "surfaces": [
+            {"name": "theme.tokens", "fromBuild": "0.6.0", "bundle": {"chunk": ["useTheme", "terminal"], "contains": ".dataset.theme=", "count": "once"}},
+            {"name": "favicon", "fromBuild": "0.6.0", "bundle": {"chunk": ["useTheme", "terminal"], "contains": "mc-theme-favicon"}},
+            {"name": "moved-away", "fromBuild": "0.6.0", "bundle": {"chunk": ["useTheme", "Nowhere"], "contains": ".dataset.theme="}},
+            {"name": "wrong-in-both", "fromBuild": "0.6.0", "bundle": {"chunk": ["main", "App"], "contains": "absent"}},
+            {"name": "first-wins", "fromBuild": "0.6.0", "bundle": {"chunk": ["main", "terminal"], "contains": "in-main"}},
+        ],
+    }
+    report = check_bundle_fingerprints(dist, registry, host_version="0.6.0")
+    assert report.matched == ["theme.tokens#bundle", "favicon#bundle", "first-wins#bundle"]
+    assert [m["name"] for m in report.missed] == ["moved-away#bundle", "wrong-in-both#bundle"]
+    assert report.missed[0] == {"name": "moved-away#bundle", "kind": "bundle", "reason": "no chunk with stem useTheme|Nowhere is referenced by the shell", "chunk": None}
+    assert report.missed[1]["chunk"] == "App-CCCCCCCC.js" and report.missed[1]["reason"] == "no occurrence in the chunk text"
+    assert "useTheme" not in report.chunks and report.chunks["terminal"] == "terminal-DDDDDDDD.js"
+    # the 0.7.0.x shape still resolves through the first stem
+    older = check_bundle_fingerprints(fake_dist(tmp_path / "older"), registry, host_version="0.7.0.5")
+    assert older.matched == ["theme.tokens#bundle", "favicon#bundle", "moved-away#bundle", "first-wins#bundle"]
+    assert older.chunks["useTheme"] == "useTheme-BBBBBBBB.js"
 
 
 def test_from_browser_keeps_reasons_and_meta():
