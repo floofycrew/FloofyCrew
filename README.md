@@ -22,7 +22,7 @@ One repository, one shared core, two thin edition adapters (design DR-3).
 | `registry-tools/` | Build, sign and validate registry indexes; emit `app-registry.json` |
 | `forge/` | Release tracking: watchers (`watch-internal.sh`), build-desk scripts, `docs/build-desk.md` (internal-only notes) |
 | `docs/` | Public documentation (manifest reference, seams, APIs, trust model) |
-| `research/` | Kickoff research reports, prompts, transcripts, `build-notes.md`, spike artefacts (`spikes/`), and `agent-run.sh` (the research/repair agent runner with retry + model fallback) |
+| `research/` | Kickoff research reports, prompts, transcripts, `build-notes.md`, spike artefacts (`spikes/`); the agent runner moved to `forge/runner.sh` |
 | `scripts/` | Repository tooling: `check_no_internal_identifiers.py` (+ `de-amazon-allow.txt`), run by CI |
 | `.github/workflows/ci.yml` | CI: de-Amazon check of the shared core, `pytest` via `uv` |
 | `pyproject.toml` | Project metadata (Python ≥ 3.12, no runtime dependencies), dev group, pytest config |
