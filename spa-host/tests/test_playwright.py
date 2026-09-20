@@ -325,5 +325,26 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         page.click('[data-testid="floofycrew-toggle-spa-healthy"]')
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-spa-healthy\"]')?.textContent.startsWith('enabled')", timeout=60000)
         assert json.loads(enabled_path.read_text(encoding="utf-8"))["spa-healthy"] is True
+        # task 11.2 — the App shell: FloofyCrew by name, the branding mark, six sections with Mods as the landing page
+        assert page.inner_text('[data-testid="floofycrew-header"]').startswith("FloofyCrew")
+        art = client.get("/apps/floofycrew/art/art/icon.svg")  # /apps/<name>/art/<iconPath verbatim>
+        assert art.status == 200 and art.body == (REPO_ROOT / "branding" / "logo.svg").read_bytes(), f"the host serves the declared iconPath: HTTP {art.status} {art.body[:200]!r}"
+        page.wait_for_function("() => { const img = document.querySelector('[data-testid=\"floofycrew-header\"] img'); return img && img.complete && img.naturalWidth > 0; }", timeout=30000)
+        assert page.locator('[data-testid="floofycrew-page-mods"]').count() == 1, "the manager page is the landing page"
+        nav = page.inner_text('[data-testid="floofycrew-nav"]')
+        assert [w for w in nav.split() if w] == ["Mods", "Registry", "Profiles", "Doctor", "Audit", "Settings"], nav
+        for key, marker in (("registry", "floofycrew-sources"), ("profiles", "floofycrew-profiles"), ("doctor", "floofycrew-doctor"), ("audit", "floofycrew-audit"), ("settings", "floofycrew-settings-terminal")):
+            page.click(f'[data-testid="floofycrew-nav-{key}"]')
+            page.wait_for_selector(f'[data-testid="floofycrew-page-{key}"] [data-testid="{marker}"]', timeout=60000)
+            assert page.evaluate("() => location.hash") == f"#/{key}"
+        assert "floofy init" in page.inner_text('[data-testid="floofycrew-settings-terminal"]'), "a capability the App lacks shows its command (Requirement 16.2)"
+        page.wait_for_selector('[data-testid="floofycrew-banner-art"]', timeout=30000)
+        page.click('[data-testid="floofycrew-nav-audit"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-audit\"]')?.textContent.includes('disable spa-healthy')", timeout=30000)
+        page.click('[data-testid="floofycrew-nav-doctor"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-doctor-consent\"]')?.textContent.includes('ok')", timeout=60000)
+        page.click('[data-testid="floofycrew-nav-mods"]')
+        page.wait_for_selector('[data-testid="floofycrew-mod-row-rimuru-branding"]', timeout=30000)
+        assert page.inner_text('[data-testid="floofycrew-banner"]').count("UNOFFICIAL") == 1, "the banner stays on every page"
     finally:
         context.close()

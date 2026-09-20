@@ -35,7 +35,7 @@ def test_manifest_shape_matches_the_host_grammar():
     assert doc["name"] == "floofycrew" and KEBAB_RE.fullmatch(doc["name"])
     assert re.match(r"^\d+\.\d+\.\d+([+-]|$)", doc["version"])  # manifest.py L35 SEMVER_RE
     assert doc["displayName"] and doc["description"]
-    assert "unofficial" in doc["displayName"].lower() and "unofficial" in doc["description"].lower()  # Requirement 11.8
+    assert doc["displayName"] == "FloofyCrew" and "unofficial" in doc["description"].lower()  # Requirement 16.1, 11.8 (the App's banner says it too)
     hooks = doc["backend"]["hooks"]
     assert set(hooks) == {"routes", "on_startup", "on_shutdown"}
     for value in hooks.values():

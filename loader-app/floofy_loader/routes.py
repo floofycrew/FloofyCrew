@@ -17,6 +17,7 @@ the SPA file route is declared once per depth (1–4 segments below the mod id).
 | GET | ``/spa/{id}/{file...}`` | an enabled mod's ``spa`` part files from ``<data home>/spa/<id>/`` (``Cache-Control: no-cache``, typed by extension, path-escape safe) |
 | POST | ``/cli`` | body ``{"argv": [...]}``: run one **read-only** ``floofy`` command in-process (``status``, ``doctor``, ``search``, ``info``, ``list``, ``audit``, ``which``) |
 | GET | ``/registry`` | the registry cache summary, every source's trust settings and last-refresh verdict, the matrix row for this host, the update available for each installed mod (graded like the CLI: ``best_version`` against the matrix) and each installed mod's source tier (``tiers``, Requirement 8.11) |
+| GET | ``/banner`` | the FloofyCrew banner cells (``floofy_core/cli/banner.json``) for the App's About card (Requirement 15.5 mirrored) |
 | * | the manager App's typed routes | one route per CLI action — ``/mods/install``, ``/mods/{id}/enable`` …, ``/registries``, ``/profiles``, ``/doctor``, ``/audit``, ``/consent`` — each running the same handler as the CLI with ``actor: app`` and the 409 confirmation protocol; see :mod:`floofy_loader.app_routes` |
 
 Every mutation the manager App performs goes through :mod:`floofy_loader.app_routes`
@@ -41,7 +42,7 @@ from typing import Any, Callable
 
 from .app_routes import route_table as app_route_table
 
-__all__ = ["CLI_ALLOWLIST", "ROUTE_TABLE", "SPA_MAX_DEPTH", "build_routes", "cli_response", "fault_response", "health_response", "registry_response", "spa_response", "state_response"]
+__all__ = ["CLI_ALLOWLIST", "ROUTE_TABLE", "SPA_MAX_DEPTH", "banner_response", "build_routes", "cli_response", "fault_response", "health_response", "registry_response", "spa_response", "state_response"]
 
 SPA_MAX_DEPTH = 4
 Responder = tuple[int, dict[str, str], bytes]
@@ -73,6 +74,7 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("POST", "/mods/{id}/fault"),
     ("POST", "/cli"),
     ("GET", "/registry"),
+    ("GET", "/banner"),
     *(("GET", "/spa/{id}/" + "/".join(f"{{p{i}}}" for i in range(1, depth + 1))) for depth in range(1, SPA_MAX_DEPTH + 1)),
     *app_route_table(),
 )
@@ -224,6 +226,14 @@ def registry_response(runtime: Any) -> Responder:
     return _json(200, {"ok": True, "cache": cache.to_dict(), "compat": compat.to_dict(row), "sources": sources, "updates": updates, "tiers": tiers})
 
 
+def banner_response() -> Responder:
+    """``GET /banner`` — the banner cells (``{width, height, rows: [[char, [r, g, b]], …]}``) for the App's About card."""
+    from floofy_core.cli.banner import load  # noqa: PLC0415
+
+    banner = load()
+    return _json(200, {"name": banner.name, "width": banner.width, "height": banner.height, "rows": [[[ch, list(rgb)] for ch, rgb in row] for row in banner.rows]})
+
+
 def spa_response(spa_root: Path, mod_id: str, segments: list[str]) -> Responder:
     """Serve ``<spa_root>/<id>/<segments...>`` for an enabled mod; refuses escapes and hidden files."""
     if not mod_id or not segments or any(not s or s in (".", "..") or s.startswith(".") or "\\" in s for s in [mod_id, *segments]):
@@ -292,6 +302,7 @@ def build_routes(runtime: Any) -> list:
         AppRoute("POST", "/mods/{id}/fault", fault),
         AppRoute("POST", "/cli", cli),
         AppRoute("GET", "/registry", make(lambda request: registry_response(runtime))),
+        AppRoute("GET", "/banner", make(lambda request: banner_response())),
     ]
     for method, path in ROUTE_TABLE:
         if path.startswith("/spa/"):

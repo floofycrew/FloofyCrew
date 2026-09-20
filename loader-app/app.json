@@ -1,8 +1,8 @@
 {
   "name": "floofycrew",
   "version": "1.0.1",
-  "displayName": "FloofyCrew Loader (unofficial)",
-  "description": "Unofficial mod loader for KiroCrew. Not affiliated with Kiro or KiroCrew. Runs the FloofyCrew mods you chose, on your consent, inside the gateway; serves the mod manager page.",
+  "displayName": "FloofyCrew",
+  "description": "FloofyCrew — the unofficial mod manager and loader for KiroCrew. Not affiliated with Kiro or KiroCrew. Runs the mods you chose, on your consent, inside the gateway; the App does everything the floofy CLI does and hosts the mods' own settings pages.",
   "author": "FloofyCrew contributors",
   "license": "MIT",
   "iconPath": "art/icon.svg",
@@ -61,6 +61,11 @@
         "method": "GET",
         "path": "/registry",
         "purpose": "registry cache summary, source verdicts, update availability and source tier per installed mod"
+      },
+      {
+        "method": "GET",
+        "path": "/banner",
+        "purpose": "the FloofyCrew banner cells for the App's About card"
       },
       {
         "method": "POST",
