@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -91,6 +92,133 @@ def test_from_browser_keeps_reasons_and_meta():
     assert data["source"] == "browser" and data["hostTag"] == "injected" and data["route"] == "/apps"
     assert data["spaFingerprints"] == {"matched": 1, "total": 3, "missed": ["b#bundle", "plain"]}
     assert data["notApplicable"][0]["name"] == "c#dom"
+
+
+class FakePage:
+    """A dashboard page as Playwright exposes it, on a virtual clock.
+
+    Models the 0.7.0.5 boot: ``load`` has fired, ``window.floofy`` appears at
+    ``floofy_at`` (a loader tag) or only after ``add_script_tag`` (injection),
+    the React root renders at ``mount_at`` (after the ``/api/ui-prefs``
+    round-trip), and the page may ``location.reload()`` at ``reload_at`` — which
+    wipes an injected host. ``report()`` answers with the DOM fingerprints that
+    exist at the moment it is called.
+    """
+
+    def __init__(self, *, mount_at: float, floofy_at: float | None = None, reload_at: float | None = None, host_delay: float = 0.2):
+        self.now = 0.0
+        self.mount_at = mount_at
+        self.floofy_at = floofy_at
+        self.reload_at = reload_at
+        self.host_delay = host_delay
+        self.injected_at: float | None = None
+        self.reloaded = False
+        self.calls: list[tuple[str, Any]] = []
+
+    # -- the page's world at ``self.now``
+    def _tick(self) -> None:
+        if self.reload_at is not None and not self.reloaded and self.now >= self.reload_at:
+            self.reloaded = True
+            self.injected_at = None  # an injected module tag does not survive a reload
+
+    def _has_floofy(self) -> bool:
+        self._tick()
+        if self.floofy_at is not None and self.now >= self.floofy_at:
+            return True
+        return self.injected_at is not None and self.now >= self.injected_at + self.host_delay
+
+    def _mounted(self) -> bool:
+        self._tick()
+        if self.reload_at is not None and self.now >= self.reload_at:
+            return self.now >= self.reload_at + self.mount_at
+        return self.now >= self.mount_at
+
+    def _wait(self, predicate, timeout_ms: int) -> None:
+        deadline = self.now + timeout_ms / 1000
+        while self.now < deadline:
+            if predicate():
+                return
+            self.now = min(deadline, self.now + 0.05)
+        if not predicate():
+            raise TimeoutError(f"timeout after {timeout_ms} ms")
+
+    # -- the Playwright surface drive_report_page uses
+    def wait_for_function(self, expression: str, timeout: int) -> None:
+        assert "window.floofy" in expression
+        self.calls.append(("wait_for_function", timeout))
+        self._wait(self._has_floofy, timeout)
+
+    def wait_for_selector(self, selector: str, state: str, timeout: int) -> None:
+        assert selector == spa_report.MOUNT_SELECTOR and state == "attached"
+        self.calls.append(("wait_for_selector", timeout))
+        self._wait(self._mounted, timeout)
+
+    def add_script_tag(self, url: str, type: str) -> None:  # noqa: A002 - Playwright's keyword
+        assert url == spa_report.HOST_MODULE_URL and type == "module"
+        self.calls.append(("add_script_tag", url))
+        self.injected_at = self.now
+
+    def wait_for_timeout(self, ms: int) -> None:
+        self.calls.append(("wait_for_timeout", ms))
+        self.now += ms / 1000
+
+    def evaluate(self, expression: str, arg: Any = None) -> Any:
+        self.calls.append(("evaluate", expression))
+        if "__floofyHostStatus" in expression:
+            return {"stage": "booting"}
+        assert self._has_floofy(), "report() called without window.floofy"
+        matched = ["shell.root#dom", "dashboard.shell#bundle"]
+        missed = []
+        if self._mounted():
+            matched.append("dashboard.shell#dom")
+        else:
+            missed.append({"name": "dashboard.shell#dom", "kind": "dom", "reason": 'selector [data-testid="dashboard-shell"] matches nothing'})
+        return {"hostVersion": "0.7.0.5", "matched": matched, "missed": missed, "notApplicable": [], "chunks": {"App": "App-X.js"}, "route": "/", "surfaces": ["shell.root", "dashboard.shell"], "extraSurfaces": arg.get("extraSurfaces") if isinstance(arg, dict) else None}
+
+
+def test_drive_report_page_waits_for_the_deferred_mount():
+    """0.7.0.5 renders React only after /api/ui-prefs answers: the report must wait for #root to fill, not just for load + 500 ms."""
+    page = FakePage(mount_at=6.0, floofy_at=0.1)
+    document, host_tag = spa_report.drive_report_page(page, timeout_s=30.0, clock=lambda: page.now)
+    assert host_tag == "present" and document["mounted"] is True
+    assert "dashboard.shell#dom" in document["matched"] and document["missed"] == []
+    kinds = [c[0] for c in page.calls]
+    assert "add_script_tag" not in kinds and kinds.index("wait_for_selector") < kinds.index("wait_for_timeout") < kinds.index("evaluate")
+    report = SpaReport.from_browser(document, extra={"hostTag": host_tag})
+    assert report.ok and report.to_dict()["mounted"] is True
+
+
+def test_drive_report_page_injects_the_host_then_waits_for_the_mount():
+    """An unpatched shell: inject host.mjs, then still wait for the React root before reporting."""
+    page = FakePage(mount_at=7.0)
+    document, host_tag = spa_report.drive_report_page(page, timeout_s=30.0, clock=lambda: page.now)
+    assert host_tag == "injected" and document["mounted"] is True and document["missed"] == []
+    kinds = [c[0] for c in page.calls]
+    assert kinds.index("add_script_tag") < kinds.index("wait_for_selector") < kinds.index("evaluate")
+
+
+def test_drive_report_page_reattaches_the_host_after_a_self_reload():
+    """The ui-prefs sync may location.reload() once; an injected window.floofy is gone afterwards and must be re-added."""
+    page = FakePage(mount_at=1.0, reload_at=4.5)  # reload lands after the 4 s floofy probe + injection, during the mount wait
+    document, host_tag = spa_report.drive_report_page(page, timeout_s=30.0, clock=lambda: page.now)
+    assert page.reloaded and host_tag == "reinjected"
+    assert document["mounted"] is True and document["missed"] == []
+    assert len([c for c in page.calls if c[0] == "add_script_tag"]) == 2
+
+
+def test_drive_report_page_reports_the_misses_when_the_mount_never_comes():
+    """No mount within the budget is not an error: the report is taken and names the misses (what the matrix records)."""
+    page = FakePage(mount_at=10_000.0, floofy_at=0.0)
+    document, host_tag = spa_report.drive_report_page(page, timeout_s=5.0, clock=lambda: page.now)
+    assert host_tag == "present" and document["mounted"] is False
+    assert [m["name"] for m in document["missed"]] == ["dashboard.shell#dom"]
+    assert page.now < 8.0  # bounded by the budget, no runaway wait
+
+
+def test_drive_report_page_respects_no_inject():
+    page = FakePage(mount_at=0.0)
+    with pytest.raises(RuntimeError, match="--no-inject"):
+        spa_report.drive_report_page(page, inject_host=False, timeout_s=2.0, clock=lambda: page.now)
 
 
 def test_cli_bundle_check_and_ready_file(tmp_path: Path, capsys):
