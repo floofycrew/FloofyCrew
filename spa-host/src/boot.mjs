@@ -19,8 +19,9 @@
 //    boot hook (the `spa` part file, inlined as `function (ctx)`);
 // 3. drift guard — a MutationObserver re-asserts the attributes until the host
 //    settles (its own theme <style id="mc-custom-theme-…"> or favicon
-//    <link id="mc-theme-favicon"> lands, or 5 s pass), then removes the boot
-//    favicon links so the host's authoritative one is the only <link rel=icon>.
+//    <link id="mc-theme-favicon"> lands, or 5 s pass); the moment the host's
+//    favicon link exists the boot favicon links are removed, so the host's
+//    authoritative icon is the only themed <link rel=icon>.
 //
 // The baked CSS is NOT here: the Patcher appends one <style id="floofy-boot-css-<id>">
 // per mod just before </head>, after the host's stylesheets (source order wins
@@ -50,7 +51,7 @@ function floofyBoot(config) {
       el.setAttribute('data-mode', mode);
       el.setAttribute('data-mode-pref', pref);
     }
-    var state = { color: color, mode: mode, pref: pref, applied: [], skipped: [], settled: false, errors: [] };
+    var state = { color: color, mode: mode, pref: pref, applied: [], skipped: [], settled: false, faviconYielded: false, errors: [] };
     var guarded = [];
     var mods = config.mods || [];
     for (var i = 0; i < mods.length; i++) {
@@ -86,12 +87,19 @@ function floofyBoot(config) {
     var settle = function () {
       if (state.settled) return;
       state.settled = true;
-      try { headObserver.disconnect(); } catch (e) {}
       try { attrObserver.disconnect(); } catch (e) {}
+      dropBootFavicons();
+    };
+    var dropBootFavicons = function () {
+      // the host's own <link id="mc-theme-favicon"> is authoritative once present
+      if (!doc.getElementById('mc-theme-favicon')) return false;
       for (var j = 0; j < mods.length; j++) {
         var stale = doc.getElementById('floofy-boot-favicon-' + mods[j].id);
-        if (stale && doc.getElementById('mc-theme-favicon')) stale.parentNode.removeChild(stale);
+        if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
       }
+      state.faviconYielded = true;
+      try { headObserver.disconnect(); } catch (e) {}
+      return true;
     };
     var headObserver = { disconnect: function () {} };
     var attrObserver = { disconnect: function () {} };
@@ -103,10 +111,8 @@ function floofyBoot(config) {
             var node = added[a];
             if (!node || node.nodeType !== 1) continue;
             var id = node.id || '';
-            if ((node.tagName === 'STYLE' && id.indexOf('mc-custom-theme-') === 0) || (node.tagName === 'LINK' && id === 'mc-theme-favicon')) {
-              settle();
-              return;
-            }
+            if (node.tagName === 'STYLE' && id.indexOf('mc-custom-theme-') === 0) settle();
+            if (node.tagName === 'LINK' && id === 'mc-theme-favicon') { settle(); dropBootFavicons(); }
           }
         }
       });
@@ -120,7 +126,7 @@ function floofyBoot(config) {
         });
         attrObserver.observe(el, { attributes: true });
       }
-      setTimeout(settle, config.settleTimeoutMs || 5000);
+      setTimeout(function () { settle(); if (!state.faviconYielded) { try { headObserver.disconnect(); } catch (e) {} } }, config.settleTimeoutMs || 5000);
     }
     state.settle = settle;
     window.__floofyBoot = state;

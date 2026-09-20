@@ -173,6 +173,20 @@ Patcher; one the browser cannot compile is reported as a miss with that reason.
 
 ## Tests
 
-`node --test spa-host/tests` (Node 20+, fakes for `fetch`, `import()`, `window`)
-— also run by `python -m pytest` through `tests/test_node_suite.py`, which
-additionally asserts every module is a plain same-origin ES module.
+`node --test spa-host/tests` (Node 20+, fakes for `fetch`, `import()`, `window`;
+33 tests) — also run by `python -m pytest` through `tests/test_node_suite.py`,
+which additionally asserts every module is a plain same-origin ES module.
+
+`tests/test_playwright.py` (Requirement 13.3, task 5.6) drives a real dashboard:
+one scratch gateway on the payload copy under `.scratch/` plus one headless
+Chromium shared by four tests — no first-frame flash with the Rimuru boot part
+(`data-theme` and the computed `--bg` already the mod's at `DOMContentLoaded`,
+React not mounted; a screenshot pair under `.scratch/loader-tests/playwright/`),
+boundary isolation (a mod failing on import, one throwing in `activate`, one
+healthy: the healthy one runs, the shell renders, two fault reports reach the
+Loader and its files stop being served), the reporter on impossible DOM and
+bundle fingerprints (`missed` with reasons; `floofy verify --spa` exits 1 with
+JSON against the same gateway, 0 without the extras), and the spike-1.4 remap (a
+`mode: import-map` patch's marker is evaluated by the host's own importers).
+About a minute in total; the copy's `index.html` is restored byte-identically at
+teardown. Skipped without a payload copy.
