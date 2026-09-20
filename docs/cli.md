@@ -55,9 +55,11 @@ terminal it prints the usage). FloofyCrew is unofficial and says so in every ban
 ## Exit codes and output
 
 `0` success; `1` a refused or failed operation (the message says why); `2` a
-usage error; `3` no consent record. With `--json` every command prints one
-document — the same one the manager page reads through the Loader's `/cli`
-route, which runs an allowlisted subset of these commands in-process.
+usage error; `3` no consent record; `4` a confirmation was needed and the
+surface could not ask (only the manager App's routes reach it — they answer
+`409` with the question). With `--json` every command prints one document —
+the same one the manager App reads: its typed routes run these commands
+in-process with `actor: app`, and the read-only ones also answer `POST /cli`.
 
 ## Where things live
 

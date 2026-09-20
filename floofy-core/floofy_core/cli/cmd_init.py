@@ -81,11 +81,13 @@ def _consent_step(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any]:
         return {**current.to_dict(), "status": "existing"}
     how: str | None = None
     if not args.accept_flag:
-        # Requirement 15.3: on a terminal, the full-screen [ I AGREE ] control; None means "not available here"
+        # Requirement 15.3: on a terminal, the full-screen [ I AGREE ] control; None means "not available here".
+        # A host control (the interactive floofy's curses frame, the manager App's modal) answers the same way and
+        # says what it is through Console.consent_how (screen | app) — the record differs in that one field.
         accepted = ctx.console.ask_consent_screen()
         if accepted is True:
-            how = "screen"
-            ctx.say("consent: acknowledged on the full-screen control (recorded as such)")
+            how = ctx.console.consent_how if ctx.console.consent_fn is not None else "screen"
+            ctx.say(f"consent: acknowledged on the {'full-screen control' if how == 'screen' else how + ' control'} (recorded as such)")
         elif accepted is False:
             raise CliError("consent not given: declined on the full-screen control (Esc/q). Run `floofy init` again to reconsider, or pass --i-accept-the-risk for automation (--yes never accepts the warning)", exit_code=3)
     if how is None:

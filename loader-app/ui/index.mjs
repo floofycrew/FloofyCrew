@@ -1,4 +1,4 @@
-// FloofyCrew Loader — the manager page (`ui.entry`; Requirement 2.7, 7.3, 11.8).
+// FloofyCrew Loader — the manager page (`ui.entry`; Requirement 2.7, 7.3, 11.8, 16.2).
 //
 // The host's AppHost renders the default export of this module as a React
 // component when the user opens /apps/floofycrew (design "Spike outcomes" 1.3:
@@ -7,12 +7,14 @@
 //
 // Everything the page does goes through the Loader's own routes, same-origin,
 // behind the dashboard auth: GET /state (the Loader's verdicts), GET /registry
-// (update availability), POST /reload ("apply now"), and POST /cli {argv} which
-// runs an ALLOWLISTED `floofy` command in-process (enable/disable/uninstall/
-// update/yeet/apply/status/...), so the UI and the CLI never diverge. What needs
-// a human at a keyboard stays CLI-only and the page says so: the one-time
-// consent (`floofy init`) and governance-altering per-file confirmations
-// (`floofy install`). The page never contacts a remote origin.
+// (update availability), POST /reload ("apply now"), POST /cli {argv} for the
+// READ-ONLY commands (status, …) and one typed route per action —
+// POST /mods/<id>/enable|disable|uninstall|update|yeet, /restore, … — each of
+// which runs the same `floofy` handler as the CLI (actor: app) and writes the
+// same audit row. A confirmation the CLI would ask comes back as a 409 question
+// (`confirmation.kind`: yes-no, consent, governance-target, unlisted-source,
+// unsigned-index) and is answered by re-posting with `confirmations`; nothing
+// happens until then. The page never contacts a remote origin.
 //
 // Importing `./host.mjs` here makes the SPA host available on the manager page
 // even when no `index.html` loader tag is patched in (Requirement 4.2).
@@ -49,11 +51,34 @@ export async function apiFetch(path, options = {}) {
   return { status: response.status, ok: response.ok, body };
 }
 
-/** Run one allowlisted floofy command in-process (POST /cli). */
+/** Run one READ-ONLY floofy command in-process (POST /cli). */
 export async function runCli(argv) {
   const reply = await apiFetch("/cli", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ argv }) });
   const body = reply.body || {};
   return { ...body, httpStatus: reply.status, ok: reply.ok && body.ok !== false };
+}
+
+/**
+ * Call one typed action route (POST unless `method` says otherwise) with the 409 confirmation protocol:
+ * an ordinary yes/no question is put to the user and re-posted with the exact prompt in `confirmations.yes`;
+ * every other question kind (consent, governance-target, unlisted-source, unsigned-index) is returned to
+ * the caller as `{needs: confirmation}` — the modals of task 11.3 answer them.
+ */
+export async function callRoute(path, body = {}, { method = "POST", ask = (text) => window.confirm(text) } = {}) {
+  const confirmations = { ...(body.confirmations || {}) };
+  for (let round = 0; round < 6; round += 1) {
+    const reply = await apiFetch(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, confirmations }) });
+    const document = reply.body || {};
+    if (reply.status !== 409 || !document.confirmation) return { ...document, httpStatus: reply.status, ok: reply.ok && document.ok !== false };
+    const question = document.confirmation;
+    if (question.kind === "yes-no") {
+      if (!ask(question.text)) return { ...document, httpStatus: reply.status, ok: false, declined: true, error: `declined: ${question.text}` };
+      confirmations.yes = [...(Array.isArray(confirmations.yes) ? confirmations.yes : []), question.text];
+      continue;
+    }
+    return { ...document, httpStatus: reply.status, ok: false, needs: question };
+  }
+  return { ok: false, error: "too many confirmation rounds" };
 }
 
 export function compatBadge(row) {
@@ -132,15 +157,15 @@ export default function FloofyCrewManager() {
   }, [refresh]);
 
   const act = React.useCallback(
-    async (argv, { confirm } = {}) => {
-      if (confirm && !window.confirm(confirm)) return;
+    async (path, body = {}) => {
       setBusy(true);
       setError("");
       try {
-        const result = await runCli(argv);
-        const text = [`$ floofy ${argv.join(" ")}`, result.stdout || "", result.stderr || "", result.json && result.json.error ? `error: ${result.json.error}` : "", result.reloaded ? "(Loader reloaded)" : ""].filter(Boolean).join("\n");
+        const result = await callRoute(path, body);
+        const argv = Array.isArray(result.argv) ? result.argv : [];
+        const text = [argv.length ? `$ floofy ${argv.join(" ")}` : `→ ${path}`, ...(result.transcript || []), result.error ? `error: ${result.error}` : "", result.needs ? `needs a ${result.needs.kind} confirmation: ${result.needs.text}` : "", result.reloaded ? "(Loader reloaded)" : ""].filter(Boolean).join("\n");
         setOutput(text);
-        if (!result.ok) setError(result.error || result.stderr || `exit ${result.exit}`);
+        if (!result.ok && !result.declined) setError(result.error || (result.needs ? `${result.needs.kind} confirmation needed` : `HTTP ${result.httpStatus}`));
       } catch (exc) {
         setError(String(exc));
       } finally {
@@ -218,10 +243,10 @@ export default function FloofyCrewManager() {
           React.createElement(
             "div",
             null,
-            React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-toggle-${row.id}`, onClick: () => act([row.enabled ? "disable" : "enable", row.id]) }, row.enabled ? "Disable" : "Enable"),
-            update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act(["update", row.id, "--now"]) }, `Update to ${update.candidate}`) : null,
-            React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act(["yeet", row.id], { confirm: `Park ${row.id} in the quarantine for host ${host.version}?` }) }, "Yeet"),
-            React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(["uninstall", row.id, "--now"], { confirm: `Uninstall ${row.id} ${row.version}?` }) }, "Uninstall"),
+            React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-toggle-${row.id}`, onClick: () => act(`/mods/${encodeURIComponent(row.id)}/${row.enabled ? "disable" : "enable"}`) }, row.enabled ? "Disable" : "Enable"),
+            update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act(`/mods/${encodeURIComponent(row.id)}/update`, { now: true }) }, `Update to ${update.candidate}`) : null,
+            React.createElement("button", { style: styles.button, disabled: busy, onClick: () => (window.confirm(`Park ${row.id} in the quarantine for host ${host.version}?`) ? act(`/mods/${encodeURIComponent(row.id)}/yeet`, { reason: "manual yeet (app)" }) : null) }, "Yeet"),
+            React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(`/mods/${encodeURIComponent(row.id)}/uninstall`, { now: true }) }, "Uninstall"),
           ),
         );
       }),
@@ -234,7 +259,7 @@ export default function FloofyCrewManager() {
           Object.entries(quarantine)
             .filter(([key]) => key !== "requests")
             .map(([version, mods]) =>
-              React.createElement("div", { key: version }, React.createElement("code", null, version), `: ${(mods || []).join(", ") || "-"} `, React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act(["yeet", "--restore", version]) }, "Restore set")),
+              React.createElement("div", { key: version }, React.createElement("code", null, version), `: ${(mods || []).join(", ") || "-"} `, React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act("/restore", { version }) }, "Restore set")),
             ),
         )
       : null,

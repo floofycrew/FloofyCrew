@@ -250,6 +250,9 @@ def _confirm_install(ctx: CliContext, disclosure, *, pre_confirmed: list[str], a
         if not ctx.console.typed(prompt, target, what=f"governance target {target}"):
             return False, confirmed, f"install of {disclosure.mod_id} refused: governance-altering target {target} was not confirmed by typing its path (--confirm-governance-target {target} for automation; --yes never covers it)", unlisted_how
         confirmed.append(target)
+    # the rows follow the last typed answer: a refusal half-way leaves no confirmation row behind (a keyboard-less
+    # surface that stops at a missing answer and asks again would otherwise record the earlier targets twice)
+    for target in confirmed:
         ctx.audit.record("governance-target-confirm", mod=disclosure.mod_id, version=disclosure.version, files=[target], governanceFlags=["GovernanceAltering"], result="confirmed", detail="pre-confirmed by flag" if target in pre_confirmed else "typed at the prompt")
     return True, confirmed, "", unlisted_how
 
@@ -261,6 +264,8 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable
     for line in disclosure.lines():
         ctx.say(line)
     outcome: dict[str, Any] = {"source": source.to_dict(), "disclosure": disclosure.to_dict(), "validation": report.to_dict()}
+    # published before the questions, so a surface that has to stop and ask (the manager App's 409) can show the disclosure
+    ctx.set_result(**outcome)
     if not report.ok:
         raise InstallError(f"{disclosure.mod_id}: `floofy validate` found {len(report.errors)} error(s); not installed")
     go, confirmed, refusal, unlisted_how = _confirm_install(ctx, disclosure, pre_confirmed=pre_confirmed, accept_flags=accept_flags or ctx.assume_yes, accept_unlisted=accept_unlisted)
@@ -270,7 +275,9 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable
     manifest = manifest_of(source.root)
     mod_id = str(manifest["id"])
     running = ctx.gateway_running()
-    stage = running and not now and not ctx.in_gateway
+    # Requirement 7.6 / 16.5: staged for the next gateway start while a gateway runs, unless "apply now" — on every
+    # surface, the manager App inside the gateway included (its "apply now" reloads the Loader in-process)
+    stage = running and not now
     target, placed = place(ctx.home, source, manifest, stage=stage)
     outcome["placed"] = {"where": str(target), "how": placed}
     outcomes = run_handlers(kind_context(ctx), mod_id, target, manifest, "install")
@@ -347,7 +354,8 @@ def uninstall(ctx: CliContext, args: argparse.Namespace) -> int:
     for part in outcomes:
         ctx.say(f"  part {part.index} {part.kind}: {part.status} — {part.detail}")
     running = ctx.gateway_running()
-    stage = running and not args.now and not ctx.in_gateway and mod.has_code
+    # staged while a gateway runs (a code mod's modules are live), unless --now — inside the gateway too (Requirement 7.6, 16.5)
+    stage = running and not args.now and mod.has_code
     if not args.keep_config and (mod.dir / ".floofy").is_dir() and not mod.dir.is_symlink():
         shutil.rmtree(mod.dir / ".floofy", ignore_errors=True)
     if stage:

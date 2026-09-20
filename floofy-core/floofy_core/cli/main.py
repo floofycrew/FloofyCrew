@@ -17,8 +17,13 @@ Requirement 15.1), ``--version``.
 
 :func:`run` executes one command in-process and returns ``RunResult(exit,
 stdout, json)``; the Loader's ``POST /api/apps/floofycrew/cli`` route calls it
-with ``non_interactive=True`` and an allowlist, so the UI and the CLI share one
-implementation (design "Manager (CLI + UI)"). Bare ``floofy`` on a terminal opens
+with ``non_interactive=True`` for the read-only commands, and the manager App's
+typed routes call :func:`execute` with ``actor="app"`` and a
+:class:`floofy_core.cli.console.Console` whose confirmation hooks answer from
+the request or raise ``ConfirmationNeeded`` — exit code
+:data:`EXIT_CONFIRMATION_NEEDED` (4), the question in the result document — so
+the App, the CLI and the interactive ``floofy`` share one implementation
+(design "Manager (CLI + UI)", "Manager App"). Bare ``floofy`` on a terminal opens
 the interactive interface of :mod:`floofy_core.cli.tui` (Requirement 15.4), which
 runs every action through :func:`execute` too; without a terminal it prints the
 usage as before.
@@ -34,11 +39,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import API_VERSION, __version__ as FRAMEWORK_VERSION
-from .console import Console
+from .console import EXIT_CONFIRMATION_NEEDED, ConfirmationNeeded, Console
 from .context import CliContext, CliError, build_context, dumps
 from .style import Style
 
-__all__ = ["RunResult", "build_parser", "main", "run"]
+__all__ = ["EXIT_CONFIRMATION_NEEDED", "RunResult", "build_parser", "main", "run"]
 
 PROG = "floofy"
 UNOFFICIAL = "FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew."
@@ -167,6 +172,12 @@ def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway
         console.error(str(exc))
         ctx.set_result(error=str(exc))
         code = exc.exit_code
+    except ConfirmationNeeded as exc:
+        # a keyboard-less surface (the manager App) could not answer a question from what its request carried:
+        # the handler unwound before mutating anything; the caller presents the question and re-runs (Requirement 16.3)
+        console.transcript.append(f"{exc.kind}: confirmation needed; the command stopped before changing anything")
+        ctx.set_result(confirmation=exc.to_dict(), error=f"confirmation needed: {exc.kind}")
+        code = EXIT_CONFIRMATION_NEEDED
     except KeyboardInterrupt:
         console.error("interrupted")
         code = 130

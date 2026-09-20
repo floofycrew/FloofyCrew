@@ -303,7 +303,7 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         healthy = page.inner_text('[data-testid="floofycrew-mod-row-spa-healthy"]')
         assert "spa/spa" in healthy and "SPA host" in healthy
         assert page.inner_text('[data-testid="floofycrew-enabled-spa-healthy"]').startswith("enabled")
-        # disable through the UI → POST /cli ["disable", "spa-healthy"] → enabled.json flips → the Loader reloads
+        # disable through the UI → POST /mods/spa-healthy/disable (the same handler as `floofy disable`) → enabled.json flips → the Loader reloads
         page.click('[data-testid="floofycrew-toggle-spa-healthy"]')
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-spa-healthy\"]')?.textContent.startsWith('disabled')", timeout=60000)
         assert json.loads(enabled_path.read_text(encoding="utf-8"))["spa-healthy"] is False
@@ -313,10 +313,14 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         assert state["mods"]["spa-healthy"]["active"] is False and state["mods"]["spa-healthy"]["reason"] == "UserDisabled"
         assert state["mods"]["rimuru-branding"]["active"] is True, "the other mods survived the reload"
         rows = [json.loads(line) for line in (harness.gw.data_home / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
-        assert any(r["op"] == "disable" and r["mod"] == "spa-healthy" and r["actor"] == "ui" for r in rows)
-        # the UI cannot run what needs a keyboard: init is refused by the route
+        assert any(r["op"] == "disable" and r["mod"] == "spa-healthy" and r["actor"] == "app" for r in rows)
+        # /cli is read-only now: a mutation names its typed route (task 11.1)
         refused = client.post(f"{API}/cli", {"argv": ["init", "--i-accept-the-risk"]})
-        assert refused.status == 403 and "CLI-only" in refused.json()["error"]
+        assert refused.status == 403 and "/consent" in refused.json()["error"]
+        # a typed route through the real gateway: the same handler, the 409 question first, then the row with actor app
+        asked = client.post(f"{API}/mods/spa-healthy/uninstall", {"now": True})
+        assert asked.status == 409 and asked.json()["confirmation"]["kind"] == "yes-no", asked.body[:300]
+        assert (harness.gw.data_home / "mods" / "spa-healthy").is_dir(), "a 409 has no side effect"
         # re-enable so the module's other tests see the original state
         page.click('[data-testid="floofycrew-toggle-spa-healthy"]')
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-spa-healthy\"]')?.textContent.startsWith('enabled')", timeout=60000)

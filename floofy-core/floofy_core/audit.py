@@ -5,14 +5,15 @@ whatever the host's SEL records for app and theme installs. **One writer** for
 every surface — the CLI commands (``install``/``uninstall``/``enable``/``disable``/
 ``update``/``apply``/``restore``/``yeet``/``hold``/``profile``/``init``/``deinit``/
 ``registry``/``vanilla``), the seam kind handlers, the Patcher (``apply``,
-``restore``, ``apply-confirm``), the Loader (``net-denied`` rows) and the manager
-UI's in-process CLI route (``actor: ui``) — so every row has the same shape
+``restore``, ``apply-confirm``), the Loader (``net-denied`` rows), the interactive
+``floofy`` (``actor: tui``) and the manager App's typed routes (``actor: app``) —
+so every row has the same shape
 (design "Consent, trust and audit")::
 
     {"ts": "...", "op": "install", "mod": "rimuru-branding", "version": "1.0.0",
      "payload": "venv:crew-venv:0.7.0", "files": [...], "governanceFlags": [...],
      "consentRef": {"warningVersion": 1, "sha256": "<sha256 of consent.json>"} | null,
-     "actor": "cli" | "ui" | "loader" | "trigger" | "patcher", "by": "<os user>",
+     "actor": "cli" | "tui" | "app" | "loader" | "trigger" | "patcher", "by": "<os user>",
      "result": "ok" | "declined" | "error", "detail": "...", ...op-specific fields}
 
 ``consentRef`` ties the row to the exact acknowledgement it ran under
@@ -36,8 +37,9 @@ from .deploy import utc_now
 
 __all__ = ["ACTORS", "AuditLog", "read_audit"]
 
-#: The surfaces that perform mutations; anything else is recorded as given.
-ACTORS = ("cli", "ui", "loader", "trigger", "patcher", "forge")
+#: The surfaces that perform mutations; anything else is recorded as given. ``tui`` is the interactive ``floofy``
+#: (Requirement 15.4), ``app`` the manager App's typed routes (Requirement 16.2); ``ui`` the manager page's read-only ``/cli``.
+ACTORS = ("cli", "tui", "app", "ui", "loader", "trigger", "patcher", "forge")
 
 
 def _os_user() -> str:

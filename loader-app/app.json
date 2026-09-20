@@ -40,7 +40,7 @@
       {
         "method": "POST",
         "path": "/reload",
-        "purpose": "re-run the boot sequence (apply pending/ now)"
+        "purpose": "re-run the boot sequence (apply pending/ now) — the manager App's 'apply now'"
       },
       {
         "method": "POST",
@@ -55,13 +55,169 @@
       {
         "method": "POST",
         "path": "/cli",
-        "purpose": "run one allowlisted floofy command in-process for the manager UI {argv}"
+        "purpose": "run one READ-ONLY floofy command in-process {argv} (status, doctor, search, info, list, audit, which)"
       },
       {
         "method": "GET",
         "path": "/registry",
-        "purpose": "registry cache summary and update availability per installed mod"
+        "purpose": "registry cache summary, source verdicts, update availability and source tier per installed mod"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/install",
+        "purpose": "floofy install {source, now?, enable?, ref?} — the disclosure and every confirmation through the 409 protocol [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/update-check",
+        "purpose": "floofy update --all --check"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/update-all",
+        "purpose": "floofy update --all {now?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/enable",
+        "purpose": "floofy enable <id> {reload?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/disable",
+        "purpose": "floofy disable <id> {reload?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/uninstall",
+        "purpose": "floofy uninstall <id> {now?, keepConfig?} (asks yes/no) [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/update",
+        "purpose": "floofy update <id> {now?} — the one-click update through the shared update path [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/yeet",
+        "purpose": "floofy yeet <id> {reason?} [actor: app]"
+      },
+      {
+        "method": "GET",
+        "path": "/mods/{id}/info",
+        "purpose": "floofy info <id>"
+      },
+      {
+        "method": "POST",
+        "path": "/yeet",
+        "purpose": "floofy yeet <ids...> {ids[], reason?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/restore",
+        "purpose": "floofy yeet --restore <version> {version} [actor: app]"
+      },
+      {
+        "method": "GET",
+        "path": "/quarantine",
+        "purpose": "floofy yeet --list"
+      },
+      {
+        "method": "GET",
+        "path": "/status",
+        "purpose": "floofy status"
+      },
+      {
+        "method": "POST",
+        "path": "/doctor",
+        "purpose": "floofy doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/doctor",
+        "purpose": "floofy doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/search",
+        "purpose": "floofy search <q> (?q=)"
+      },
+      {
+        "method": "GET",
+        "path": "/audit",
+        "purpose": "floofy audit (?tail=N&op=OP)"
+      },
+      {
+        "method": "GET",
+        "path": "/registries",
+        "purpose": "floofy registry list"
+      },
+      {
+        "method": "POST",
+        "path": "/registries",
+        "purpose": "floofy registry add {url, trust?, allowUnsigned?, name?, keyId?, publicKey?, refresh?} (--allow-unsigned asks the loosening confirmation) [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/registries/refresh",
+        "purpose": "floofy registry refresh [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/registries/defaults",
+        "purpose": "floofy registry defaults {refresh?, hostRegistry?} [actor: app]"
+      },
+      {
+        "method": "DELETE",
+        "path": "/registries/{key}",
+        "purpose": "floofy registry remove <key> [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/registries/{key}/refresh",
+        "purpose": "floofy registry refresh <key> [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/registries/{key}/trust",
+        "purpose": "floofy registry add <url of key> --trust T [--allow-unsigned] --no-refresh {trust, allowUnsigned?} [actor: app]"
+      },
+      {
+        "method": "GET",
+        "path": "/profiles",
+        "purpose": "floofy profile list"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles",
+        "purpose": "floofy profile save {name} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/import",
+        "purpose": "floofy profile import {file, name?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/{name}/use",
+        "purpose": "floofy profile use <name> {now?, check?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/{name}/export",
+        "purpose": "floofy profile export <name> {file}"
+      },
+      {
+        "method": "POST",
+        "path": "/vanilla",
+        "purpose": "floofy vanilla {cancel?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/consent",
+        "purpose": "the one-time consent: {agree: true} = the [ I AGREE ] control; runs init --no-loader-app --no-trigger, recorded how=app [actor: app]"
       }
-    ]
+    ],
+    "confirmationProtocol": "a route answers 409 {confirmation: {kind, text, expects, targets, detail}} when a confirmation the CLI would ask is missing from the request's `confirmations` object ({consent, yes, governanceTargets[], unlistedSource, unsignedIndex}); nothing changes until the client re-posts with the answer"
   }
 }

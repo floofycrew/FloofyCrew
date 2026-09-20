@@ -112,7 +112,8 @@ def write_consent(path: Path, *, by: str | None = None, when: str | None = None,
     ``how`` records the acknowledgement mechanism: ``screen`` (Enter on the
     full-screen ``[ I AGREE ]`` control, Requirement 15.3), ``typed`` (the user
     typed :data:`ACCEPT_PHRASE`), ``flag`` (``--i-accept-the-risk`` for
-    automation) or ``test``. It is part of the record so an audit reader can tell
+    automation), ``app`` (the manager App's ``[ I AGREE ]`` modal, Requirement 16.3)
+    or ``test``. It is part of the record so an audit reader can tell
     them apart; the rest of the record is identical whichever way was used.
     """
     record = {

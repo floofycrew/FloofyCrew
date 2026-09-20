@@ -28,16 +28,58 @@ the switches, off for the in-process ``run()`` the manager UI uses. Painted
 fragments (:meth:`Console.paint`, ``say(tone=…)``) reach ``out`` with their
 sequences and the :attr:`transcript` without them, so what a line *says* never
 depends on colour; ``--json`` turns styling off altogether.
+
+Surfaces without a keyboard (the manager App's Loader routes, Requirement 16.3)
+plug their answers in through the same three hooks and raise
+:class:`ConfirmationNeeded` from a hook when the request carried no answer for
+the question being asked: the command unwinds **before** it mutates anything,
+:func:`floofy_core.cli.main.execute` turns the exception into exit code
+:data:`EXIT_CONFIRMATION_NEEDED` with the question in the result document, and
+the route answers ``409`` with it. The question is never answered by default
+and never by ``--yes`` (the App has no such flag).
 """
 from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
-from typing import IO, Callable, Iterable
+from typing import IO, Any, Callable, Iterable
 
 from .style import Style, strip_ansi
 
-__all__ = ["Console"]
+__all__ = ["CONFIRMATION_KINDS", "ConfirmationNeeded", "Console", "EXIT_CONFIRMATION_NEEDED"]
+
+#: ``execute()``'s exit code when a hook raised :class:`ConfirmationNeeded` (the route maps it to HTTP 409).
+EXIT_CONFIRMATION_NEEDED = 4
+
+#: ``kind`` → what the client must present and send back (design "Manager App — confirmation protocol").
+CONFIRMATION_KINDS: dict[str, str] = {
+    "consent": "agree",  # the one-time warning: the [ I AGREE ] control → confirmations.consent = true
+    "governance-target": "typed-path",  # a governance-altering file: the exact path typed → confirmations.governanceTargets[]
+    "unlisted-source": "accept",  # a git reference: the disclosure + I ACCEPT → confirmations.unlistedSource = "I ACCEPT"
+    "unsigned-index": "confirm",  # --allow-unsigned on a registry source: the loosening warning → confirmations.unsignedIndex = true
+    "yes-no": "confirm",  # an ordinary confirmation → confirmations.yes = true (or the exact prompt in a list)
+}
+
+
+class ConfirmationNeeded(Exception):
+    """A question the surface cannot answer from what it was given; carries what the client must present.
+
+    ``kind`` is one of :data:`CONFIRMATION_KINDS`, ``text`` the prompt (or the
+    warning text) as the CLI would print it, ``expects`` the answer shape,
+    ``targets`` the governance paths a typed answer must equal byte for byte,
+    ``detail`` a machine-readable note (``missing`` / ``mismatch``).
+    """
+
+    def __init__(self, kind: str, text: str, *, targets: Iterable[str] = (), detail: str = "", expects: str | None = None):
+        super().__init__(f"{kind}: {text}")
+        self.kind = kind
+        self.text = text
+        self.expects = expects or CONFIRMATION_KINDS.get(kind, "confirm")
+        self.targets = list(targets)
+        self.detail = detail
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "text": self.text, "expects": self.expects, "targets": list(self.targets), "detail": self.detail}
 
 
 @dataclass
@@ -63,6 +105,9 @@ class Console:
     confirm_fn: Callable[[str, bool], bool | None] | None = None
     #: A host-supplied text field for :meth:`typed` (the interactive ``floofy``): ``(prompt, what) -> text``. Never a button.
     typed_fn: Callable[[str, str], str | None] | None = None
+    #: What ``consent.json`` records as ``how`` when :attr:`consent_fn` accepts: ``screen`` (a full-screen frame —
+    #: the terminal and curses controls) or ``app`` (the manager App's modal, Requirement 16.3).
+    consent_how: str = "screen"
 
     # -- the full-screen consent (Requirement 15.3) --------------------------------------------
 

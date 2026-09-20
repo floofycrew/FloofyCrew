@@ -24,8 +24,8 @@ Measured on the tree after 1.0.1 (main, with the git-reference, link-record and 
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 186 | 212 | 87.7 % |
-| bytes | 2 082 048 | 2 167 478 | 96.1 % |
+| files | 187 | 213 | 87.8 % |
+| bytes | 2 131 634 | 2 217 064 | 96.1 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:

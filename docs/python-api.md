@@ -171,9 +171,12 @@ session: `GET /state` (the whole Loader state: consent, host facts, every mod's
 state, parts, typed reason, warnings, exports, the last patch report, events),
 `GET /health`, `POST /reload` (re-run the boot sequence, apply `pending/`),
 `POST /mods/{id}/fault` (the SPA host's fault report), `GET /spa/{id}/{file}`
-(an enabled mod's `spa` files), `POST /cli` (one allowlisted `floofy` command
-in-process for the manager page) and `GET /registry` (cache summary and update
-availability). `floofy status` reads the same state.
+(an enabled mod's `spa` files), `POST /cli` (one read-only `floofy` command
+in-process for the manager page), `GET /registry` (cache summary and update
+availability) and the manager App's typed action routes (`POST /mods/install`,
+`/mods/{id}/enable`, … — each the same handler as the CLI with `actor: app` and
+the 409 confirmation protocol; `loader-app/README.md` lists them). `floofy status`
+reads the same state.
 
 ---
 Covers Requirements 2.4, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 11.6, 14.3.

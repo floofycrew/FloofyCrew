@@ -12,17 +12,20 @@ the SPA file route is declared once per depth (1–4 segments below the mod id).
 |---|---|---|
 | GET | ``/state`` | the :class:`LoaderState` JSON plus ``api_version``, ``unofficial: true`` |
 | GET | ``/health`` | Loader liveness |
-| POST | ``/reload`` | re-run the boot sequence (apply ``pending/`` now, pick up ``enabled.json``) |
+| POST | ``/reload`` | re-run the boot sequence (apply ``pending/`` now, pick up ``enabled.json``) — the manager App's "apply now" |
 | POST | ``/mods/{id}/fault`` | body ``{message, stack, source: "spa"}``: the SPA host reports a failed module; the mod is disabled with ``Error`` |
 | GET | ``/spa/{id}/{file...}`` | an enabled mod's ``spa`` part files from ``<data home>/spa/<id>/`` (``Cache-Control: no-cache``, typed by extension, path-escape safe) |
-| POST | ``/cli`` | body ``{"argv": [...]}``: run one **allowlisted** ``floofy`` command in-process (the manager UI's actions — task 6.7) and reload the Loader when it mutated the mod set |
+| POST | ``/cli`` | body ``{"argv": [...]}``: run one **read-only** ``floofy`` command in-process (``status``, ``doctor``, ``search``, ``info``, ``list``, ``audit``, ``which``) |
 | GET | ``/registry`` | the registry cache summary, every source's trust settings and last-refresh verdict, the matrix row for this host, the update available for each installed mod (graded like the CLI: ``best_version`` against the matrix) and each installed mod's source tier (``tiers``, Requirement 8.11) |
+| * | the manager App's typed routes | one route per CLI action — ``/mods/install``, ``/mods/{id}/enable`` …, ``/registries``, ``/profiles``, ``/doctor``, ``/audit``, ``/consent`` — each running the same handler as the CLI with ``actor: app`` and the 409 confirmation protocol; see :mod:`floofy_loader.app_routes` |
 
-The manager UI never gets more than the CLI offers, and less where a question
-needs a human at a keyboard: ``init`` (the consent acknowledgement) and any
-governance-altering per-file confirmation stay CLI-only — :data:`CLI_ALLOWLIST`
-names what the UI may run, and the in-process run is non-interactive, so a typed
-confirmation is refused rather than assumed.
+Every mutation the manager App performs goes through :mod:`floofy_loader.app_routes`
+(Requirement 16.2): a typed body, the same ``floofy`` handler, the same audit
+row, and every confirmation the CLI would ask — the one-time consent, a typed
+governance-altering path, the unlisted-source line — answered by the request or
+returned as a ``409`` question. ``POST /cli`` keeps only the read-only commands:
+:data:`CLI_ALLOWLIST` names them, and a mutating command is refused with the
+route to use instead.
 
 The pure responders (:func:`state_response` …) return ``(status, headers, body)``
 so they are testable without aiohttp; :func:`build_routes` adapts them for the
@@ -36,17 +39,31 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
+from .app_routes import route_table as app_route_table
+
 __all__ = ["CLI_ALLOWLIST", "ROUTE_TABLE", "SPA_MAX_DEPTH", "build_routes", "cli_response", "fault_response", "health_response", "registry_response", "spa_response", "state_response"]
 
 SPA_MAX_DEPTH = 4
 Responder = tuple[int, dict[str, str], bytes]
 
-#: The ``floofy`` sub-commands the manager UI may run in-process (Requirement 7.3, design "Manager (CLI + UI)").
-#: ``init`` (the consent acknowledgement), ``install`` of arbitrary sources and anything needing a typed
-#: governance confirmation stay CLI-only.
-CLI_ALLOWLIST: frozenset[str] = frozenset({"enable", "disable", "uninstall", "update", "yeet", "apply", "status", "doctor", "profile", "search", "info", "list", "audit", "which", "vanilla"})
-#: Commands after which the Loader reloads (the mod set or its flags changed).
-CLI_MUTATING: frozenset[str] = frozenset({"enable", "disable", "uninstall", "update", "yeet", "apply", "profile", "vanilla"})
+#: The ``floofy`` sub-commands ``POST /cli`` may run in-process: read-only ones. Every action that changes anything has a
+#: typed route in :mod:`floofy_loader.app_routes` (Requirement 16.2) with the confirmation protocol; ``init``, ``install``,
+#: ``enable``… are refused here with a pointer to it.
+CLI_ALLOWLIST: frozenset[str] = frozenset({"status", "doctor", "search", "info", "list", "audit", "which"})
+#: Where a refused command lives now (for the error message).
+CLI_MOVED: dict[str, str] = {
+    "init": "POST /consent (the one-time warning; the Loader app and the trigger stay `floofy init`)",
+    "install": "POST /mods/install",
+    "enable": "POST /mods/{id}/enable",
+    "disable": "POST /mods/{id}/disable",
+    "uninstall": "POST /mods/{id}/uninstall",
+    "update": "POST /mods/{id}/update, /mods/update-check, /mods/update-all",
+    "yeet": "POST /mods/{id}/yeet, /yeet, /restore; GET /quarantine",
+    "registry": "GET/POST /registries, DELETE /registries/{key}, POST /registries/{key}/refresh|trust, /registries/refresh|defaults",
+    "profile": "GET/POST /profiles, POST /profiles/{name}/use|export, /profiles/import",
+    "vanilla": "POST /vanilla",
+    "apply": "POST /reload (apply now); `floofy apply` at a terminal",
+}
 
 #: Declared for the manifest test and the manager UI; ``build_routes`` produces exactly these.
 ROUTE_TABLE: tuple[tuple[str, str], ...] = (
@@ -57,6 +74,7 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("POST", "/cli"),
     ("GET", "/registry"),
     *(("GET", "/spa/{id}/" + "/".join(f"{{p{i}}}" for i in range(1, depth + 1))) for depth in range(1, SPA_MAX_DEPTH + 1)),
+    *app_route_table(),
 )
 
 _CONTENT_TYPES = {
@@ -131,31 +149,25 @@ def fault_response(runtime: Any, mod_id: str, body: Any) -> Responder:
 
 
 def cli_response(runtime: Any, body: Any, *, reload: bool = True) -> Responder:
-    """``POST /cli`` — run one allowlisted ``floofy`` command in-process; reload the Loader after a mutation."""
+    """``POST /cli`` — run one read-only ``floofy`` command in-process (``reload`` is kept for the signature; nothing here mutates)."""
     if not isinstance(body, dict) or not isinstance(body.get("argv"), list) or not all(isinstance(a, str) for a in body["argv"]):
         return _json(400, {"ok": False, "error": "body must be {\"argv\": [\"<command>\", ...]}"})
     argv = [str(a) for a in body["argv"]]
     command = next((a for a in argv if not a.startswith("-")), None)
     if command not in CLI_ALLOWLIST:
-        return _json(403, {"ok": False, "error": f"`floofy {command}` is not available from the manager UI (allowed: {', '.join(sorted(CLI_ALLOWLIST))}); init and governance-altering confirmations stay CLI-only"})
+        moved = CLI_MOVED.get(str(command))
+        hint = f"; use {moved}" if moved else ""
+        return _json(403, {"ok": False, "error": f"`floofy {command}` is not available through /cli (read-only commands only: {', '.join(sorted(CLI_ALLOWLIST))}){hint} — every mutation has its own route with the confirmation protocol (Requirement 16.2, 16.3)", "route": moved})
     if runtime.facts is None:
         return _json(503, {"ok": False, "error": "the Loader has not started"})
     from floofy_core.cli.main import run as cli_run  # noqa: PLC0415
 
-    mutated: list[str] = []
     full = ["--json", *argv] if "--json" not in argv else argv
     if runtime.facts.package_dir is not None and "--root" not in full:
         full = ["--root", str(runtime.facts.package_dir.parent), *full]
-    result = cli_run(full, home=runtime.facts.host_home, in_gateway=True, actor="ui", allow=CLI_ALLOWLIST, on_mutation=mutated.append, assume_yes=True, live_state=runtime.state_dict)
-    reloaded = False
-    if reload and (mutated or command in CLI_MUTATING) and result.exit == 0:
-        try:
-            runtime.reload()
-            reloaded = True
-        except Exception as exc:  # noqa: BLE001 - the command ran; the reload failure is reported
-            result.stderr += f"\nreload failed: {type(exc).__name__}: {exc}"
+    result = cli_run(full, home=runtime.facts.host_home, in_gateway=True, actor="ui", allow=CLI_ALLOWLIST, live_state=runtime.state_dict)
     payload = result.to_dict()
-    payload.update({"ok": result.exit == 0, "command": command, "reloaded": reloaded})
+    payload.update({"ok": result.exit == 0, "command": command, "reloaded": False})
     return _json(200, payload)
 
 
@@ -267,24 +279,11 @@ def build_routes(runtime: Any) -> list:
             body = await request.json()
         except Exception:  # noqa: BLE001 - a bad body is a 400, not a 500
             body = None
-        # the CLI does file work (Patcher, downloads): off the event loop; the reload runs on it afterwards
+        # the CLI does file work (payload discovery, the registry cache): off the event loop
         import asyncio  # noqa: PLC0415
 
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: cli_response(runtime, body, reload=False))
-        status, headers, raw = result
-        if status == 200:
-            document = json.loads(raw.decode("utf-8"))
-            argv = body.get("argv", []) if isinstance(body, dict) else []
-            command = document.get("command")
-            if document.get("ok") and (command in CLI_MUTATING) and "--check" not in argv:
-                try:
-                    runtime.reload()
-                    document["reloaded"] = True
-                except Exception as exc:  # noqa: BLE001
-                    document["stderr"] = f"{document.get('stderr', '')}\nreload failed: {type(exc).__name__}: {exc}"
-            return respond(_json(200, document))
-        return respond(result)
+        return respond(await loop.run_in_executor(None, lambda: cli_response(runtime, body, reload=False)))
 
     routes = [
         AppRoute("GET", "/state", make(lambda request: state_response(runtime))),
@@ -297,4 +296,7 @@ def build_routes(runtime: Any) -> list:
     for method, path in ROUTE_TABLE:
         if path.startswith("/spa/"):
             routes.append(AppRoute(method, path, spa))
+    from .app_routes import build_app_routes  # noqa: PLC0415
+
+    routes.extend(build_app_routes(runtime))
     return routes

@@ -35,30 +35,24 @@ def _body(reply) -> dict:
     return json.loads(reply[2].decode("utf-8"))
 
 
-def test_cli_route_is_allowlisted_and_runs_in_process(tmp_path: Path, monkeypatch):
+def test_cli_route_is_read_only_and_runs_in_process(tmp_path: Path, monkeypatch):
     runtime, data = _runtime(tmp_path, monkeypatch)
     make_mod(data, "alpha")
     data.enabled.write_text(json.dumps({"alpha": False}), encoding="utf-8")
     assert ("POST", "/cli") in ROUTE_TABLE and ("GET", "/registry") in ROUTE_TABLE
-    assert "init" not in CLI_ALLOWLIST and "install" not in CLI_ALLOWLIST and {"enable", "disable", "uninstall", "update", "yeet", "apply", "status", "doctor", "profile"} <= CLI_ALLOWLIST
+    # task 11.1: every mutation has a typed route with the confirmation protocol (test_app_routes.py); /cli keeps the read-only commands
+    assert CLI_ALLOWLIST == {"status", "doctor", "search", "info", "list", "audit", "which"}
     refused = cli_response(runtime, {"argv": ["init", "--i-accept-the-risk"]}, reload=False)
-    assert refused[0] == 403 and "CLI-only" in _body(refused)["error"]
+    assert refused[0] == 403 and "/consent" in _body(refused)["error"] and _body(refused)["route"].startswith("POST /consent")
     assert cli_response(runtime, {"argv": ["--home", "/tmp/x", "install", "/tmp/mod"]}, reload=False)[0] == 403
+    for argv in (["enable", "alpha"], ["disable", "alpha"], ["uninstall", "alpha"], ["update", "--all"], ["yeet", "alpha"], ["apply"], ["profile", "list"], ["vanilla"], ["registry", "list"]):
+        assert cli_response(runtime, {"argv": argv}, reload=False)[0] == 403, argv
     assert cli_response(runtime, {"nope": 1}, reload=False)[0] == 400
-    assert cli_response(runtime, {"argv": ["enable", 5]}, reload=False)[0] == 400
+    assert cli_response(runtime, {"argv": ["status", 5]}, reload=False)[0] == 400
     status = _body(cli_response(runtime, {"argv": ["status"]}, reload=False))
     assert status["ok"] is True and status["command"] == "status" and status["json"]["mods"][0]["id"] == "alpha" and status["json"]["mods"][0]["enabled"] is False
     assert status["json"]["loader"]["source"] == "in-process", "inside the gateway the CLI reads the runtime's live state"
-    enabled = _body(cli_response(runtime, {"argv": ["enable", "alpha"]}, reload=False))
-    assert enabled["ok"] is True and enabled["reloaded"] is False and read_enabled(data.enabled) == {"alpha": True}
-    rows = [json.loads(line) for line in data.audit.read_text(encoding="utf-8").splitlines()]
-    assert rows[-1]["op"] == "enable" and rows[-1]["actor"] == "ui"
-    # a mutation reloads the Loader when asked to: the boot re-reads enabled.json
-    disabled = _body(cli_response(runtime, {"argv": ["disable", "alpha"]}, reload=True))
-    assert disabled["ok"] is True and disabled["reloaded"] is True
-    assert read_enabled(data.enabled) == {"alpha": False}
-    assert runtime.result is not None and runtime.result.state.mods["alpha"].reason == "UserDisabled"
-    assert runtime.state_dict()["mods"]["alpha"]["enabled"] is False
+    assert read_enabled(data.enabled) == {"alpha": False} and not data.audit.exists(), "nothing mutated, no audit row"
 
 
 def test_registry_route_reports_update_availability(tmp_path: Path, monkeypatch):
