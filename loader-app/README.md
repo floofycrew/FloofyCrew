@@ -338,3 +338,31 @@ gives the port and the one-time link token; the first `?token=` request is
 exchanged for the `mc_token_<port>` cookie (`kiro_crew/dashboard/token_auth.py`
 L2651 onwards). The gateway-backed tests (`tests/test_gateway.py`, task 4.8)
 automate this and skip when the payload copy is absent.
+
+## Tests
+
+`python -m pytest -q loader-app/tests` — unit tests for every module (pytest +
+hypothesis; no host needed) plus `tests/test_gateway.py`, which skips unless a
+payload copy exists. With the copy it builds the app, installs it with the host
+CLI into a fresh scratch home under `.scratch/loader-tests/gateway/`, proves the
+grant behaviour (enable refused → `agent.apps_trusted` → enabled), starts
+`kirocrew gateway --test-mode --no-crons --no-tunnel` (with
+`FLOOFY_NO_ADAPTERS=1`, so the Loader never lists live install roots) and checks:
+
+1. inert without consent — `GET /api/apps/floofycrew/state` says `loader: inert`,
+   `consent.required`, no mod active, every mod `ConsentRequired`;
+2. `consent.json` + `POST /reload` — the shipped `example-python-hook` and the
+   test mods activate; hooks are attributed in `hooks[]`;
+3. a mod whose `activate` raises is `Error` with a traceback; the others are
+   active and `/api/health` stays 200;
+4. the Loader itself failing (`FLOOFY_LOADER_SELFTEST_FAIL=1`, a second gateway)
+   — `/api/health` 200, `loader-failure.json` written, no Loader routes;
+5. hook unwind — an `after` hook on `route:GET /api/health` stamps a header; the
+   fault route disables the mod and the original handler is back;
+6. governance — a home-tier policy with `capabilities.theme_install=false`
+   surfaces under the theme mod's `governance[]`, never as a `reason`;
+7. `ctx.http` inside the gateway — plaintext to a loopback server works,
+   `http://example.com` and an undeclared `https` host are denied and audited;
+8. the `spa/` route serves an active mod's files (nested too) and nothing else.
+
+The whole suite runs in about two minutes on the dev desk (gateway boots ≈ 10 s).
