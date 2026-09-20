@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from floofy_core.modstore import read_enabled, write_enabled
+
 from .paths import FloofyPaths
 
 __all__ = ["PendingReport", "apply_pending", "plan_boot", "plan_patches", "read_enabled", "write_enabled"]
@@ -49,24 +51,6 @@ class PendingReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {"installed": list(self.installed), "removed": list(self.removed), "errors": list(self.errors), "changed": self.changed}
-
-
-def read_enabled(path: Path) -> dict[str, bool]:
-    """``enabled.json`` → ``{id: bool}``; anything unreadable is an empty map."""
-    try:
-        document = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(document, dict):
-        return {}
-    return {str(k): bool(v) for k, v in document.items()}
-
-
-def write_enabled(path: Path, enabled: dict[str, bool]) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    tmp = Path(path).with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(dict(sorted(enabled.items())), indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
 
 
 def _replace_dir(source: Path, target: Path) -> None:

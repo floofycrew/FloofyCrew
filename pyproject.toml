@@ -9,6 +9,11 @@ license = "MIT"
 # run on the host's own interpreter. Do not add runtime dependencies here.
 dependencies = []
 
+[project.scripts]
+# The manager CLI (task 6.1); `python -m floofy_core.cli` and `dist/floofy.pyz`
+# (scripts/build_zipapp.py) are the same entry point.
+floofy = "floofy_core.cli.main:main"
+
 [dependency-groups]
 dev = [
     "pytest",

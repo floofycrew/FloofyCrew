@@ -351,6 +351,15 @@ def boot(deps: BootDeps) -> BootResult:
         state.pending = pending.to_dict()
         state.errors.extend(f"pending: {e}" for e in pending.errors)
     enabled = read_enabled(paths.enabled)
+    # floofy --vanilla: one boot with every mod disabled (Requirement 7.1); the marker is consumed here
+    vanilla = not inert and paths.vanilla_marker.is_file()
+    if vanilla:
+        state.vanilla = True
+        try:
+            paths.vanilla_marker.unlink()
+        except OSError as exc:
+            state.errors.append(f"vanilla marker could not be removed: {exc}")
+        deps.log.info("vanilla boot requested (floofy --vanilla): every mod is disabled for this boot only")
     scanned = _scan_mods(paths, state, enabled)
     manifests: dict[str, dict[str, Any]] = {}
     dirs: dict[str, Path] = {}
@@ -364,6 +373,8 @@ def boot(deps: BootDeps) -> BootResult:
         version = str(manifest.get("version") or "0.0.0")
         mod_state = ModState(mod_id, version, name=str(manifest.get("name") or ""), mod_dir=str(mod_dir), parts=_parts(manifest))
         is_enabled, why = _is_enabled(mod_id, manifest, enabled)
+        if vanilla:
+            is_enabled, why = False, "vanilla boot requested (floofy --vanilla): every mod is disabled for this boot only"
         mod_state.enabled = is_enabled
         if why:
             mod_state.detail = why
@@ -428,13 +439,16 @@ def boot(deps: BootDeps) -> BootResult:
         state.errors.extend(f"boot descriptor: {p}" for p in boot_problems)
         if boot_plan is not None:
             planned.append(boot_plan)
-        if planned:
+        if planned or vanilla:
+            # a vanilla boot hands the Patcher an EMPTY set: revert-then-patch restores every payload for this boot
             runner = deps.patch_runner or default_patch_runner
             try:
                 state.patches = runner(planned, facts, paths)
             except Exception as exc:  # noqa: BLE001 - never fatal for the boot
                 state.patches = {"ran": False, "error": f"{type(exc).__name__}: {exc}"}
                 state.errors.append(f"patcher: {type(exc).__name__}: {exc}")
+            if vanilla and isinstance(state.patches, dict):
+                state.patches["vanilla"] = True
         else:
             state.patches = {"ran": False, "detail": "no patch parts enabled"}
 

@@ -20,16 +20,20 @@ import http.client
 import json
 import re
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 __all__ = [
     "DEFAULT_HOST_HOME",
+    "GatewayAuthError",
     "GatewayEndpoint",
+    "GatewaySession",
     "Response",
     "find_endpoints",
+    "read_local_secret",
     "served_version",
+    "session_for",
 ]
 
 #: The host's default data home; ``KIROCREW_HOME`` overrides it.
@@ -85,15 +89,21 @@ class GatewayEndpoint:
 
     def get(self, path: str, headers: dict[str, str] | None = None) -> Response:
         """One GET; ``Accept-Encoding: identity`` by default so bytes compare to disk."""
+        return self.request("GET", path, headers=headers)
+
+    def request(self, method: str, path: str, body: bytes | None = None, headers: dict[str, str] | None = None) -> Response:
+        """One request of any method (the CLI's ``POST`` calls go through here too)."""
         request_headers = {"Accept-Encoding": "identity", "Host": "localhost"}
         if headers:
             request_headers.update(headers)
+        if body is not None and "Content-Type" not in request_headers:
+            request_headers["Content-Type"] = "application/json"
         connection = self._connection()
         try:
-            connection.request("GET", path, headers=request_headers)
+            connection.request(method, path, body=body, headers=request_headers)
             response = connection.getresponse()
-            body = response.read()
-            return Response(response.status, {k.lower(): v for k, v in response.getheaders()}, body)
+            payload = response.read()
+            return Response(response.status, {k.lower(): v for k, v in response.getheaders()}, payload)
         finally:
             connection.close()
 
@@ -129,3 +139,128 @@ def served_version(endpoint: GatewayEndpoint) -> str | None:
     if isinstance(payload, dict) and isinstance(payload.get("version"), str):
         return payload["version"]
     return None
+
+
+# --- an authenticated session for the manager -----------------------------------------------
+
+
+def read_local_secret(host_home: Path, port: int | None) -> str:
+    """The gateway's internal-API credential, the way the host CLI reads it.
+
+    ``kiro_crew/config/loader.py`` L1158 ``read_local_secret``: the per-listener
+    ``run/gateway-<port>.secret`` first (``instances/run_marker.py`` L251
+    ``read_secret``), then the shared ``.local_secret`` written at gateway
+    startup. Both are ``0600`` files in the host's data home, so only processes
+    of the same user can read them. Empty string when neither exists.
+    """
+    home = Path(host_home)
+    candidates: list[Path] = []
+    if port is not None:
+        candidates.append(home / "run" / f"gateway-{port}.secret")
+    candidates.append(home / ".local_secret")
+    for candidate in candidates:
+        try:
+            text = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if text:
+            return text
+    return ""
+
+
+class GatewayAuthError(RuntimeError):
+    """The manager could not obtain a dashboard session for its authenticated calls."""
+
+
+@dataclass
+class GatewaySession:
+    """Loopback calls to routes behind the dashboard auth (the Loader's routes, the theme route).
+
+    The host mints a session for local processes on ``GET /api/token/local``
+    (``dashboard/handlers/core.py`` L2426 ``api_token_local``): loopback only,
+    ``X-Local-Secret`` header carrying :func:`read_local_secret`'s value. The
+    token then rides as ``?token=`` on the first request (the host exchanges it
+    for the ``mc_token_<port>`` cookie, ``dashboard/token_auth.py``) and the
+    cookie is sent afterwards. A ``token`` may also be supplied directly (the
+    one-time link token a ``--test-mode`` gateway prints on ``KIROCREW_READY``).
+    Nothing here ever leaves the machine.
+    """
+
+    host_home: Path
+    port: int
+    token: str | None = None
+    host: str = "127.0.0.1"
+    timeout: float = 20.0
+    ttl: str = "10m"
+    _cookies: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def endpoint(self) -> GatewayEndpoint:
+        return GatewayEndpoint(port=self.port, host=self.host, timeout=self.timeout)
+
+    @property
+    def label(self) -> str:
+        return f"http://{self.host}:{self.port}"
+
+    def mint(self) -> str:
+        """Obtain a session token with the local secret (idempotent once a token is held)."""
+        if self.token:
+            return self.token
+        secret = read_local_secret(self.host_home, self.port)
+        if not secret:
+            raise GatewayAuthError(f"no local secret under {self.host_home} (run/gateway-{self.port}.secret or .local_secret): is this the gateway's data home?")
+        try:
+            response = self.endpoint.request("GET", f"/api/token/local?ttl={self.ttl}", headers={"X-Local-Secret": secret})
+        except (OSError, http.client.HTTPException) as exc:
+            raise GatewayAuthError(f"{self.label}/api/token/local unreachable: {exc}") from exc
+        if response.status != 200:
+            raise GatewayAuthError(f"{self.label}/api/token/local answered {response.status}: {response.body[:200].decode('utf-8', 'replace')}")
+        try:
+            token = response.json().get("token")
+        except ValueError:
+            token = None
+        if not isinstance(token, str) or not token:
+            raise GatewayAuthError(f"{self.label}/api/token/local returned no token")
+        self.token = token
+        return token
+
+    def request(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> Response:
+        """An authenticated call; ``body`` (any JSON value) is encoded as ``application/json``."""
+        token = self.mint()
+        request_headers = dict(headers or {})
+        if self._cookies:
+            request_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
+        else:
+            path += ("&" if "?" in path else "?") + "token=" + token
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        response = self.endpoint.request(method, path, body=data, headers=request_headers)
+        self._remember_cookies(response)
+        return response
+
+    def _remember_cookies(self, response: Response) -> None:
+        raw = response.headers.get("set-cookie")
+        if not raw:
+            return
+        for cookie in re.split(r",(?=\s*[A-Za-z0-9_]+=)", raw):
+            pair = cookie.split(";", 1)[0].strip()
+            if "=" in pair:
+                name, value = pair.split("=", 1)
+                self._cookies[name.strip()] = value.strip()
+
+    def get(self, path: str, **kw: Any) -> Response:
+        return self.request("GET", path, **kw)
+
+    def post(self, path: str, body: Any = None, **kw: Any) -> Response:
+        return self.request("POST", path, body, **kw)
+
+
+def session_for(host_home: Path, *, port: int | None = None, token: str | None = None) -> GatewaySession | None:
+    """A session for the gateway serving ``host_home`` — the socket names the port — or ``None`` when none runs."""
+    if port is None:
+        for endpoint in find_endpoints(host_home):
+            if endpoint.port and endpoint.reachable():
+                port = endpoint.port
+                break
+    if port is None:
+        return None
+    return GatewaySession(Path(host_home), port, token=token)

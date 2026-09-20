@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from floofy_core.patcher import AuditLog
+from floofy_core.audit import AuditLog
 from floofy_core.resolver import Reason
 
 from . import __version__, api
@@ -167,7 +167,7 @@ class LoaderRuntime:
         self.boot_started_at = utc_now()
         self.facts = read_host_facts()
         self.paths = FloofyPaths(self.facts.data_home)
-        self.audit = AuditLog(self.paths.data_home)
+        self.audit = AuditLog(self.paths.data_home, actor="loader")
         self.http_clients.clear()
         api.bind(host_facts=self.facts, fetch_impl=self.fetch, event_bus=self.events)
         api.install_alias()

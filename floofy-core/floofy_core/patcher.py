@@ -32,13 +32,13 @@ appended to ``<data_home>/audit.jsonl`` (Requirement 11.5).
 from __future__ import annotations
 
 import http.client
-import json
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .aliasgraph import republish, sideline_sidecars
+from .audit import AuditLog
 from .deploy import (
     Backups,
     DeployManifest,
@@ -114,22 +114,6 @@ def url_for(payload: Payload, path: Path) -> str | None:
     if relative.as_posix() == "index.html":
         return "/"
     return "/" + relative.as_posix()
-
-
-# --- audit ---------------------------------------------------------------------------
-
-
-class AuditLog:
-    """Append-only ``audit.jsonl`` (Requirement 11.5); one JSON object per line."""
-
-    def __init__(self, data_home: Path):
-        self.path = Path(data_home) / "audit.jsonl"
-
-    def record(self, op: str, **fields: Any) -> None:
-        entry = {"ts": utc_now(), "op": op, "by": os.environ.get("USER") or os.environ.get("USERNAME") or "", **fields}
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, sort_keys=True) + "\n")
 
 
 # --- reports -------------------------------------------------------------------------
@@ -301,7 +285,7 @@ class Patcher:
         #: The installed Loader app's ``ui/`` — patched chunk copies live under ``ui/patched/`` (spike 1.4).
         self.ui_root = Path(ui_root) if ui_root else default_ui_root(self.host_home)
         self.say = reporter or _silent
-        self.audit = AuditLog(self.data_home)
+        self.audit = AuditLog(self.data_home, actor="patcher")
         #: Governance is read for information (task 3.6); ``None`` means "not read".
         self.governance = governance
         #: Who answers the Requirement 5.9 question; non-interactive callers are pre-consented.

@@ -140,6 +140,8 @@ class LoaderState:
     booted_at: str = field(default_factory=utc_now)
     duration_ms: int = 0
     data_home: str = ""
+    #: ``floofy --vanilla``: this boot ran with every mod disabled (the marker was consumed).
+    vanilla: bool = False
 
     @property
     def active(self) -> list[str]:
@@ -162,5 +164,6 @@ class LoaderState:
             "bootedAt": self.booted_at,
             "durationMs": self.duration_ms,
             "dataHome": self.data_home,
+            "vanilla": self.vanilla,
             "reasons": list(REASONS),
         }

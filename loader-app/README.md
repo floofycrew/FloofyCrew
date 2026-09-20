@@ -23,11 +23,11 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 | `floofy_loader/runtime.py` | the process-wide `LoaderRuntime` (`startup` / `shutdown` / `register_routes`): reads the host facts, runs `boot()`, keeps the live activations, writes `loader-state.json` |
 | `floofy_loader/boot.py` | the boot sequence (`boot(BootDeps) -> BootResult`, `deactivate_all`) with injectable collaborators (context factory, governance reader, patch runner) |
 | `floofy_loader/state.py` | `LoaderState` / `ModState` / `PartState`, the closed `REASONS` vocabulary, `SEAM_BY_KIND` |
-| `floofy_loader/consent.py` | `consent.json` reader/writer, `WARNING_TEXT`, `WARNING_VERSION`, `ConsentRequired` |
+| `floofy_loader/consent.py` | re-export of `floofy_core.consent` (`consent.json` reader/writer, `WARNING_TEXT`, `WARNING_VERSION`, `ACCEPT_PHRASE`, `ConsentRequired`) — the text lives in the core so the `floofy` CLI never imports this package |
 | `floofy_loader/activation.py` | `ModContext` (the `ctx` mods get), namespaced import under `floofy_mods.<id>.<module>`, fail-open `activate`/`deactivate` |
 | `floofy_loader/pending.py` | staged installs/removals, `enabled.json`, `patch` part planning for the Patcher |
-| `floofy_loader/compat.py` | the `cache/compat.json` reader (`CompatCache.row_for`, verdicts) |
-| `floofy_loader/paths.py` | the data-home layout |
+| `floofy_loader/compat.py` | re-export of `floofy_core.compat` (`CompatCache.row_for`, verdicts) |
+| `floofy_loader/paths.py` | `FloofyPaths` = `floofy_core.datahome.DataHome`, the shared data-home layout |
 | `floofy_early/` | the optional early shim: `zz_floofycrew.pth` (`import floofy_early`) + a stdlib-only package that runs mods' `early(ctx)` right after `kiro_crew.platform.bootstrap` is imported |
 | `floofy_loader/early_install.py` | installers/status for the shim: `install_user_site` / `install_venv_site` / `uninstall_*` / `status(interpreter, kind)` (`doctor` reads it) |
 | `floofy_loader/storage.py` | `ModConfig` (`ctx.config`, atomic JSON under `mods/<id>/.floofy/config.json`), `mod_logger` (`floofy.mods.<id>`, rotating `mods/<id>/.floofy/mod.log`, `[floofy:<id>]` prefix), `mod_data_dir` containment |
@@ -303,6 +303,7 @@ Data home `<host home>/floofy/` (`floofy_loader/paths.py`):
 | `deploy/`, `audit.jsonl` | Patcher | deployment manifests and the audit log (the Loader appends `net-denied` rows from 4.5) |
 | `loader-state.json` | Loader | the last `LoaderState` (what `GET /api/apps/floofycrew/state` also serves); `floofy doctor` reads it |
 | `loader-failure.json` | shim | written when the Loader itself failed (`phase`, `error`, `traceback`); a later successful boot removes a stale one |
+| `vanilla-once` | `floofy --vanilla` | marker consumed by the next consented boot: every mod is `UserDisabled` for that boot only, the Patcher runs with an empty set (payloads restored for the boot), `LoaderState.vanilla` is `true`; the boot after runs the mods again |
 
 `LoaderState` (`floofy_loader/state.py`) as JSON: `loader` (`ok|inert|failed`),
 `consent{status,required,...}`, `host{...}` (the `floofy.host` facts), `mods{<id>:
