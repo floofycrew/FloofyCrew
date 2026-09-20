@@ -12,6 +12,7 @@
 import React from "react";
 
 import { commandNote, styles } from "../palette.mjs";
+import { ModPage, ModPagesList } from "./modpage.mjs";
 
 export function compatBadge(row) {
   const text = row.hostCompat || "unknown";
@@ -84,8 +85,9 @@ export function InstallForm({ manager }) {
   );
 }
 
-export function ModsPage({ manager, navigate, openConsent }) {
+export function ModsPage({ manager, navigate, openConsent, rest }) {
   const { state, rows, statusMeta, registry, busy, act, applyNow } = manager;
+  if (rest) return React.createElement(ModPage, { manager, modId: rest, navigate });
   const host = (state && state.host) || {};
   const consent = (state && state.consent) || {};
   const pending = (statusMeta && statusMeta.pending) || [];
@@ -117,6 +119,7 @@ export function ModsPage({ manager, navigate, openConsent }) {
           )
         : null,
     ),
+    React.createElement(ModPagesList, { manager, navigate }),
     React.createElement("div", { style: styles.card, "data-testid": "floofycrew-install-card" }, React.createElement("h2", { style: styles.cardTitle }, "Install a mod"), React.createElement(InstallForm, { manager }), commandNote(React, "The same at a terminal:", "floofy install <id | path | archive | https URL | git reference> [--now]")),
     React.createElement(
       "div",
@@ -153,6 +156,7 @@ export function ModsPage({ manager, navigate, openConsent }) {
             update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-update-now-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, { now: true }) }, "Update now") : null,
             React.createElement("button", { style: styles.button, disabled: busy, onClick: () => (window.confirm(`Park ${row.id} in the quarantine for host ${host.version}?`) ? act(`${mod(row.id)}/yeet`, { reason: "manual yeet (app)" }) : null) }, "Yeet"),
             React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(`${mod(row.id)}/uninstall`, { now: true }) }, "Uninstall"),
+            navigate && (row.parts || []).some((p) => p.kind === "ui") ? React.createElement("button", { style: styles.button, disabled: busy || !row.active, "data-testid": `floofycrew-row-open-page-${row.id}`, onClick: () => navigate("mods", row.id) }, "Open page") : null,
             navigate ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => navigate("registry", row.id) }, "Registry entry") : null,
           ),
         );

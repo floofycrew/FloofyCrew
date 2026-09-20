@@ -114,10 +114,14 @@ def test_route_table_matches_app_json_documentation():
     doc = json.loads((LOADER_APP_DIR / "app.json").read_text(encoding="utf-8"))["floofycrew"]
     assert doc["routesMountedAt"] == "/api/apps/floofycrew" and doc["unofficial"] is True
     documented = {(r["method"], r["path"]) for r in doc["routes"]}
-    coded = {(m, p) for m, p in ROUTE_TABLE if not p.startswith("/spa/")} | {("GET", "/spa/{id}/{file...}")}
-    assert documented == coded
+    # the per-depth catch-alls (spa files, ui files, a mod's own api routes) are documented once each
+    coded = {(m, p) for m, p in ROUTE_TABLE if not (p.startswith("/spa/") or p.startswith("/ui/mods/") or "/api/{p1}" in p)}
+    coded |= {("GET", "/spa/{id}/{file...}"), ("GET", "/ui/mods/{id}/{file...}"), *((m, "/mods/{id}/api/{path...}") for m in ("GET", "POST", "PUT", "DELETE"))}
+    assert documented == coded, documented ^ coded
     assert sum(1 for m, p in ROUTE_TABLE if p.startswith("/spa/")) == SPA_MAX_DEPTH
-    assert ("GET", "/spa/{id}/{p1}/{p2}") in ROUTE_TABLE
+    assert sum(1 for m, p in ROUTE_TABLE if p.startswith("/ui/mods/")) == SPA_MAX_DEPTH
+    assert sum(1 for m, p in ROUTE_TABLE if "/api/{p1}" in p) == 4 * 4
+    assert ("GET", "/spa/{id}/{p1}/{p2}") in ROUTE_TABLE and ("GET", "/ui/mods/{id}/{p1}/{p2}") in ROUTE_TABLE and ("PUT", "/mods/{id}/api/{p1}") in ROUTE_TABLE
     reserved = {"_jobs", "config", "dev", "disable", "enable", "manifest", "migrate-cleanup", "open", "token", "uninstall", "update"}
     assert not any(p.split("/")[1] in reserved for _, p in ROUTE_TABLE)
 

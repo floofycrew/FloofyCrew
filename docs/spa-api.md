@@ -40,6 +40,7 @@ Frozen after the first state read.
 | `patches` | inspection of the module patches in force (below) |
 | `report(options)` | the reporter (below) |
 | `mods` | a summary of every mod: state, typed reason, parts |
+| `mod(id)` | the per-mod API a `ui` part's page receives (below) |
 | `state()` | the latest Loader state document |
 
 Each mod receives its own frozen `ctx`: `modId`, `version`, `host`,
@@ -47,6 +48,44 @@ Each mod receives its own frozen `ctx`: `modId`, `version`, `host`,
 published by the mod are prefixed for attribution), `log`, `surfaces`, and
 `config.read()` — the `exports` its Python side published through `ctx.state`,
 so a mod's two halves share facts without a side channel.
+
+## `floofy.mod(id)` — the API of a mod's own page
+
+A mod's `ui` part (`kind: ui`, [manifest.md](manifest.md)) is an ES module the
+FloofyCrew App imports same-origin and mounts with `mount(container, api)`;
+`api` is `window.floofy.mod(id)`, frozen, and every call is same-origin behind
+the dashboard auth (Requirement 16.4, 4.6):
+
+| Member | What | Backed by |
+|---|---|---|
+| `id`, `baseUrl`, `unofficial` | the mod id; `/api/apps/floofycrew/ui/mods/<id>/` for the page's own assets | — |
+| `config.get()` → object | the mod's settings — schema-free JSON | `GET /api/apps/floofycrew/mods/<id>/config` (the mod's `.floofy/config.json`) |
+| `config.set(patch)` → object | merge key by key (`null` deletes a key); the whole document must stay under 64 KiB | `PUT …/mods/<id>/config {patch}` — the same store the Python side reads as `ctx.config` |
+| `routes.list()` → `[{method, path}]` | what the mod's `python-hook` registered with `ctx.routes.add(method, path, handler)` | the Loader state |
+| `routes.fetch(path, init)` → `Response` | `fetch()` scoped to the mod's own routes; `path` is relative (`echo`, `items/3`), never absolute | `…/mods/<id>/api/<path>` |
+| `routes.url(path)` | the absolute URL of one of those routes | — |
+| `theme.tokens()` → `{"--bg": …}` | the host's CSS custom properties as computed on `:root` (declared names plus the known set) | the document |
+| `theme.current()` → `{theme, mode}` | the active colour theme (`localStorage['mc-color-theme']`, else `data-theme`) and `data-mode` | the document |
+| `state()` → the mod's Loader verdict | `active`, `reason`, `parts`, `exports`, `tier`, `routes` | `GET /state` |
+| `log` | `[floofy:<id>]`-prefixed console logger | — |
+
+```js
+export default async function mount(container, api) {
+  const config = await api.config.get();
+  const input = document.createElement("input");
+  input.value = config.greeting || "";
+  input.addEventListener("change", () => api.config.set({ greeting: input.value }));
+  container.appendChild(input);
+  const reply = await api.routes.fetch("echo", { method: "POST", body: JSON.stringify({ hi: 1 }) });
+  console.log(await reply.json());
+  return () => { container.textContent = ""; };   // cleanup when the user leaves the page
+}
+```
+
+The page is served only while the mod is active, from manifest-listed files,
+and runs inside the App's error boundary: a throw during import or mount, or a
+later error whose stack names the mod's URL, is shown with the message and a
+*Disable* button; the manager page and the other mods are unaffected.
 
 ## Surfaces
 

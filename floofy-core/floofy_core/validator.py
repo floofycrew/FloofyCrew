@@ -344,6 +344,8 @@ def _check_parts(root: Path, manifest: dict[str, Any], report: ValidationReport,
             _check_patch_descriptor(root, rel, target, pointer, report, policy)
         elif kind == "python-hook" and target is not None:
             _check_python_hook(part, rel, target, pointer, report)
+        elif kind == "ui" and target is not None:
+            _check_ui_part(root, part, rel, target, pointer, report, listed)
         elif target is not None and target.is_file() and target.suffix.lower() == ".json":
             _check_json_file(rel, target, pointer, report)
 
@@ -366,6 +368,36 @@ def _check_python_hook(part: dict[str, Any], rel: str, target: Path, pointer: st
             report.error("InvalidPart", f"python-hook directory {rel} has no __init__.py", pointer + "/path")
     elif target.suffix != ".py":
         report.error("InvalidPart", f"python-hook path {rel} must be a .py file or a package directory", pointer + "/path")
+
+
+def _check_ui_part(root: Path, part: dict[str, Any], rel: str, target: Path, pointer: str, report: ValidationReport, listed: set[str]) -> None:
+    """Requirement 16.4: the page's ``entry`` (and ``icon``) exist, sit under ``path``, and are listed in ``files[]``.
+
+    The App imports ``entry`` same-origin and mounts its default export, so the
+    module must be a shipped, hash-listed file the validator's network scan
+    (Requirement 1.10) already covers like any other code; ``side`` is ``spa`` by
+    schema — the page runs in the dashboard document.
+    """
+    for key, what in (("entry", "ui entry"), ("icon", "ui icon")):
+        value = part.get(key)
+        if not isinstance(value, str):
+            continue  # the schema reports a missing or malformed entry
+        file = _relative_inside(root, value)
+        if file is None:
+            report.error("PathEscape", f"{what} {value} escapes the mod root", pointer + "/" + key)
+            continue
+        if not file.is_file():
+            report.error("MissingFiles", f"{what} does not exist: {value}", pointer + "/" + key)
+            continue
+        if value not in listed:
+            report.error("UnverifiedPart", f"{what} {value} is not listed in files[], so its hash cannot be verified", pointer + "/" + key)
+        if target.is_dir():
+            try:
+                file.relative_to(target.resolve())
+            except ValueError:
+                report.error("InvalidPart", f"{what} {value} lies outside the part's directory {rel}", pointer + "/" + key)
+        elif key == "entry" and file != target:
+            report.error("InvalidPart", f"ui part path {rel} is a file but entry names another file {value}; point path at the page's directory", pointer + "/entry")
 
 
 def _check_patch_descriptor(root: Path, rel: str, target: Path, pointer: str, report: ValidationReport, policy: TargetPolicy) -> None:

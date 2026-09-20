@@ -525,3 +525,127 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         assert client.request("DELETE", f"{API}/registries/loopdemo").status == 200
     finally:
         context.close()
+
+
+
+
+HEALTHY_PAGE = """
+export default async function mount(container, api) {
+  const config = await api.config.get();
+  const input = document.createElement("input");
+  input.setAttribute("data-testid", "ui-healthy-input");
+  input.value = config.greeting || "";
+  input.addEventListener("change", async () => {
+    const saved = await api.config.set({ greeting: input.value });
+    saved_el.textContent = "saved: " + JSON.stringify(saved);
+  });
+  const saved_el = document.createElement("div");
+  saved_el.setAttribute("data-testid", "ui-healthy-saved");
+  const button = document.createElement("button");
+  button.setAttribute("data-testid", "ui-healthy-echo");
+  button.textContent = "echo";
+  const echo_el = document.createElement("pre");
+  echo_el.setAttribute("data-testid", "ui-healthy-echo-out");
+  button.addEventListener("click", async () => {
+    const response = await api.routes.fetch("echo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: "page" }) });
+    echo_el.textContent = JSON.stringify(await response.json());
+  });
+  const tokens = document.createElement("div");
+  tokens.setAttribute("data-testid", "ui-healthy-theme");
+  tokens.textContent = JSON.stringify({ current: api.theme.current(), hasBg: Object.keys(api.theme.tokens()).length > 0, routes: await api.routes.list(), state: (await api.state()).active });
+  container.append(input, saved_el, button, echo_el, tokens);
+  window.__uiHealthyMounted = (window.__uiHealthyMounted || 0) + 1;
+  return () => { window.__uiHealthyUnmounted = (window.__uiHealthyUnmounted || 0) + 1; };
+}
+"""
+
+HEALTHY_HOOK = """
+def activate(ctx):
+    def echo(request):
+        return {"echo": request.json(), "config": ctx.config.to_dict(), "host": ctx.host.version}
+
+    ctx.routes.add("POST", "echo", echo)
+
+
+def deactivate(ctx):
+    pass
+"""
+
+BROKEN_PAGE = """
+export default function mount(container, api) {
+  container.textContent = "about to explode";
+  throw new Error("this page explodes on mount, on purpose");
+}
+"""
+
+
+def test_5c_mod_pages_are_isolated(harness: Harness):
+    """Task 11.5 (Requirement 16.4): a mod's ui part is served same-origin and mounted with floofy.mod(id) — config get/set
+    persisted in .floofy/config.json, the mod's own route, theme tokens, state — and a page that throws is isolated by the
+    error boundary with a Disable button; the manager page never goes down."""
+    client = harness.gw.client()
+    data_home = harness.gw.data_home
+    write_test_mod(harness.gw, "ui-healthy", {"ui/page.mjs": HEALTHY_PAGE, "hook.py": HEALTHY_HOOK}, [{"kind": "ui", "side": "spa", "path": "ui/", "entry": "ui/page.mjs", "title": "Healthy settings"}, {"kind": "python-hook", "side": "gateway", "path": "hook.py", "module": "hook"}])
+    write_test_mod(harness.gw, "ui-broken", {"ui/page.mjs": BROKEN_PAGE}, [{"kind": "ui", "side": "spa", "path": "ui/", "entry": "ui/page.mjs", "title": "Broken page"}])
+    assert client.post(f"{API}/reload").status == 200
+    state = client.get(f"{API}/state").json()
+    assert state["mods"]["ui-healthy"]["active"] is True and state["mods"]["ui-healthy"]["routes"] == [{"method": "POST", "path": "echo"}]
+    assert state["mods"]["ui-broken"]["active"] is True, "a ui part is inert until opened: the mod lands active"
+    served = client.get(f"{API}/ui/mods/ui-healthy/ui/page.mjs")
+    assert served.status == 200 and served.headers["content-type"].startswith("text/javascript") and "api.config.get()" in served.body.decode("utf-8")
+    assert client.get(f"{API}/ui/mods/ui-healthy/floofy.json").status == 404 and client.get(f"{API}/ui/mods/ui-healthy/hook.py").status == 200, "manifest-listed files only"
+    context, page = harness.page()
+    try:
+        page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-mod-pages"]', timeout=60000)
+        listing = page.inner_text('[data-testid="floofycrew-mod-pages"]')
+        assert "Open Healthy settings" in listing and "Open Broken page" in listing, listing
+        # the healthy page: mounted with floofy.mod(id); config round-trips through the Loader and reaches the mod's Python side
+        page.click('[data-testid="floofycrew-open-page-ui-healthy"]')
+        page.wait_for_selector('[data-testid="ui-healthy-input"]', timeout=60000)
+        assert page.evaluate("() => location.hash") == "#/mods/ui-healthy"
+        theme = json.loads(page.inner_text('[data-testid="ui-healthy-theme"]'))
+        assert theme["state"] is True and theme["routes"] == [{"method": "POST", "path": "echo"}] and theme["hasBg"] is True and theme["current"]["theme"], theme
+        page.fill('[data-testid="ui-healthy-input"]', "hello from the page")
+        page.press('[data-testid="ui-healthy-input"]', "Tab")
+        page.wait_for_function("() => document.querySelector('[data-testid=\"ui-healthy-saved\"]')?.textContent.includes('hello from the page')", timeout=30000)
+        assert json.loads((data_home / "mods" / "ui-healthy" / ".floofy" / "config.json").read_text(encoding="utf-8")) == {"greeting": "hello from the page"}
+        page.click('[data-testid="ui-healthy-echo"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"ui-healthy-echo-out\"]')?.textContent.includes('hello from the page')", timeout=30000)
+        echoed = json.loads(page.inner_text('[data-testid="ui-healthy-echo-out"]'))
+        assert echoed == {"echo": {"from": "page"}, "config": {"greeting": "hello from the page"}, "host": "0.7.0.5"}, echoed
+        # leaving the page runs the cleanup; coming back re-mounts with the saved value
+        page.click('[data-testid="floofycrew-modpage-back"]')
+        page.wait_for_selector('[data-testid="floofycrew-mod-pages"]', timeout=30000)
+        page.click('[data-testid="floofycrew-open-page-ui-healthy"]')
+        page.wait_for_selector('[data-testid="ui-healthy-input"]', timeout=60000)
+        assert page.input_value('[data-testid="ui-healthy-input"]') == "hello from the page"
+        assert page.evaluate("() => [window.__uiHealthyMounted, window.__uiHealthyUnmounted]") == [2, 1]
+        # the broken page: caught by the boundary, shown with a Disable button; the shell stays up
+        page.click('[data-testid="floofycrew-modpage-back"]')
+        page.wait_for_selector('[data-testid="floofycrew-open-page-ui-broken"]', timeout=30000)
+        page.click('[data-testid="floofycrew-open-page-ui-broken"]')
+        page.wait_for_selector('[data-testid="floofycrew-modpage-fault"]', timeout=60000)
+        fault = page.inner_text('[data-testid="floofycrew-modpage-fault"]')
+        assert "failed during mount" in fault and "explodes on mount, on purpose" in fault, fault
+        assert page.locator('[data-testid="floofycrew-nav"]').count() == 1 and page.locator('[data-testid="floofycrew-banner"]').count() == 1, "the manager page is still there"
+        page.click('[data-testid="floofycrew-nav-registry"]')
+        page.wait_for_selector('[data-testid="floofycrew-sources"]', timeout=30000)
+        page.click('[data-testid="floofycrew-nav-mods"]')
+        page.wait_for_selector('[data-testid="floofycrew-open-page-ui-broken"]', timeout=30000)
+        page.click('[data-testid="floofycrew-open-page-ui-broken"]')
+        page.wait_for_selector('[data-testid="floofycrew-modpage-disable"]', timeout=60000)
+        page.click('[data-testid="floofycrew-modpage-disable"]')
+        page.wait_for_selector('[data-testid="floofycrew-mod-pages"]', timeout=60000)
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-open-page-ui-broken\"]')?.disabled === true", timeout=60000)
+        state = client.get(f"{API}/state").json()
+        assert state["mods"]["ui-broken"]["active"] is False and state["mods"]["ui-broken"]["reason"] == "UserDisabled"
+        assert state["mods"]["ui-healthy"]["active"] is True, "the other page's mod is unaffected"
+        assert client.get(f"{API}/ui/mods/ui-broken/ui/page.mjs").status == 404, "a disabled mod's page is no longer served"
+        disabled = [r for r in _audit_rows(harness) if r["op"] == "disable" and r["mod"] == "ui-broken"]
+        assert disabled and disabled[-1]["actor"] == "app", "the Disable button ran `floofy disable` (the reload's Patcher rows follow it)"
+    finally:
+        context.close()
+    for mod_id in ("ui-healthy", "ui-broken"):
+        removed = client.post(f"{API}/mods/{mod_id}/uninstall", {"now": True, "confirmations": {"yes": True}})
+        assert removed.status == 200, removed.body[:300]

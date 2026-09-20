@@ -94,6 +94,7 @@ through is the subject of [seams.md](seams.md).
 | `python-hook` | a Python package directory | `module` (dotted name, imported under `floofy_mods.<id>.<module>`), `early` (also run before the host's platform bootstrap through the early shim) |
 | `spa` | an ES module | `activation`: `runtime` (default; loaded by the SPA host after the host bundle) or `boot` (first-frame effects baked into `index.html` by the Patcher) plus the `boot` object |
 | `patch` | a patch descriptor | — ([patching.md](patching.md)); the only kind that modifies payload files |
+| `ui` | the directory holding the mod's own page (or the entry file) | `entry` (the ES module the FloofyCrew App imports, `.mjs`/`.js`, listed in `files[]`), `title` (the entry in the App's Mods section, 1–80 characters), optional `icon` (`.svg`/`.png`); `side` is `spa` |
 
 The zero-code kinds (`theme`, `agent`, `skill`, `appearance`, `app`) let an
 existing KiroCrew artifact be a mod without any code: point the part at the
@@ -115,6 +116,28 @@ guard until the host settles; `when.theme` acts only when the active colour
 theme equals it. The part's file is the boot hook, inlined as `function (ctx)`
 with `{id, color, mode, pref, element}` — ES5 only, no `</script`, at most
 32 KB.
+
+### `ui` parts: the mod's own page in the FloofyCrew App
+
+```json
+{"kind": "ui", "side": "spa", "path": "ui/", "entry": "ui/page.mjs", "title": "Settings demo", "icon": "ui/icon.svg"}
+```
+
+The App lists every mod with a `ui` part under Mods and, when the user opens
+it, `import()`s `entry` same-origin from
+`/api/apps/floofycrew/ui/mods/<id>/<entry>` (served by the Loader while the mod
+is active, manifest-listed files only) and calls its default export
+`mount(container, api)` with `api = floofy.mod(id)` — `config.get()/set(patch)`
+persisted in the mod's `.floofy/config.json`, `routes.list()/fetch(path)` for
+the routes the mod's `python-hook` registered with `ctx.routes.add`, `theme.tokens()`
+/ `theme.current()`, `state()`; see [spa-api.md](spa-api.md). `mount` may return
+a cleanup function (or an object with `unmount()`). The page runs inside an
+error boundary: an import or mount that throws is shown with the message and a
+*Disable* button and never takes the manager page down. A `ui` part is inert
+until opened, so it does **not** make a mod land disabled (only `python-hook`
+and `spa` parts do); `floofy validate` checks that `entry` and `icon` exist,
+sit under `path` and are hash-listed, and its network scan covers the module
+like any other shipped code. `floofy new ui` scaffolds one.
 
 ## Files
 

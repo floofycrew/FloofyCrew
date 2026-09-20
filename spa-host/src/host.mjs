@@ -22,12 +22,13 @@
 
 import { createBoundary, describeError } from "./boundary.mjs";
 import { createBus, scoped } from "./events.mjs";
+import { createModApi } from "./modapi.mjs";
 import { createPatches } from "./patches.mjs";
 import { createReporter } from "./reporter.mjs";
 import { createSurfaces } from "./surfaces.mjs";
 
 /** The SPA host's own version (independent of the Loader and the API version). */
-export const SPA_HOST_VERSION = "1.0.0";
+export const SPA_HOST_VERSION = "1.1.0";
 /** Where the Loader's routes are mounted (behind the dashboard cookie/token auth). */
 export const API_BASE = "/api/apps/floofycrew";
 /** Prefix of a mod's served `spa` files: `${SPA_PREFIX}<id>/<file>`. */
@@ -225,6 +226,8 @@ export function createHost(env = {}) {
       patches,
       report: (options) => reporter.report(options),
       mods: summarizeMods(state),
+      /** The API a mod's own page receives (Requirement 16.4): config, routes, theme tokens, state — same-origin, per mod. */
+      mod: (modId) => createModApi(modId, { fetch: fetchImpl, document: doc, window: win, console: log, state: async () => (await fetchState()) ?? latestState }),
       loaded: () => [...loaded.keys()],
       faulted: () => boundary.faultedMods(),
       state: () => latestState,

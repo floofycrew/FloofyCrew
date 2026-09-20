@@ -53,7 +53,7 @@ from .paths import FloofyPaths
 from .pending import PendingReport, apply_pending, plan_boot, plan_patches, read_enabled
 from .state import LoaderState, ModState, PartState, utc_now
 
-__all__ = ["BootDeps", "BootResult", "ModActivation", "boot", "deactivate_all", "default_governance_snapshot", "default_patch_runner"]
+__all__ = ["BootDeps", "BootResult", "ModActivation", "PatchJob", "boot", "deactivate_all", "default_governance_snapshot", "default_patch_runner", "run_deferred_patches"]
 
 logger = logging.getLogger("floofy.loader.boot")
 
@@ -88,12 +88,26 @@ class BootDeps:
     on_deactivated: Callable[[str], None] | None = None
     #: Publish spa parts into ``spa/<id>/`` for the SPA host route (task 4.6 serves them).
     publish_spa: bool = True
+    #: Leave the Patcher pass (step 4b) as a :class:`PatchJob` on the result instead of running it inside :func:`boot`:
+    #: a request handler boots on the event loop and runs the file work in a worker thread afterwards
+    #: (:func:`run_deferred_patches`), so the host's loop watchdog keeps its heartbeat (task 11.5).
+    defer_patches: bool = False
+
+
+@dataclass
+class PatchJob:
+    """The Patcher pass a deferred boot left for :func:`run_deferred_patches`."""
+
+    planned: list
+    vanilla: bool = False
 
 
 @dataclass
 class BootResult:
     state: LoaderState
     activations: dict[str, ModActivation] = field(default_factory=dict)
+    #: Set by a boot with ``defer_patches``; ``None`` once the pass ran (or when nothing was planned).
+    patch_job: PatchJob | None = None
 
     def refresh_exports(self) -> None:
         for mod_id, activation in self.activations.items():
@@ -181,6 +195,10 @@ def _parts(manifest: dict[str, Any]) -> list[PartState]:
         part = PartState(index, str(raw.get("kind", "")), str(raw.get("side", "")), str(raw.get("path", "")))
         if part.kind == "spa":
             part.activation = str(raw.get("activation") or "runtime")
+        if part.kind == "ui":
+            part.entry = str(raw.get("entry") or "") or None
+            part.title = str(raw.get("title") or "") or None
+            part.icon = str(raw.get("icon") or "") or None
         parts.append(part)
     return parts
 
@@ -311,6 +329,9 @@ def _activate(deps: BootDeps, state: LoaderState, mod_id: str, mod_dir: Path, ma
                 activation.handles.append(handle)
                 activate_part(handle, ctx)
                 part.status, part.detail = "active", f"activated as {handle.module_name}"
+            elif part.kind == "ui":
+                # inert until opened: the App imports the entry same-origin from /ui/mods/<id>/ while the mod is active
+                part.status, part.detail = "active", f"page {part.title or part.entry!r}: served from ui/mods/{mod_id}/, mounted by the FloofyCrew App on request"
             elif part.kind in ("theme", "agent", "skill", "appearance", "config", "app", "patch"):
                 part.status, part.detail = "inactive", "installed by the manager through its seam; nothing to activate at boot"
     except ActivationError as exc:
@@ -443,21 +464,39 @@ def boot(deps: BootDeps) -> BootResult:
         if boot_plan is not None:
             planned.append(boot_plan)
         if planned or vanilla:
-            # a vanilla boot hands the Patcher an EMPTY set: revert-then-patch restores every payload for this boot
-            runner = deps.patch_runner or default_patch_runner
-            try:
-                state.patches = runner(planned, facts, paths)
-            except Exception as exc:  # noqa: BLE001 - never fatal for the boot
-                state.patches = {"ran": False, "error": f"{type(exc).__name__}: {exc}"}
-                state.errors.append(f"patcher: {type(exc).__name__}: {exc}")
-            if vanilla and isinstance(state.patches, dict):
-                state.patches["vanilla"] = True
+            if deps.defer_patches:
+                result.patch_job = PatchJob(planned, vanilla)
+                state.patches = {"ran": False, "detail": "deferred: the Patcher pass runs off the event loop after this boot"}
+            else:
+                _patch_step(deps, state, planned, vanilla)
         else:
             state.patches = {"ran": False, "detail": "no patch parts enabled"}
 
     result.refresh_exports()
     state.duration_ms = int((time.monotonic() - started) * 1000)
     return result
+
+
+def _patch_step(deps: BootDeps, state: LoaderState, planned: list, vanilla: bool) -> None:
+    """Step 4b: hand the enabled set to the Patcher (revert-then-patch every payload); a vanilla boot hands it an EMPTY set."""
+    runner = deps.patch_runner or default_patch_runner
+    try:
+        state.patches = runner(planned, deps.facts, deps.paths)
+    except Exception as exc:  # noqa: BLE001 - never fatal for the boot
+        state.patches = {"ran": False, "error": f"{type(exc).__name__}: {exc}"}
+        state.errors.append(f"patcher: {type(exc).__name__}: {exc}")
+    if vanilla and isinstance(state.patches, dict):
+        state.patches["vanilla"] = True
+
+
+def run_deferred_patches(result: BootResult, deps: BootDeps) -> bool:
+    """Run the Patcher pass a ``defer_patches`` boot left behind; returns whether there was one."""
+    job = result.patch_job
+    if job is None:
+        return False
+    result.patch_job = None
+    _patch_step(deps, result.state, job.planned, job.vanilla)
+    return True
 
 
 def deactivate_all(result: BootResult, deps: BootDeps) -> list[str]:

@@ -29,10 +29,11 @@ from floofy_core.resolver import Reason
 
 from . import __version__, api
 from .activation import MOD_NAMESPACE, ModContext, deactivate_part, drop_mod_modules
-from .boot import BootDeps, BootResult, boot, deactivate_all
+from .boot import BootDeps, BootResult, boot, deactivate_all, run_deferred_patches
 from .events import EventBus, ModEvents
 from .hooks_registry import HookRegistry
 from .host import HostFacts, read_host_facts
+from .modroutes import ModRouteRegistry
 from .net import FloofyHttp, Response
 from .paths import FloofyPaths
 from .state import utc_now
@@ -55,6 +56,8 @@ class LoaderRuntime:
     boot_started_at: str = ""
     hooks: HookRegistry = field(default_factory=HookRegistry)
     events: EventBus = field(default_factory=EventBus)
+    #: The mods' own backend routes (``ctx.routes``; served under ``/mods/{id}/api/`` — task 11.5).
+    mod_routes: ModRouteRegistry = field(default_factory=ModRouteRegistry)
     faults: list[dict[str, Any]] = field(default_factory=list)
     http_clients: dict[str, FloofyHttp] = field(default_factory=dict)
     audit: AuditLog | None = None
@@ -92,6 +95,7 @@ class LoaderRuntime:
             http=http,
             config=ModConfig(self.paths.data_home, mod_id, payload_root=payload_root),
             events=ModEvents(self.events, mod_id),
+            routes=self.mod_routes.for_mod(mod_id),
             data_dir=mod_data_dir(self.paths.data_home, mod_id, payload_root=payload_root),
         )
 
@@ -99,8 +103,9 @@ class LoaderRuntime:
         """Unwind hooks and subscriptions of ``mod_id`` (Requirement 3.4, 3.8)."""
         removed = self.hooks.deactivate(mod_id)
         dropped = self.events.unsubscribe_mod(mod_id)
-        if removed or dropped:
-            logger.info("unwound %d hook(s) and %d subscription(s) of %s", removed, dropped, mod_id)
+        routes = self.mod_routes.remove(mod_id)
+        if removed or dropped or routes:
+            logger.info("unwound %d hook(s), %d subscription(s) and %d route(s) of %s", removed, dropped, routes, mod_id)
         version = self.result.state.mods[mod_id].version if self.result is not None and mod_id in self.result.state.mods else None
         self.events.publish("mod.deactivated", {"mod": mod_id, "version": version})
 
@@ -118,9 +123,9 @@ class LoaderRuntime:
         mod_id = caller[len(prefix):].split(".", 1)[0] if caller.startswith(prefix) else f"unknown:{caller}"
         return self.http_for(mod_id).fetch(url, **kwargs)
 
-    def deps(self) -> BootDeps:
+    def deps(self, *, defer_patches: bool = False) -> BootDeps:
         assert self.facts is not None and self.paths is not None
-        return BootDeps(paths=self.paths, facts=self.facts, make_context=self.make_context, log=logger, on_deactivated=self.on_mod_deactivated)
+        return BootDeps(paths=self.paths, facts=self.facts, make_context=self.make_context, log=logger, on_deactivated=self.on_mod_deactivated, defer_patches=defer_patches)
 
     # -- faults ------------------------------------------------------------------------------
 
@@ -144,6 +149,7 @@ class LoaderRuntime:
             drop_mod_modules(mod_id)
         self.hooks.deactivate(mod_id)
         self.events.unsubscribe_mod(mod_id)
+        self.mod_routes.remove(mod_id)
         mod_state = self.result.state.mods[mod_id]
         mod_state.errors.append(f"{source}: {message}")
         if traceback_text:
@@ -188,18 +194,41 @@ class LoaderRuntime:
         if host_logger is not None:
             host_logger.info(summary)
 
-    def reload(self) -> None:
-        """Re-run the boot sequence (the manager's "apply now"): deactivate everything, then boot again."""
+    def reload(self, *, defer_patches: bool = False) -> None:
+        """Re-run the boot sequence (the manager's "apply now"): deactivate everything, then boot again.
+
+        ``defer_patches`` leaves the Patcher pass for :meth:`finish_patches` — what
+        :meth:`reload_async` uses so a request handler never holds the gateway's
+        event loop through the file work (the host's loop watchdog exits the
+        process after ~20 s of silence).
+        """
         if self.facts is None or self.paths is None:
             raise RuntimeError("the Loader has not started")
         if self.result is not None:
             deactivate_all(self.result, self.deps())
         self.hooks.shutdown()
+        self.mod_routes = ModRouteRegistry()
         self.http_clients.clear()
         self.boot_started_at = utc_now()
-        self.result = boot(self.deps())
+        self.result = boot(self.deps(defer_patches=defer_patches))
         self.write_state()
         self._announce(None)
+
+    def finish_patches(self) -> bool:
+        """Run the Patcher pass a deferred reload left behind (in a worker thread) and publish the state again."""
+        if self.result is None:
+            return False
+        ran = run_deferred_patches(self.result, self.deps())
+        if ran:
+            self.write_state()
+        return ran
+
+    async def reload_async(self) -> None:
+        """The reload for a request handler: the boot on the event loop, the Patcher pass off it."""
+        import asyncio  # noqa: PLC0415
+
+        self.reload(defer_patches=True)
+        await asyncio.get_running_loop().run_in_executor(None, self.finish_patches)
 
     def shutdown(self, ctx: Any) -> None:
         if self.result is not None:
@@ -208,6 +237,7 @@ class LoaderRuntime:
         leftover = self.hooks.shutdown()
         if leftover:
             logger.warning("hook registry still held %d registration(s) at shutdown; restored their targets", leftover)
+        self.mod_routes = ModRouteRegistry()
         if self.result is not None:
             self.write_state()
         self.started = False
@@ -279,6 +309,8 @@ class LoaderRuntime:
         payload["loaderVersion"] = __version__
         payload["unofficial"] = True
         payload["hooks"] = [r.to_dict() for r in self.hooks.registrations()]
+        for mod_id, mod_payload in payload["mods"].items():
+            mod_payload["routes"] = self.mod_routes.listing(mod_id)  # the mod's own backend routes (floofy.mod(id).routes)
         payload["faults"] = list(self.faults)
         payload["network"] = {mod_id: client.to_dict() for mod_id, client in sorted(self.http_clients.items())}
         payload["events"] = self.events.to_dict()

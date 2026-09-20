@@ -68,6 +68,41 @@
         "purpose": "the FloofyCrew banner cells for the App's About card"
       },
       {
+        "method": "GET",
+        "path": "/ui/mods/{id}/{file...}",
+        "purpose": "an ACTIVE mod's ui part files (Requirement 16.4), manifest-listed only, from the installed mod directory (1-4 segments) — what the App imports same-origin"
+      },
+      {
+        "method": "GET",
+        "path": "/mods/{id}/config",
+        "purpose": "the mod's .floofy/config.json (floofy.mod(id).config.get)"
+      },
+      {
+        "method": "PUT",
+        "path": "/mods/{id}/config",
+        "purpose": "merge {patch} into the mod's .floofy/config.json, null deletes a key, 64 KiB cap (floofy.mod(id).config.set)"
+      },
+      {
+        "method": "GET",
+        "path": "/mods/{id}/api/{path...}",
+        "purpose": "the mod's own backend routes registered with ctx.routes.add (1-4 segments; floofy.mod(id).routes.fetch)"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/api/{path...}",
+        "purpose": "the mod's own backend routes (POST)"
+      },
+      {
+        "method": "PUT",
+        "path": "/mods/{id}/api/{path...}",
+        "purpose": "the mod's own backend routes (PUT)"
+      },
+      {
+        "method": "DELETE",
+        "path": "/mods/{id}/api/{path...}",
+        "purpose": "the mod's own backend routes (DELETE)"
+      },
+      {
         "method": "POST",
         "path": "/mods/install",
         "purpose": "floofy install {source, now?, enable?, ref?} — the disclosure and every confirmation through the 409 protocol [actor: app]"

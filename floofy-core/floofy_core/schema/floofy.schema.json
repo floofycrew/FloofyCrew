@@ -225,7 +225,8 @@
         { "$ref": "#/$defs/partApp" },
         { "$ref": "#/$defs/partPythonHook" },
         { "$ref": "#/$defs/partSpa" },
-        { "$ref": "#/$defs/partPatch" }
+        { "$ref": "#/$defs/partPatch" },
+        { "$ref": "#/$defs/partUi" }
       ]
     },
     "partTheme": {
@@ -355,6 +356,21 @@
           "additionalProperties": false,
           "properties": { "theme": { "type": "string", "pattern": "^[a-z0-9-]{1,72}$" } }
         }
+      }
+    },
+    "partUi": {
+      "description": "Requirement 16.4: the mod's own page inside the FloofyCrew App. 'path' is the directory holding the page's files (or the entry file itself); 'entry' the ES module the App imports same-origin and mounts through its default export mount(container, api) with api = floofy.mod(id); 'title' the entry in the App's Mods section; 'icon' an optional image. Inert until the user opens it, so it never lands a mod disabled on its own.",
+      "type": "object",
+      "required": ["kind", "side", "path", "entry", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "ui" },
+        "side": { "const": "spa" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "entry": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(js|mjs)$" } ] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "icon": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(svg|png)$" } ] },
+        "description": { "type": "string" }
       }
     },
     "partPatch": {

@@ -18,7 +18,7 @@ from typing import Any
 
 __all__ = ["KINDS", "refresh_files", "scaffold"]
 
-KINDS = ("theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch")
+KINDS = ("theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch", "ui")
 _ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 
 LICENSE = """MIT License
@@ -185,6 +185,30 @@ def _part_files(kind: str, mod_id: str, name: str) -> tuple[list[dict[str, Any]]
         return (
             [{"kind": "spa", "side": "spa", "path": "spa/main.js"}],
             {"spa/main.js": f'// {name}: a FloofyCrew spa part, loaded by the SPA host inside an error boundary.\nexport default function activate(ctx) {{\n  ctx.log.info("{mod_id} active on host " + ctx.host.version);\n}}\n\nexport function deactivate() {{}}\n'},
+            {},
+        )
+    if kind == "ui":
+        page = (
+            f"// {name}: the mod's own page inside the FloofyCrew App (Requirement 16.4).\n"
+            "// The App imports this module same-origin and calls the default export with the page's\n"
+            "// container and `api = floofy.mod(id)`: config.get()/set(patch) (persisted in the mod's\n"
+            "// .floofy/config.json), routes.list()/fetch(path) (the mod's python-hook routes), theme.tokens(),\n"
+            "// state(). Return a cleanup function; a throw is caught by the App's error boundary.\n"
+            "export default async function mount(container, api) {\n"
+            "  const config = await api.config.get();\n"
+            '  const label = document.createElement("label");\n'
+            f'  label.textContent = "Greeting for {name}: ";\n'
+            '  const input = document.createElement("input");\n'
+            '  input.value = config.greeting || "";\n'
+            '  input.addEventListener("change", () => api.config.set({ greeting: input.value }));\n'
+            "  label.appendChild(input);\n"
+            "  container.appendChild(label);\n"
+            '  return () => { container.textContent = ""; };\n'
+            "}\n"
+        )
+        return (
+            [{"kind": "ui", "side": "spa", "path": "ui/", "entry": "ui/page.mjs", "title": name}],
+            {"ui/page.mjs": page},
             {},
         )
     if kind == "patch":

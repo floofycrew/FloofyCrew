@@ -70,6 +70,7 @@ only read the result.
 | `ctx.http`, `ctx.fetch(url)` | the network client (below) |
 | `ctx.config` | per-mod key/value storage: `get`, `set`, `update`, `delete`, `clear`, `items`, `to_dict`, `in`, `[]` — a JSON file under `<data home>/mods/<id>/.floofy/`, never under a payload root |
 | `ctx.events` | the event bus scoped to this mod (`subscribe`, `publish`, `history`) |
+| `ctx.routes` | the mod's own backend routes (below): `add(method, path, handler)`, `remove()`, `list()`, `base_path` |
 | `ctx.data_dir` | the mod's private directory (`<data home>/mods/<id>/.floofy/`) |
 | `ctx.state` | a dict of facts the mod publishes; exposed as `exports` in the state API and the manager page |
 | `ctx.unofficial` | always `True` |
@@ -116,6 +117,33 @@ check (`ctx.http.check(url)`) but the client does not implement WebSockets in
 v1 — open your own TLS WebSocket once the URL passed. FloofyCrew never handles
 host or user credentials: a mod that needs some asks the user itself and says so
 with `network.credentials: true`.
+
+## Routes: `ctx.routes.add(method, path, handler)`
+
+A mod may serve its own backend routes to its page (a `ui` part, [spa-api.md](spa-api.md)
+`floofy.mod(id).routes`) or to anything else on the dashboard origin. The host's
+route registry is static, so the Loader registers catch-alls at startup and
+dispatches at request time to what the mod registered in `activate(ctx)`:
+
+```python
+def activate(ctx):
+    def echo(request):                       # sync or async
+        return {"echo": request.json(), "config": ctx.config.to_dict()}
+
+    ctx.routes.add("POST", "echo", echo)      # /api/apps/floofycrew/mods/<id>/api/echo
+    ctx.routes.add("GET", "items/{key}", lambda request: (200, {"key": request.params["key"]}))
+```
+
+`method` is `GET`, `POST`, `PUT` or `DELETE`; `path` is relative to the mod's
+api root, one to four segments of `[A-Za-z0-9._~-]` or `{param}`. The handler
+receives a request with `method`, `path`, `params`, `query`, `headers`, `body`
+(bytes), `json()`, `text` and `mod_id`, and returns a JSON-able object (a 200
+JSON reply), `(status, body)`, `(status, headers, body)` or a `ModResponse`. An
+exception is that request's 500 (message logged to the mod's logger) — never a
+fault, so a bad request cannot disable a mod. Registrations unwind with the mod
+(deactivate, a fault, shutdown); the state API lists them as `mods[id].routes`.
+Every route sits behind the dashboard auth and is same-origin; nothing here
+opens a port.
 
 ## Events
 

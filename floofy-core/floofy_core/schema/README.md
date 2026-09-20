@@ -15,7 +15,7 @@ a future `floofy-2.json` can coexist. Keys beginning with `x-` are reserved for
 extensions at the top level of every document (and inside index/compat rows) and
 are ignored by the framework.
 
-Nine minimal, valid example mods — one per part kind — live in
+Ten minimal, valid example mods — one per part kind — live in
 `floofy-core/examples/<kind>/`; `scripts/hash_example_files.py` keeps their
 `files[].sha256` entries current (`--check` in CI).
 
@@ -68,7 +68,12 @@ directory is the file's parent. `config` declares host `config.json` pairs in
 (dotted name imported under a namespaced `sys.modules` key) and `early`. `spa`
 adds `activation` (`runtime` default, `boot` for first-frame effects injected by
 the Patcher). `patch` points at a patch descriptor (below) and is the only kind
-that modifies payload files.
+that modifies payload files. `ui` (Requirement 16.4) is the mod's own page in the
+FloofyCrew App: `path` is the page's directory (or the entry file), `entry` the
+ES module the App imports same-origin and mounts through its default export
+`mount(container, api)` with `api = floofy.mod(id)`, `title` the App's label,
+`icon` optional; `side` is `spa`. Inert until opened, so it never lands a mod
+disabled on its own.
 
 **Files** (Requirement 1.6, 1.8). `files[]` (at least one) lists every shipped
 file other than `floofy.json` itself as `{path, sha256}` (64 lower-case hex). A

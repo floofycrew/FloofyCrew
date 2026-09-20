@@ -36,6 +36,7 @@ SEAM_BY_KIND: dict[str, str] = {
     "python-hook": "Loader (in-process python-hook activation)",
     "spa": "SPA host (Loader app ui route)",
     "patch": "Patcher overlay (modifies payload files)",
+    "ui": "FloofyCrew App (the mod's own page, mounted on request)",
 }
 
 
@@ -57,6 +58,10 @@ class PartState:
     modifies_payload: bool = False
     #: ``spa`` parts only: ``runtime`` (loaded by the SPA host) or ``boot`` (inlined into index.html by the Patcher).
     activation: str | None = None
+    #: ``ui`` parts only (Requirement 16.4): the module the App imports, the page title and the optional icon.
+    entry: str | None = None
+    title: str | None = None
+    icon: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -71,6 +76,10 @@ class PartState:
         }
         if self.kind == "spa":
             data["activation"] = self.activation or "runtime"
+        if self.kind == "ui":
+            data["entry"] = self.entry
+            data["title"] = self.title
+            data["icon"] = self.icon
         return data
 
 

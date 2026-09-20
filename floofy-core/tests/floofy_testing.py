@@ -20,7 +20,7 @@ import hash_example_files  # from scripts/, on the pytest pythonpath
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES_DIR = REPO_ROOT / "floofy-core" / "examples"
-KINDS = ("theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch")
+KINDS = ("theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch", "ui")
 
 # SAFETY: the test session must never reach a live host install. The CLI honours this
 # environment guard by searching only the roots a test names explicitly.

@@ -606,7 +606,7 @@ def build_app_routes(runtime: Any) -> list:
                 document = json.loads(raw.decode("utf-8"))
                 if document.get("ok") and needs_reload(route, list(document.get("mutated") or [])):
                     try:
-                        runtime.reload()
+                        await runtime.reload_async()  # the boot on the loop, the Patcher pass off it
                         document["reloaded"] = True
                     except Exception as exc:  # noqa: BLE001
                         document.setdefault("transcript", []).append(f"reload failed: {type(exc).__name__}: {exc}")

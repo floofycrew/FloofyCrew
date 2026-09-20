@@ -57,18 +57,30 @@ class ModConfig:
     mod_id: str
     payload_root: Path | None = None
     _cache: dict[str, Any] | None = field(default=None, repr=False)
+    #: ``(mtime_ns, size)`` of the file the cache was read from; another writer (the App's config route, task 11.5)
+    #: changes it, and the next read picks the file up again so ``ctx.config`` and ``floofy.mod(id).config`` agree.
+    _stamp: tuple[int, int] | None = field(default=None, repr=False)
 
     @property
     def path(self) -> Path:
         return mod_data_dir(self.data_home, self.mod_id, payload_root=self.payload_root) / "config.json"
 
+    def _signature(self) -> tuple[int, int] | None:
+        try:
+            info = self.path.stat()
+        except OSError:
+            return None
+        return (info.st_mtime_ns, info.st_size)
+
     def _load(self) -> dict[str, Any]:
-        if self._cache is None:
+        signature = self._signature()
+        if self._cache is None or signature != self._stamp:
             try:
                 document = json.loads(self.path.read_text(encoding="utf-8"))
                 self._cache = dict(document) if isinstance(document, dict) else {}
             except (OSError, ValueError):
                 self._cache = {}
+            self._stamp = signature
         return self._cache
 
     def _save(self) -> None:
@@ -85,6 +97,7 @@ class ModConfig:
             except OSError:
                 pass
             raise
+        self._stamp = self._signature()
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._load().get(key, default)

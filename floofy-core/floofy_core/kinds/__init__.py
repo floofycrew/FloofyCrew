@@ -14,6 +14,7 @@ One handler per ``parts[].kind`` implements ``install`` / ``uninstall`` /
 | ``config`` | ``config.json`` with ``kirocrew config set`` semantics, previous values recorded | :mod:`floofy_core.kinds.config` |
 | ``app`` | the host App Kit (``kirocrew app install``) plus the offered ``agent.apps_trusted`` grant | :mod:`floofy_core.kinds.app` |
 | ``python-hook`` / ``spa`` | the Loader activates them inside the gateway / the SPA host serves them — nothing to do at install | :class:`LoaderManagedHandler` |
+| ``ui`` | the FloofyCrew App mounts the mod's own page on request (Requirement 16.4); inert until opened, so it never lands a mod disabled | :class:`LoaderManagedHandler` |
 | ``patch`` | the Patcher, at ``floofy apply`` and on every gateway start — the only kind touching payload files | :class:`PatcherManagedHandler` |
 
 Handlers are stdlib-only and never import the host; they talk to it through the
@@ -39,6 +40,7 @@ SEAMS: dict[str, str] = {
     "python-hook": "Loader (in-process activation inside the gateway)",
     "spa": "SPA host (served from the Loader app; boot parts inlined by the Patcher)",
     "patch": "Patcher overlay (modifies payload files; reversible, fingerprint-gated)",
+    "ui": "FloofyCrew App (the mod's own page, mounted same-origin on request with floofy.mod(id))",
 }
 
 
@@ -113,14 +115,18 @@ class LoaderManagedHandler:
         return PartOutcome(self.kind, index, self.seam, self.modifies_payload, status=status, detail=detail)
 
     def install(self, ctx: KindContext, mod_id: str, mod_dir: Path, part: dict[str, Any], index: int) -> PartOutcome:
+        if self.kind == "ui":
+            return self._outcome(index, "loader", f"the FloofyCrew App lists the page {part.get('title')!r} under Mods and mounts it when you open it (inert until then; Requirement 16.4)")
         return self._outcome(index, "loader", "activated by the Loader at the next gateway start once the mod is enabled (lands disabled — Requirement 11.7)")
 
     def uninstall(self, ctx: KindContext, mod_id: str, mod_dir: Path, part: dict[str, Any], index: int) -> PartOutcome:
+        if self.kind == "ui":
+            return self._outcome(index, "loader", "the App stops listing and serving the page when the mod directory goes away")
         return self._outcome(index, "loader", "deactivated by the Loader when the mod directory goes away")
 
     def status(self, ctx: KindContext, mod_id: str, mod_dir: Path, part: dict[str, Any], index: int) -> PartOutcome:
-        present = (Path(mod_dir) / str(part.get("path", ""))).exists()
-        return self._outcome(index, "present" if present else "absent", "files in place; the Loader state says whether it is active" if present else f"part file missing: {part.get('path')}")
+        present = (Path(mod_dir) / str(part.get("entry" if self.kind == "ui" else "path", ""))).exists()
+        return self._outcome(index, "present" if present else "absent", "files in place; the Loader state says whether it is active" if present else f"part file missing: {part.get('entry' if self.kind == 'ui' else 'path')}")
 
 
 @dataclass
@@ -153,6 +159,7 @@ def handlers() -> dict[str, Any]:
     table: dict[str, Any] = {
         "python-hook": LoaderManagedHandler("python-hook"),
         "spa": LoaderManagedHandler("spa"),
+        "ui": LoaderManagedHandler("ui"),
         "patch": PatcherManagedHandler(),
     }
     for kind, module_name, class_name in (

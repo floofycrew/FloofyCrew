@@ -45,7 +45,7 @@ def test_schema_ids_and_loader() -> None:
 def test_every_kind_has_an_example() -> None:
     kinds = {read_manifest(p.parent)["parts"][0]["kind"] for p in EXAMPLES_DIR.glob("*/floofy.json")}
     assert kinds == set(KINDS)
-    assert len(KINDS) == 9
+    assert len(KINDS) == 10
 
 
 @pytest.mark.parametrize("kind", KINDS)

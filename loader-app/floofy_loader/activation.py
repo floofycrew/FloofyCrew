@@ -57,11 +57,13 @@ class ModContext:
     host: HostFacts
     log: logging.Logger
     api_version: str = API_VERSION
-    #: Filled by the runtime: ``ctx.hooks`` (task 4.4), ``ctx.http`` (4.5), ``ctx.config`` / ``ctx.events`` (4.6).
+    #: Filled by the runtime: ``ctx.hooks`` (task 4.4), ``ctx.http`` (4.5), ``ctx.config`` / ``ctx.events`` (4.6),
+    #: ``ctx.routes`` (task 11.5: the mod's own backend routes, ``add(method, path, handler)``).
     hooks: Any = None
     http: Any = None
     config: Any = None
     events: Any = None
+    routes: Any = None
     #: The mod's private data directory (``<data home>/mods/<id>/.floofy/``) — never a payload root.
     data_dir: Path | None = None
     #: Facts a mod publishes (``ctx.state["marker"] = 1``); exposed as ``exports`` in the state API.

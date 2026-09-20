@@ -13,7 +13,7 @@ Cleanest first. Prefer the lowest rung that does the job.
 | Rung | Mechanism | Survives host updates? | Used by |
 |---|---|---|---|
 | 1 | **Data drop-ins** in the host data home: `themes/`, `skills/`, `appearance-library/`, the agents directory | yes — official, untouched by updates | `theme`, `skill`, `appearance`, `agent`, `config` |
-| 2 | **App Kit**: an installed app under `<host home>/apps/<name>/` runs third-party Python in the gateway process (`backend.hooks`) and third-party ES modules in the dashboard document (`ui.entry`), audited by the host | yes | the FloofyCrew Loader itself, `app` parts, `python-hook` and runtime `spa` parts (through the Loader) |
+| 2 | **App Kit**: an installed app under `<host home>/apps/<name>/` runs third-party Python in the gateway process (`backend.hooks`) and third-party ES modules in the dashboard document (`ui.entry`), audited by the host | yes | the FloofyCrew Loader itself, `app` parts, `python-hook` and runtime `spa` parts (through the Loader), `ui` parts (a mod's own page, mounted by the FloofyCrew App with `floofy.mod(id)`) |
 | 3 | **Early shim**: a `.pth` line in the host interpreter's site directory (user site on the bundled interpreter, venv site on venv installs) | yes — outside the host package | `python-hook` parts with `"early": true` |
 | 4 | **`index.html` injection**: the boot script and baked CSS for first-frame effects, the SPA host's loader tag, import-map keys | re-applied by the Patcher after every update | `spa` parts with `activation: "boot"`, module patches |
 | 5 | **Hashed-chunk edits** with alias-graph cache busting | re-applied, fingerprint-gated, reporter-tested | `patch` parts no other rung reaches |
