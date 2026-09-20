@@ -39,8 +39,10 @@ you stand, and `floofy restore --all` takes everything back out.
 > every mod you install is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md)
 > before `floofy init`.
 
-Status: **1.0.1** (patch on the 1.0.0 first release). Every package of the plan is
-implemented; the internal package and the public release tree are built
+Status: **1.1.0** (the terminal experience, the FloofyCrew App with mods' own
+settings pages, git-reference installs, link records and the source tier). Every
+package of the plan except the three open 10.x items (self-update, two `doctor`
+probe fixes) is implemented; the internal package and the public release tree are built
 reproducibly by `packaging/`; the compatibility matrix rows come from the Forge.
 What the release supports is in [CHANGELOG.md](CHANGELOG.md), in
 `pyproject.toml` (`[tool.floofycrew] supports`) and in the release's

@@ -11,8 +11,95 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.1.0 — 2026-09-20
+
+The second minor: the terminal experience (styled output, the banner, the
+restyled installers, the full-screen consent, the interactive `floofy`), the
+**FloofyCrew App** inside KiroCrew with every CLI action and every CLI
+confirmation, mods' own settings pages (`ui` parts and `floofy.mod(id)`),
+installs from a git reference, link-based registry records and the internal
+registry as a gated package, the source tier, and the second first-party mod,
+`settings-demo`. `floofy.api_version` is **1.1.0** (additive: `floofy.mod(id)`,
+`ctx.routes`, the `ui` part kind; nothing deprecated, nothing removed). Same
+`supports` list as 1.0.x (below); the Forge's matrix rows were re-run against
+this release on the build host.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Added
 
+- The **FloofyCrew App** (Requirement 16; tasks 11.1–11.4): the Loader app is the
+  manager App — display name `FloofyCrew`, the branding mark as its store icon
+  (`loader-app/art/icon.svg`, kept byte-identical to `branding/logo.svg` by a
+  test), the always-visible unofficial banner, the navigation Mods (landing) ·
+  Registry · Profiles · Doctor · Audit · Settings. Every CLI action is a typed
+  Loader route under `/api/apps/floofycrew/` (`floofy_loader/app_routes.py`:
+  install from a registry record, a path, an archive or a git reference, enable,
+  disable, uninstall, update check / update / update all, yeet and restore,
+  registries add / remove / refresh / trust / defaults, profiles save / use /
+  export / import, status, doctor, search, info, the audit tail, vanilla,
+  consent) that spells the sub-command from a typed body and runs it through the
+  same parser, the same handler and the same audit row as the CLI (`actor:
+  app`); no route can spell an answer flag, and `POST /cli` keeps only the
+  read-only commands. Confirmations follow a **409 protocol**: a question the
+  request does not answer ends the run before anything mutates and the App shows
+  it — the one-time consent as a modal with the CLI's own text and a single
+  `[ I AGREE ]` control (Enter agrees, Esc declines; recorded `how: app`), the
+  install disclosure (parts and seams, payload impact, declared hosts and
+  credentials, flags, host verdicts, source tier, the unlisted-source line) with
+  the exact yes/no prompt and the **staged-vs-apply-now** choice (staged by
+  default, Requirement 16.5), a typed text field per governance-altering target
+  compared byte for byte by the Loader, the unlisted-source `I ACCEPT` item and
+  the loosening warning for `--allow-unsigned`; a declined question re-posts
+  nothing and leaves no audit row. A capability the App lacks (`floofy init`,
+  `apply`/`restore`/`verify`, `vanilla` when the App cannot restart the gateway)
+  is shown with its command, never hidden (Requirement 16.2). The Registry page
+  browses the cache with source tiers and compat badges, installs from a record
+  or a pasted git reference, lists every available update with the record's
+  release-notes link (`changelog`, new in the index schema) and updates one or
+  all mods through the same `floofy update` path (Requirement 16.6).
+- Mod **`ui` parts** and **`floofy.mod(id)`** (Requirement 16.4; task 11.5): the
+  tenth part kind — `{kind: ui, side: spa, path, entry, title[, icon]}`, an ES
+  module the App mounts as the mod's own page under Mods, same-origin
+  (`GET /ui/mods/{id}/<path>` serves an active mod's manifest-listed files),
+  inside an error boundary that shows a throwing page with a Disable button and
+  never takes the manager down; inert until opened, so a `ui` part alone never
+  lands a mod disabled. The page's `api = floofy.mod(id)`
+  (`spa-host/src/modapi.mjs`): `config.get()/set(patch)` persisted in the mod's
+  `.floofy/config.json` (`GET`/`PUT /mods/{id}/config`, key-by-key merge, `null`
+  deletes, 64 KiB cap — the same store the Python side reads as `ctx.config`),
+  `routes.list()/fetch(path)` for the mod's own backend routes, `theme.tokens()`
+  / `theme.current()`, `state()`, `log`. On the Python side `ctx.routes.add(method,
+  path, handler)` inside `activate(ctx)` registers a backend route served at
+  `/mods/{id}/api/<path>` (`floofy_loader.modroutes`; sync or async handler, a
+  raising handler is that request's 500 and never a fault, registrations unwind
+  with the mod). Validator rules for the part (`entry`/`icon` listed in `files[]`
+  and under the part's directory), `floofy new ui`, the tenth example mod, the
+  manifest reference and the SPA API page.
+- The second first-party mod, **`settings-demo`** (task 11.6): a `ui` settings
+  page (a greeting field and a toggle through `config`, a button calling the
+  mod's backend) plus a `python-hook` registering `GET`/`POST echo`, which
+  answers with the stored config — the page and the hook demonstrably share one
+  store. MIT, no network; lands disabled (the hook); needs FloofyCrew ≥ 1.1.0.
+  Shipped in the `FloofyCrew` package (tag `settings-demo-1.0.0`) and listed as
+  the internal registry's second link record; `scripts/install_both_editions.py`
+  now installs every first-party mod on both editions from one deterministic
+  archive each and probes the hook's routes.
+- Tests for the App (Requirement 16.7; task 11.7): route contracts against the
+  CLI's own audit rows (`loader-app/tests/test_app_routes.py`), the `ui` part's
+  isolation (`test_ui_part.py`, Playwright `test_5c_mod_pages_are_isolated`) and
+  the headless smoke `test_6_manager_app_smoke` — open the App, add a local
+  signed registry through the Registry page, install `settings-demo` from its
+  record through the confirmation modal with *apply now*, enable it, open its
+  settings page, set a value and see the mod's backend echo it, disable the mod
+  through the page's own button.
 - Terminal style layer (Requirement 15.1, task 10.1): the CLI paints its human
   output with a small semantic palette (`heading`, `ok`, `warn`, `danger`,
   `muted`, `accent`) and the weights bold/dim/italic, choosing the colour depth
@@ -104,6 +191,35 @@ KiroCrew; it never ships a rebuilt host.
   horizontal wordmark, all generated from `branding/gen_logos.py`. The Loader app
   declares the mark as its store icon (`iconPath: art/icon.svg`), served by the
   host from `/apps/floofycrew/art/`; `build_loader_app.py` ships `art/`.
+
+### Changed
+
+- Installs, updates and `profile use` are **staged** into `pending/` while the
+  gateway runs on every surface, the App inside the gateway included (the
+  in-gateway exemption of `cmd_mods` is gone); `now: true` / `--now` places the
+  mod and reloads the Loader in-process, and `POST /reload` is the *apply now*
+  for what is already staged (Requirement 7.6, 16.5).
+- The Loader's reload from a request handler boots on the event loop and runs
+  the Patcher pass in a worker thread (`BootDeps.defer_patches`,
+  `LoaderRuntime.reload_async`), so the host's loop watchdog keeps its heartbeat
+  through the file work.
+- `ModConfig` re-reads `.floofy/config.json` when another writer changed it, so
+  `ctx.config` and `floofy.mod(id).config` always agree.
+- `index.schema.json`: a version record's `kinds` admits `ui`; `changelog` (an
+  https URL of the release notes) is an optional field of a version record,
+  indexed from `release.json` or the manifest's `links.changelog`.
+- Two-track measurement on this tree: 88.4 % of shipped files (96.4 % of bytes)
+  byte-identical across editions; both first-party mods travel as one archive
+  each (`docs/two-track.md`).
+
+### Not in this release
+
+- `floofy self-update` and the daily release check (task 10.7), the
+  `gateway.served_version` unix-socket probe fallback (10.8) and the
+  `early_install_module` registration fix (10.9) are still open; the App's
+  self-update notice renders only once the Loader publishes one.
+- The publish steps of both editions remain the maintainer's
+  (`.kiro/specs/floofycrew-modding-ecosystem/BLOCKERS.md`).
 
 ## 1.0.1 — 2026-09-20
 

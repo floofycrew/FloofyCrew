@@ -42,7 +42,7 @@ markers = [
 # matrix row of the Forge with `loader: ok` at release time, per edition and channel.
 # The release stage writes the same list into dist/supports.json and RELEASE.md;
 # CHANGELOG.md repeats it in prose. Keys are the matrix editions.
-api_version = "1.0.0"
+api_version = "1.1.0"
 
 [tool.floofycrew.supports.internal]
 beta = ["0.7.0.5"]

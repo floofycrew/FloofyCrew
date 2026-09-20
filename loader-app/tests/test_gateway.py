@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from floofy_core import API_VERSION
 from floofy_loader.consent import REASON_CONSENT_REQUIRED, write_consent
 from floofy_loader.paths import FloofyPaths
 from floofy_loader.storage import RUNTIME_DIR
@@ -177,7 +178,7 @@ def test_1_inert_without_consent(gateway: ScratchGateway):
     assert client.get("/api/health", auth=False).json()["ok"] is True
     state = state_of(client)
     assert state["loader"] == "inert" and state["consent"]["required"] is True and state["consent"]["status"] == "required"
-    assert state["active"] == [] and state["unofficial"] is True and state["api_version"] == "1.0.0"
+    assert state["active"] == [] and state["unofficial"] is True and state["api_version"] == API_VERSION
     assert state["host"]["version"] == "0.7.0.5" and state["host"]["edition"] == "internal"
     for mod_id in ("example-python-hook", "gw-hooker", "gw-netmod", "gw-theme", "gw-spa", "gw-raiser"):
         assert state["mods"][mod_id]["active"] is False and state["mods"][mod_id]["reason"] == REASON_CONSENT_REQUIRED, mod_id

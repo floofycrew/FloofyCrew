@@ -15,7 +15,14 @@ serve every test in this module:
    impossible bundle surface appear in ``missed`` with reasons, everything else
    matches; ``floofy verify --spa`` against the same gateway exits 1 with JSON;
 4. **import-map remap** — a ``mode: import-map`` patch on a small chunk sets a
-   marker that the host's own importers evaluate (spike 1.4 replay).
+   marker that the host's own importers evaluate (spike 1.4 replay);
+5. **the manager App** (5, 5b, 5c) — the shell and its pages, every CLI
+   confirmation as a modal that changes nothing until answered, mod ``ui``
+   pages isolated by the error boundary;
+6. **the manager App smoke** (Requirement 16.7) — add a local signed registry,
+   install ``settings-demo`` from its record with *apply now*, enable it, open
+   its settings page, round-trip a value through the mod's backend, disable it
+   through the page's button.
 
 Skipped without a payload copy. The copy's ``index.html`` is patched on purpose
 (that is the point) and restored byte-identically at teardown (``ShellGuard``).
@@ -649,3 +656,184 @@ def test_5c_mod_pages_are_isolated(harness: Harness):
     for mod_id in ("ui-healthy", "ui-broken"):
         removed = client.post(f"{API}/mods/{mod_id}/uninstall", {"now": True, "confirmations": {"yes": True}})
         assert removed.status == 200, removed.body[:300]
+
+
+
+
+SETTINGS_DEMO_DIR = REPO_ROOT / "mods" / "settings-demo"
+
+
+class _LocalRegistry:
+    """A signed registry on the loopback (index.json + index.json.sig + the mod archive), the way the App adds a source."""
+
+    def __init__(self, mod_dir: Path, scratch: Path):
+        import io
+        import threading
+        import zipfile
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        from floofy_core.signing import generate_keypair, sign_detached
+
+        manifest = json.loads((mod_dir / "floofy.json").read_text(encoding="utf-8"))
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for path in sorted(mod_dir.rglob("*")):
+                if path.is_file() and ".floofy" not in path.parts and "__pycache__" not in path.parts:
+                    archive.write(path, f"{manifest['id']}/{path.relative_to(mod_dir).as_posix()}")
+        payload = buffer.getvalue()
+        import hashlib
+
+        self.pair = generate_keypair("manager App smoke test")
+        self.public_key = self.pair.public_record()["publicKey"]
+        files: dict[str, bytes] = {}
+        server = ThreadingHTTPServer(("127.0.0.1", 0), type("Handler", (BaseHTTPRequestHandler,), {"log_message": lambda *_a: None, "do_GET": lambda h: _serve(h, files)}))
+        self.server = server
+        self.base = f"http://127.0.0.1:{server.server_address[1]}/registry/"
+        archive_name = f"{manifest['id']}-{manifest['version']}.zip"
+        index = {
+            "schema": 1,
+            "source": "local-smoke",
+            "generatedAt": "2026-09-20T00:00:00Z",
+            "mods": [
+                {
+                    "id": manifest["id"],
+                    "name": manifest["name"],
+                    "description": manifest["description"],
+                    "authors": manifest["authors"],
+                    "tags": manifest["tags"],
+                    "repo": "https://forge.example/settings-demo",
+                    "versions": [{"version": manifest["version"], "kirocrew": manifest["kirocrew"]["version"], "editions": manifest["kirocrew"]["editions"], "compat": {"0.7.0.5": "tested"}, "dependencies": manifest["dependsOn"], "kinds": sorted({p["kind"] for p in manifest["parts"]}), "files": [{"url": f"{self.base}{archive_name}", "sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload)}], "changelog": "https://forge.example/settings-demo/releases/1.0.0"}],
+                }
+            ],
+        }
+        files["/registry/index.json"] = json.dumps(index).encode("utf-8")
+        files["/registry/index.json.sig"] = json.dumps(sign_detached(index, self.pair).to_dict()).encode("utf-8")
+        files[f"/registry/{archive_name}"] = payload
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def _serve(handler, files: dict[str, bytes]) -> None:
+    data = files.get(handler.path)
+    if data is None:
+        handler.send_response(404)
+        handler.end_headers()
+        return
+    handler.send_response(200)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def test_6_manager_app_smoke(harness: Harness):
+    """Task 11.7 (Requirement 16.7): open the App, add a local signed registry, install settings-demo from its record
+    through the confirmation modal with "apply now", enable it, open its settings page, set a value and see the mod's
+    backend echo it, then disable the mod through the page's button."""
+    client = harness.gw.client()
+    data_home = harness.gw.data_home
+    registry = _LocalRegistry(SETTINGS_DEMO_DIR, harness.gw.scratch)
+    context, page = harness.page()
+    started = time.time()
+    try:
+        page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-nav"]', timeout=60000)
+        assert page.locator('[data-testid="floofycrew-mod-row-settings-demo"]').count() == 0
+
+        # 1. the local registry, added through the Registry page with its public key pinned; the index verifies
+        page.click('[data-testid="floofycrew-nav-registry"]')
+        page.wait_for_selector('[data-testid="floofycrew-add-source-url"]', timeout=60000)
+        page.fill('[data-testid="floofycrew-add-source-url"]', registry.base)
+        page.fill('[data-testid="floofycrew-add-source-name"]', "local")
+        page.fill('[data-testid="floofycrew-add-source-key"]', registry.public_key)
+        assert page.is_checked('[data-testid="floofycrew-add-source-refresh"]')
+        page.click('[data-testid="floofycrew-add-source-submit"]')
+        page.wait_for_selector('[data-testid="floofycrew-source-local"]', timeout=60000)
+        source_text = page.inner_text('[data-testid="floofycrew-source-local"]')
+        assert "UNSIGNED" not in source_text, source_text
+        registries = json.loads((data_home / "registries.json").read_text(encoding="utf-8"))
+        local = next(s for s in registries["sources"] if s.get("name") == "local")
+        assert local["url"] == registry.base and local.get("publicKey") == registry.public_key and not local.get("allowUnsigned")
+        summary = client.get(f"{API}/registry").json()
+        fetched = next(s for s in summary["sources"] if s.get("name") == "local" or s.get("label") == "local")
+        assert fetched["cache"]["usable"] is True and fetched["cache"]["signature"]["status"] == "verified" and fetched["cache"]["signature"]["keyId"] == registry.pair.key_id, fetched
+
+        # 2. install from the record: the disclosure, the python-hook confirmation, "apply now"
+        page.fill('[data-testid="floofycrew-search-input"]', "settings")
+        page.click('[data-testid="floofycrew-search-submit"]')
+        page.wait_for_selector('[data-testid="floofycrew-hit-settings-demo"]', timeout=60000)
+        assert "tier: tested" in page.inner_text('[data-testid="floofycrew-hit-tier-settings-demo"]')
+        assert "works here: 1.0.0 (tested)" in page.inner_text('[data-testid="floofycrew-hit-compat-settings-demo"]')
+        page.click('[data-testid="floofycrew-hit-install-settings-demo"]')
+        page.wait_for_selector('[data-testid="floofycrew-yesno-modal"]', timeout=90000)
+        disclosure = page.inner_text('[data-testid="floofycrew-disclosure"]')
+        assert "settings-demo 1.0.0" in disclosure and "ui/spa" in disclosure and "python-hook/gateway" in disclosure, disclosure
+        assert "no remote hosts declared" in page.inner_text('[data-testid="floofycrew-disclosure-network"]')
+        assert "land DISABLED" in disclosure, "the python-hook part lands it disabled (Requirement 11.7)"
+        assert page.is_checked('[data-testid="floofycrew-staging-staged"]'), "staged is the default (Requirement 16.5)"
+        page.check('[data-testid="floofycrew-staging-now"]')
+        page.click('[data-testid="floofycrew-yesno-yes"]')
+        deadline = time.time() + 120
+        while time.time() < deadline and not (data_home / "mods" / "settings-demo" / "floofy.json").is_file():
+            time.sleep(0.5)
+        assert (data_home / "mods" / "settings-demo" / "floofy.json").is_file(), f"apply now did not land the mod; output: {page.inner_text('[data-testid=\"floofycrew-output\"]')!r}"
+        assert not (data_home / "pending" / "settings-demo").exists()
+        source = json.loads((data_home / "mods" / "settings-demo" / ".floofy" / "source.json").read_text(encoding="utf-8"))
+        assert source["source"] == "registry" and source["ref"] == "settings-demo@1.0.0" and source["tier"] == "listed", source  # `tested` is what the matrix row lifts it to
+        install_rows = [r for r in _audit_rows(harness) if r["op"] == "install" and r["mod"] == "settings-demo"]
+        assert install_rows and install_rows[-1]["actor"] == "app" and install_rows[-1]["tier"] == "listed" and install_rows[-1]["source"]["ref"] == "settings-demo@1.0.0", install_rows[-1]
+        state = client.get(f"{API}/state").json()
+        assert state["mods"]["settings-demo"]["active"] is False and state["mods"]["settings-demo"]["reason"] == "UserDisabled"
+
+        # 3. enable it on the Mods page, open its settings page
+        page.click('[data-testid="floofycrew-nav-mods"]')
+        page.wait_for_selector('[data-testid="floofycrew-mod-row-settings-demo"]', timeout=60000)
+        assert page.inner_text('[data-testid="floofycrew-enabled-settings-demo"]').startswith("disabled")
+        assert page.is_disabled('[data-testid="floofycrew-open-page-settings-demo"]'), "the page of a disabled mod cannot be opened"
+        page.click('[data-testid="floofycrew-toggle-settings-demo"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-settings-demo\"]')?.textContent.startsWith('enabled')", timeout=90000)
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-open-page-settings-demo\"]')?.disabled === false", timeout=60000)
+        state = client.get(f"{API}/state").json()["mods"]["settings-demo"]
+        assert state["active"] is True and state["routes"] == [{"method": "GET", "path": "echo"}, {"method": "POST", "path": "echo"}]
+        page.click('[data-testid="floofycrew-open-page-settings-demo"]')
+        page.wait_for_selector('[data-testid="settings-demo-page"]', timeout=60000)
+        assert page.evaluate("() => location.hash") == "#/mods/settings-demo"
+        assert page.get_attribute('[data-testid="floofycrew-modpage-container-settings-demo"]', "data-mounted") == "1"
+        assert "Settings demo" in page.inner_text('[data-testid="floofycrew-modpage-settings-demo"]')
+        assert "Loader verdict: active" in page.inner_text('[data-testid="settings-demo-state"]')
+        assert page.input_value('[data-testid="settings-demo-greeting"]') == "Hello from settings-demo", "the default before anything is stored"
+
+        # 4. set a value: config.set through the Loader; the mod's backend echoes what the page stored
+        page.fill('[data-testid="settings-demo-greeting"]', "hello from the smoke test")
+        page.press('[data-testid="settings-demo-greeting"]', "Tab")
+        page.wait_for_function("() => document.querySelector('[data-testid=\"settings-demo-status\"]')?.textContent.startsWith('saved:')", timeout=30000)
+        page.check('[data-testid="settings-demo-notify"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"settings-demo-status\"]')?.textContent.includes('\"notify\":true')", timeout=30000)
+        assert json.loads((data_home / "mods" / "settings-demo" / ".floofy" / "config.json").read_text(encoding="utf-8")) == {"greeting": "hello from the smoke test", "notify": True}
+        page.click('[data-testid="settings-demo-echo"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"settings-demo-echo-out\"]')?.textContent.includes('hello from the smoke test')", timeout=30000)
+        echoed = json.loads(page.inner_text('[data-testid="settings-demo-echo-out"]'))
+        assert echoed["mod"] == "settings-demo" and echoed["config"] == {"greeting": "hello from the smoke test", "notify": True} and echoed["echo"] == {"from": "settings page"} and echoed["host"]["version"] == "0.7.0.5", echoed
+
+        # 5. disable the mod through the page's own button: back at Mods, disabled, the page no longer served
+        page.click('[data-testid="floofycrew-modpage-disable-mod"]')
+        page.wait_for_selector('[data-testid="floofycrew-mod-row-settings-demo"]', timeout=90000)
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-settings-demo\"]')?.textContent.startsWith('disabled')", timeout=90000)
+        assert page.evaluate("() => location.hash") == "#/mods"
+        state = client.get(f"{API}/state").json()["mods"]["settings-demo"]
+        assert state["active"] is False and state["reason"] == "UserDisabled" and state["routes"] == []
+        assert client.get(f"{API}/ui/mods/settings-demo/ui/page.mjs").status == 404
+        assert client.get(f"{API}/mods/settings-demo/config").json()["config"] == {"greeting": "hello from the smoke test", "notify": True}, "the settings survive the disable"
+        ops = [(r["op"], r["actor"]) for r in _audit_rows(harness) if r.get("mod") == "settings-demo"]
+        assert ("install", "app") in ops and ("enable", "app") in ops and ("disable", "app") in ops, ops
+        assert page.locator('[data-testid="floofycrew-nav"]').count() == 1 and page.locator('[data-testid="floofycrew-banner"]').count() == 1
+        print(f"manager App smoke: {time.time() - started:.1f}s")
+    finally:
+        context.close()
+        registry.close()
+        if (data_home / "mods" / "settings-demo").exists() or (data_home / "pending" / "settings-demo").exists():
+            removed = client.post(f"{API}/mods/settings-demo/uninstall", {"now": True, "confirmations": {"yes": True}})
+            assert removed.status == 200, removed.body[:300]
+        client.request("DELETE", f"{API}/registries/local")
