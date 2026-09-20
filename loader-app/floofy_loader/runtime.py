@@ -22,13 +22,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from floofy_core.patcher import AuditLog
 from floofy_core.resolver import Reason
 
 from . import __version__, api
-from .activation import ModContext, deactivate_part, drop_mod_modules
+from .activation import MOD_NAMESPACE, ModContext, deactivate_part, drop_mod_modules
 from .boot import BootDeps, BootResult, boot, deactivate_all
 from .hooks_registry import HookRegistry
 from .host import HostFacts, read_host_facts
+from .net import FloofyHttp, Response
 from .paths import FloofyPaths
 from .state import utc_now
 
@@ -49,6 +51,8 @@ class LoaderRuntime:
     boot_started_at: str = ""
     hooks: HookRegistry = field(default_factory=HookRegistry)
     faults: list[dict[str, Any]] = field(default_factory=list)
+    http_clients: dict[str, FloofyHttp] = field(default_factory=dict)
+    audit: AuditLog | None = None
 
     def __post_init__(self) -> None:
         self.hooks = HookRegistry(on_fault=self.on_hook_fault)
@@ -57,6 +61,8 @@ class LoaderRuntime:
 
     def make_context(self, mod_id: str, version: str, mod_dir: Path, manifest: dict[str, Any]) -> ModContext:
         assert self.facts is not None and self.paths is not None
+        http = FloofyHttp.from_manifest(mod_id, manifest, audit=self.audit.record if self.audit is not None else None)
+        self.http_clients[mod_id] = http
         return ModContext(
             mod_id=mod_id,
             version=version,
@@ -64,8 +70,23 @@ class LoaderRuntime:
             host=self.facts,
             log=logging.getLogger(f"floofy.mods.{mod_id}"),
             hooks=self.hooks.for_mod(mod_id),
+            http=http,
             data_dir=self.paths.mod_dir(mod_id),
         )
+
+    def http_for(self, mod_id: str) -> FloofyHttp:
+        """The network client of ``mod_id``; an unknown caller gets the strictest policy (no declared hosts)."""
+        client = self.http_clients.get(mod_id)
+        if client is None:
+            client = self.http_clients[mod_id] = FloofyHttp(mod_id, (), self.audit.record if self.audit is not None else None)
+        return client
+
+    def fetch(self, url: str, **kwargs: Any) -> Response:
+        """``floofy.fetch``: attributed to the calling mod by its ``floofy_mods.<id>`` module name (Requirement 11.6 d)."""
+        caller = api.caller_module(depth=2)
+        prefix = MOD_NAMESPACE + "."
+        mod_id = caller[len(prefix):].split(".", 1)[0] if caller.startswith(prefix) else f"unknown:{caller}"
+        return self.http_for(mod_id).fetch(url, **kwargs)
 
     def on_mod_deactivated(self, mod_id: str) -> None:
         """Unwind every hook registration of ``mod_id`` (Requirement 3.4: restored on deactivate)."""
@@ -118,7 +139,9 @@ class LoaderRuntime:
         self.boot_started_at = utc_now()
         self.facts = read_host_facts()
         self.paths = FloofyPaths(self.facts.data_home)
-        api.bind(host_facts=self.facts)
+        self.audit = AuditLog(self.paths.data_home)
+        self.http_clients.clear()
+        api.bind(host_facts=self.facts, fetch_impl=self.fetch)
         api.install_alias()
         logger.info("FloofyCrew Loader %s (unofficial) booting: host %s %s/%s data_home=%s", __version__, self.facts.version, self.facts.edition, self.facts.channel, self.facts.data_home)
         self.result = boot(self.deps())
@@ -158,6 +181,7 @@ class LoaderRuntime:
         payload["unofficial"] = True
         payload["hooks"] = [r.to_dict() for r in self.hooks.registrations()]
         payload["faults"] = list(self.faults)
+        payload["network"] = {mod_id: client.to_dict() for mod_id, client in sorted(self.http_clients.items())}
         return payload
 
     def write_state(self) -> None:

@@ -13,3 +13,13 @@ def _live_installs_untouched():
     yield
     after = live_fingerprint()
     assert after == before, f"a test modified a live host install: {set(after.items()) ^ set(before.items())}"
+
+
+@pytest.fixture(autouse=True)
+def _facade_bindings_restored():
+    """Whatever a test binds on the ``floofy`` facade (host, fetch, events) is undone afterwards."""
+    from floofy_loader import api
+
+    saved = (api.host, api.fetch, api.events)
+    yield
+    api.host, api.fetch, api.events = saved

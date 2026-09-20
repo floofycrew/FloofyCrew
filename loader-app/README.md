@@ -28,6 +28,7 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 | `floofy_loader/pending.py` | staged installs/removals, `enabled.json`, `patch` part planning for the Patcher |
 | `floofy_loader/compat.py` | the `cache/compat.json` reader (`CompatCache.row_for`, verdicts) |
 | `floofy_loader/paths.py` | the data-home layout |
+| `floofy_loader/net.py` | `FloofyHttp` (`ctx.http`, `floofy.fetch`), `NetworkPolicy`, `FloofyNetworkDenied`: the encrypted-only rule with the loopback exemption, declared hosts, audited denials, policy-checked redirects |
 | `floofy_loader/hooks_registry.py` | `HookRegistry` / `ModHooks` (`ctx.hooks`): `before`/`after`/`replace` on `pkg.module:attr` and `route:METHOD /path` targets, per-mod attribution, identity-restoring unwind, fail-open faults |
 | `floofy_loader/host.py`, `api.py` | `floofy.host` facts and the `floofy` facade (below) |
 | `ui/index.mjs` | manager page entry (placeholder until 6.7); default-exports a React component, `react` resolves through the host's import map |
@@ -113,6 +114,32 @@ in the state API.
 * Unwind: `deactivate(mod_id)` on mod deactivation/fault, `shutdown()` at
   gateway shutdown — most recent registration first; a property test asserts
   any interleaving leaves every target `is` its original.
+
+## `ctx.http` / `floofy.fetch` — the network rule (Requirement 11.6)
+
+`floofy_loader/net.py`. Before any socket opens, and again on every redirect:
+
+* the scheme must be `https` or `wss` (TLS) — **except** to loopback
+  (`localhost`, `127.0.0.0/8`, `::1`, `unix:` sockets), where `http`/`ws` are
+  fine, so mods can talk to the local gateway in plaintext;
+* a non-loopback host must match one of the mod's `network.hosts[]` (wildcard
+  labels per `floofy_core.netscan.host_matches`; a declared `host:port` pins the
+  port);
+* anything else raises `FloofyNetworkDenied(code, url, mod, detail)` with `code`
+  ∈ `PlaintextDenied | UndeclaredHost | UnsupportedScheme` **and** appends an
+  `op: net-denied` row (`mod`, `code`, `url` without query/userinfo, `detail`) to
+  `<data home>/audit.jsonl`.
+
+`ctx.http` is a `FloofyHttp` built from the mod's manifest: `request(method, url,
+*, headers=None, body=None, json_body=None, timeout=10) -> Response(status,
+headers, body, url; .ok/.text()/.json())`, `fetch(url, **kw)` (GET), `get`, `post`,
+`check(url)`, `policy.allows(url)`. HTTP error statuses are returned, transport
+failures raise `FloofyNetworkError`. TLS uses `ssl.create_default_context()`; there
+is no way to relax verification. `wss`/`ws` and `unix:` URLs are validated but not
+served in v1 (`NotImplementedError` after the check). `floofy.fetch(url, **kw)` is
+the same client, attributed to the calling mod by its `floofy_mods.<id>` module
+name; a caller that is not a mod gets the strictest policy (no declared hosts)
+under `unknown:<module>`. The state API lists every mod's client under `network{}`.
 
 ## The execution gate and the `agent.apps_trusted` grant (Requirement 2.3)
 
