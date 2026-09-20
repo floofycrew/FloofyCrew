@@ -171,6 +171,39 @@ def test_init_declined_grant_leaves_the_loader_disabled_with_a_warning(fake_host
     assert installed["enabled"] is False, "the host's verdict stands; FloofyCrew shows it as a warning"
 
 
+def test_init_trigger_flag_keeps_only_the_named_kinds(fake_host, monkeypatch: pytest.MonkeyPatch):
+    """``--trigger KIND`` (the install scripts' menu answer, Requirement 15.2) filters the edition's set; an unknown kind warns."""
+    from dataclasses import dataclass
+
+    from floofy_core.cli import cmd_init
+    from floofy_core.triggers import TriggerReport
+
+    installed: list[str] = []
+
+    @dataclass
+    class Fake:
+        kind: str
+
+        def install(self) -> TriggerReport:
+            installed.append(self.kind)
+            return TriggerReport(self.kind, True, True, f"{self.kind} installed")
+
+    monkeypatch.setattr(cmd_init, "trigger_managers", lambda *a, **k: [Fake("user-timer"), Fake("path-wrapper")])
+    result = fake_host.run("init", "--i-accept-the-risk", "--no-loader-app", "--trigger", "path-wrapper")
+    assert result.exit == 0, result.stderr
+    assert installed == ["path-wrapper"] and result.json["triggers"]["selected"] == ["path-wrapper"]
+    assert [t["kind"] for t in result.json["triggers"]["installed"]] == ["path-wrapper"]
+    installed.clear()
+    both = fake_host.run("init", "--i-accept-the-risk", "--no-loader-app")
+    assert both.exit == 0 and installed == ["user-timer", "path-wrapper"] and "selected" not in both.json["triggers"], "without the flag: every trigger the edition offers"
+    installed.clear()
+    monkeypatch.setattr(cmd_init, "trigger_managers", lambda *a, **k: [Fake("user-timer")])
+    missing = fake_host.run("init", "--i-accept-the-risk", "--no-loader-app", "--trigger", "path-wrapper")
+    assert missing.exit == 0 and installed == [] and "offers no such trigger" in missing.stderr
+    bad = fake_host.run("init", "--i-accept-the-risk", "--no-loader-app", "--trigger", "cron")
+    assert bad.exit == 2 and "invalid choice" in bad.stderr
+
+
 def test_doctor_json_shape_and_problems(fake_host):
     result = fake_host.run("--json", "doctor")
     assert result.exit == 0

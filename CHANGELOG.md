@@ -29,6 +29,17 @@ KiroCrew; it never ships a rebuilt host.
   cube, a single bright-magenta rendering on 16 colours, and omitted when colours
   are off or the terminal is narrower than the art plus its margins (42 columns).
   Never in `--json` output or the in-process transcript.
+- The install scripts of both editions restyled (Requirement 15.2, task 10.3):
+  POSIX `sh`, five numbered steps with a status glyph each (`✓`/`✗`/`·`, ASCII
+  fallback), the CLI's palette and banner under the same switches (`NO_COLOR`,
+  `--no-color`, not a terminal; `--no-banner`), numbered menus with a default for
+  the re-apply trigger and for running `floofy init` now, and a final summary with
+  the next command. Without a terminal the defaults are taken and printed — a
+  piped or scripted run never blocks — and every previous flag and environment
+  variable still works; `FLOOFYCREW_TRIGGER` / `--trigger` pre-answer the menu.
+  `floofy init --trigger KIND` (repeatable: `user-timer`, `path-wrapper`) installs
+  only the named trigger kinds. The internal package ships `banner/`; the public
+  one-liner embeds the art.
 - `floofy install <git reference>` — `ssh://<host>/<path>@<tag>` or
   `https://<host>/<owner>/<repo>[.git]@<tag>` (optional `#<subdirectory>`): a
   shallow clone at the tag with your own git credentials, the commit recorded,

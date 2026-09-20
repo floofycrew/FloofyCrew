@@ -12,7 +12,8 @@ answers this question. Then, each step explicit and reported:
 3. the host's App Kit execution gate, read for information: when it would refuse
    ``floofycrew`` the per-app ``agent.apps_trusted`` grant is **offered** and
    written only on confirmation (Requirement 2.3, DR-5), then ``kirocrew app enable``;
-4. the re-apply trigger(s) of the edition (Requirement 6.1; ``--no-trigger`` skips);
+4. the re-apply trigger(s) of the edition (Requirement 6.1; ``--no-trigger`` skips,
+   ``--trigger KIND`` keeps only the named kinds — the install scripts' menu answer);
 5. optionally the early shim (``--early``; Requirement 3.2), location chosen by
    the edition adapter (user site on the bundle interpreter, venv site on a venv).
 
@@ -37,6 +38,9 @@ from .context import CliContext, CliError
 
 __all__ = ["register", "init", "deinit"]
 
+#: The trigger kinds ``--trigger`` can select (the edition decides which of them it offers; Requirement 6.1, 15.2).
+TRIGGER_KINDS = ("user-timer", "path-wrapper")
+
 MANUAL_STEPS = (
     "Install the Loader app by hand:",
     "  1. build it:   python scripts/build_loader_app.py --out /tmp/floofycrew   (or unpack the release archive)",
@@ -55,6 +59,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     init_parser.add_argument("--reinstall-loader", action="store_true", help="uninstall and reinstall the Loader app even when it is already installed")
     init_parser.add_argument("--no-grant", action="store_true", help="never offer the agent.apps_trusted grant")
     init_parser.add_argument("--no-trigger", action="store_true", help="skip installing the re-apply trigger(s)")
+    init_parser.add_argument("--trigger", action="append", default=None, choices=TRIGGER_KINDS, metavar="KIND", help=f"install only this trigger kind (repeatable; one of {', '.join(TRIGGER_KINDS)}; default: every trigger the edition offers)")
     init_parser.add_argument("--early", action="store_true", help="also install the early shim (.pth) for hooks that run before platform bootstrap")
     init_parser.set_defaults(handler=init)
 
@@ -181,6 +186,15 @@ def _trigger_step(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any]:
         ctx.say("re-apply trigger: skipped (--no-trigger); patches will not survive a host update until you run `floofy apply`")
         return outcome
     managers = trigger_managers(ctx.host_home, ctx.adapters(), edition=ctx.edition(), payload=ctx.current_payload())
+    wanted = list(getattr(args, "trigger", None) or [])
+    if wanted:
+        # the install scripts' menu answer (Requirement 15.2): only the named kinds; the rest of the edition's set stays uninstalled
+        offered = {m.kind for m in managers}
+        for kind in wanted:
+            if kind not in offered:
+                ctx.warn(f"re-apply trigger [{kind}]: this edition offers no such trigger here (offered: {', '.join(sorted(offered)) or 'none'})")
+        managers = [m for m in managers if m.kind in wanted]
+        outcome["selected"] = wanted
     if not managers:
         ctx.warn("re-apply trigger: no edition adapter offers a trigger for this machine; the Loader's on_startup re-apply is the only trigger")
         outcome["none"] = True
