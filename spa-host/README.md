@@ -30,9 +30,9 @@ idempotent; `window.floofy` is installed once, non-writable).
 | `host.mjs` | the always-on runtime: reads `/api/apps/floofycrew/state` (same origin, dashboard cookie; on the cold `?token=` path it polls `/health` with backoff for ~10 s, then gives up quietly), builds the frozen `window.floofy`, `import()`s every **active** mod's runtime `spa` parts from `/api/apps/floofycrew/spa/<id>/<file>` in Loader order inside an error boundary, wraps `history.pushState/replaceState` + `popstate` into `route.changed` |
 | `boundary.mjs` | the error boundary: `run()` (try/catch around import and `activate`), scoped `error`/`unhandledrejection` listeners attributing later errors by the `/api/apps/floofycrew/spa/<id>/` URL prefix in the stack, one fault report per mod |
 | `events.mjs` | the fail-open bus (`on/once/off/emit`, `*` wildcard, per-owner drop, bounded history); `scoped(bus, modId)` for a mod's `ctx.events` |
-| `surfaces.mjs` | `window.floofy.surfaces` — content-fingerprinted stable names for host UI surfaces (task 5.2 fills the registry and the resolution) |
+| `surfaces.mjs` + `surfaces.json` | `window.floofy.surfaces` — stable names for host UI surfaces located by **content fingerprints** (below) |
 | `patches.mjs` | `window.floofy.patches` — inspection of the import-map remaps the Patcher applied (task 5.3) |
-| `reporter.mjs` | `window.floofy.report()` — which fingerprints still match (task 5.2) |
+| `reporter.mjs` | `window.floofy.report()` — every surface and patch fingerprint evaluated against the live document and bundle (below) |
 
 ## `window.floofy`
 
@@ -66,6 +66,57 @@ files). Other mods and the host UI are unaffected; nothing rethrows into the hos
 
 Parts with `activation: "boot"` are not loaded here: the Patcher inlines them
 into `index.html` for first-frame effects (task 5.4).
+
+## Surfaces (Requirement 4.4)
+
+`surfaces.json` is the registry: one row per stable name, written against a
+host build (`fromBuild`), with up to two fingerprints — never a chunk hash,
+never a line number:
+
+* `dom` — a CSS selector over attributes the host renders literally and that
+  survive minification (`data-testid`, ids, ARIA roles/labels, literal class
+  names such as `topbar`, `rel`/`type`), optionally `text` (required substring),
+  `count` (`some` | `once`) and `route` (a path prefix: off that route the DOM
+  check is *not applicable*, not a miss). Resolved to live nodes, re-resolved
+  on `route.changed` and on DOM mutation (debounced `MutationObserver` on
+  `document.body`); `surfaces.changed` fires when a node identity or a match
+  status changed.
+* `bundle` — `{chunk, contains | regex, count}`: a literal or regex expected in
+  the module text of the hashed chunk named by its **stem** (`App`, `main`,
+  `useTheme`). The file name is discovered from the never-cached shell
+  (`<script type=module src>`, `<link rel=modulepreload>`) or, for a lazy
+  chunk, from a `./<stem>-<hash>.js` reference inside an already-known chunk;
+  the text is fetched same-origin from `/assets/*` and cached per document.
+
+API: `names()`, `definitions()`, `get(name)` → live node or `null`,
+`resolve(name)` → `{status, node, reason}`, `refresh()`, `check()` (async, the
+reporter's rows), `chunks()` (stem → file), `start()` / `stop()`.
+
+The shipped set for 0.7.0.5 (13 surfaces, 12 with a bundle fingerprint):
+`shell.root`, `dashboard.shell`, `topbar`, `sidebar.nav`, `logo`, `favicon`,
+`theme.tokens`, `theme.custom-style`, `theme.reset-site`, `theme.decor-slot`,
+`page.main`, `apps.page` (route `/apps`), `settings.page` (route `/settings`).
+Measured on the scratch 0.7.0.5 gateway: 21/21 fingerprints matched on
+`/chat/new-session`, the two route-scoped DOM checks reported not applicable.
+
+## Reporter (Requirement 4.5)
+
+`window.floofy.report({extraSurfaces?})` → `{hostVersion, route, matched[],
+missed[{name, kind, reason, chunk?}], notApplicable[], total, spaFingerprints:
+{matched, total, missed[]}, chunks, surfaces[], loaderVersion, generatedAt}`.
+Names are `<surface>#dom`, `<surface>#bundle` and `patch:<name>`;
+`spaFingerprints` is exactly the block the compatibility matrix records
+(Requirement 9.1). `extraSurfaces` adds ad-hoc definitions for one run.
+
+From Python: `floofy_core.spa_report.run_browser_report(url, token)` opens the
+dashboard headlessly (Playwright), authenticates with the `?token=` link, adds
+the host module tag itself when `index.html` carries none (`hostTag:
+"injected"`), calls `report()` and returns the same shape;
+`check_bundle_fingerprints(dist_dir)` evaluates the `bundle` rows against a
+`static/dist` on disk with no browser. CLI: `python -m floofy_core.cli_spa
+verify --spa --port P --token T [--json]` (exit 1 when anything is missed) and
+`… bundle-check --dist DIR`; the `floofy verify --spa` front end (task 6.x) wires
+the same `main()`. The Forge runs both on every new host version (8.4).
 
 ## Tests
 

@@ -283,7 +283,7 @@ export function createHost(env = {}) {
     }
     const surfaces = createSurfaces({ document: doc, window: win, bus, definitions: env.surfaceDefinitions, fetch: fetchImpl });
     const patches = createPatches({ document: doc, fetch: fetchImpl, state });
-    const reporter = createReporter({ surfaces, patches, state: () => latestState, document: doc, fetch: fetchImpl });
+    const reporter = createReporter({ surfaces, patches, state: () => latestState, document: doc, window: win, fetch: fetchImpl });
     const floofy = buildFloofy(state, surfaces, patches, reporter);
     Object.defineProperty(win, "floofy", { value: floofy, writable: false, configurable: false, enumerable: true });
     installRouteWatcher(win, bus);
