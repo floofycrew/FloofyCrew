@@ -28,6 +28,7 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 | `floofy_loader/pending.py` | staged installs/removals, `enabled.json`, `patch` part planning for the Patcher |
 | `floofy_loader/compat.py` | the `cache/compat.json` reader (`CompatCache.row_for`, verdicts) |
 | `floofy_loader/paths.py` | the data-home layout |
+| `floofy_loader/hooks_registry.py` | `HookRegistry` / `ModHooks` (`ctx.hooks`): `before`/`after`/`replace` on `pkg.module:attr` and `route:METHOD /path` targets, per-mod attribution, identity-restoring unwind, fail-open faults |
 | `floofy_loader/host.py`, `api.py` | `floofy.host` facts and the `floofy` facade (below) |
 | `ui/index.mjs` | manager page entry (placeholder until 6.7); default-exports a React component, `react` resolves through the host's import map |
 | `tests/` | `test_manifest.py` (shape, host-loader validation on a payload copy, shim behaviour) |
@@ -81,6 +82,37 @@ L10–L109); channel from the edition adapter's payload provider when it recogni
 the running payload, else the host's `release_channel.channel()` rule
 (`release_channel.py` L83–L96); edition from `floofy_core.editions.combined_edition_probe`;
 `host_home` from `kiro_crew.config.paths.config_dir()` (`KIROCREW_HOME` or `~/.kiro/crew`).
+
+## `ctx.hooks` — the hook registry (Requirement 3.4)
+
+`ctx.hooks.before(target, fn)`, `.after(target, fn)`, `.replace(target, fn)`;
+every registration is attributed to the calling mod and listed under `hooks[]`
+in the state API.
+
+* `target = "pkg.module:attr"` — an import path (`attr` may be dotted:
+  `Class.method`). One wrapper per target is swapped onto the owning module or
+  class; async originals get an async wrapper; the original object is restored
+  **by identity** when the last registration on it is unwound.
+* `target = "route:GET /api/status"` — a live gateway route. aiohttp keeps the
+  handler on the `ResourceRoute` (`aiohttp/web_urldispatcher.py` `AbstractRoute`
+  L224 `self._handler`, read per request via the `handler` property L233), so
+  swapping `route._handler` is live even though the router is frozen after
+  startup. The application comes from the host's App SDK wiring:
+  `kiro_crew.apps.hooks_integration.get_route_registry()` (L295) → `._app.router`.
+  Use this form for request handlers — patching a handler's module attribute
+  would not reach dispatch, because the router already holds the function.
+* Callback shapes: `before(*args, **kwargs)` (return ignored),
+  `replace(call_next, *args, **kwargs)` (`call_next` is the rest of the chain
+  ending in the original; the last registered replacer is outermost),
+  `after(result, *args, **kwargs) -> result`. Sync or `async def` callbacks are
+  both fine on async targets.
+* Fail-open: a raising callback is logged with attribution, **all** of that mod's
+  registrations are removed, the call falls through to the original, and the
+  runtime disables the mod with reason `Error` (`LoaderRuntime.fault_mod`;
+  the fault is listed under `faults[]`). Other mods' hooks keep running.
+* Unwind: `deactivate(mod_id)` on mod deactivation/fault, `shutdown()` at
+  gateway shutdown — most recent registration first; a property test asserts
+  any interleaving leaves every target `is` its original.
 
 ## The execution gate and the `agent.apps_trusted` grant (Requirement 2.3)
 
