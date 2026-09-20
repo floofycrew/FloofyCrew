@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="FloofyCrew - fox">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFF4E4"/><stop offset="1" stop-color="#FBE3C6"/></linearGradient>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<path d="M80,238 L88.81,78.04 Q90.24,52 106.73,78.04 L208,238 Z" fill="#F26B2E"/><path d="M99.9,198.94 L104.31,118.96 Q105.02,105.94 113.27,118.96 L163.9,198.94 Z" fill="#FFD1A8"/><path d="M304,238 L405.27,78.04 Q421.76,52 423.19,78.04 L432,238 Z" fill="#F26B2E"/><path d="M348.1,198.94 L398.73,118.96 Q406.98,105.94 407.69,118.96 L412.1,198.94 Z" fill="#FFD1A8"/><path d="M84,478 A53.54,53.54 0 0 1 84,378.85 A53.51,53.51 0 0 1 85.44,279.76 A52.8,52.8 0 0 1 125.13,190.39 A52.8,52.8 0 0 1 207.11,137.1 A52.8,52.8 0 0 1 304.89,137.1 A52.8,52.8 0 0 1 386.87,190.39 A52.8,52.8 0 0 1 426.56,279.76 A53.51,53.51 0 0 1 428,378.85 A53.54,53.54 0 0 1 428,478 Z" fill="#F26B2E"/><ellipse cx="212" cy="354" rx="20" ry="30" transform="rotate(-8 212 354)" fill="#1A1210"/><ellipse cx="300" cy="354" rx="20" ry="30" transform="rotate(8 300 354)" fill="#1A1210"/>
+</svg>

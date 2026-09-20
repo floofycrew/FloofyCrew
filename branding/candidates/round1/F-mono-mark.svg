@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="FloofyCrew - monochrome mark">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7C55F5"/><stop offset="1" stop-color="#6A3BEA"/></linearGradient>
+</defs>
+<path d="M88,228 L107.49,96.96 Q111.2,72 126.05,96.96 L204,228 Z" fill="#101010"/><path d="M308,228 L385.95,96.96 Q400.8,72 404.51,96.96 L424,228 Z" fill="#101010"/><path d="M76,488 A47.93,47.93 0 0 1 76,402.41 A47.93,47.93 0 0 1 76,316.82 A47.56,47.56 0 0 1 88.98,232.89 A47.48,47.48 0 0 1 138.23,163.88 A47.48,47.48 0 0 1 213.61,125.06 A47.48,47.48 0 0 1 298.39,125.06 A47.48,47.48 0 0 1 373.77,163.88 A47.48,47.48 0 0 1 423.02,232.89 A47.56,47.56 0 0 1 436,316.82 A47.93,47.93 0 0 1 436,402.41 A47.93,47.93 0 0 1 436,488 Z" fill="#101010"/><ellipse cx="212" cy="354" rx="20" ry="30" transform="rotate(-8 212 354)" fill="#FFFFFF"/><ellipse cx="300" cy="354" rx="20" ry="30" transform="rotate(8 300 354)" fill="#FFFFFF"/>
+</svg>
