@@ -31,7 +31,7 @@ idempotent; `window.floofy` is installed once, non-writable).
 | `boundary.mjs` | the error boundary: `run()` (try/catch around import and `activate`), scoped `error`/`unhandledrejection` listeners attributing later errors by the `/api/apps/floofycrew/spa/<id>/` URL prefix in the stack, one fault report per mod |
 | `events.mjs` | the fail-open bus (`on/once/off/emit`, `*` wildcard, per-owner drop, bounded history); `scoped(bus, modId)` for a mod's `ctx.events` |
 | `surfaces.mjs` + `surfaces.json` | `window.floofy.surfaces` — stable names for host UI surfaces located by **content fingerprints** (below) |
-| `patches.mjs` | `window.floofy.patches` — inspection of the import-map remaps the Patcher applied (task 5.3) |
+| `patches.mjs` | `window.floofy.patches` — inspection of the import-map remaps the Patcher applied (below) |
 | `reporter.mjs` | `window.floofy.report()` — every surface and patch fingerprint evaluated against the live document and bundle (below) |
 
 ## `window.floofy`
@@ -117,6 +117,24 @@ the host module tag itself when `index.html` carries none (`hostTag:
 verify --spa --port P --token T [--json]` (exit 1 when anything is missed) and
 `… bundle-check --dist DIR`; the `floofy verify --spa` front end (task 6.x) wires
 the same `main()`. The Forge runs both on every new host version (8.4).
+
+## Patches (Requirement 4.4, spike 1.4)
+
+`window.floofy.patches` is an **inspection** API: `list()` (the remaps the
+Patcher recorded in `ui/patched/index.json`, joined with the document's live
+import map), `isApplied(chunk | mod | "mod#part")` (the import map maps the
+chunk to the patched copy and the served copy carries the Patcher's marker
+comment) and `report()` (every recorded op's fingerprint re-evaluated against
+the live ORIGINAL chunk at `/assets/<chunk>`, plus the import-map key and the
+served copy; folded into `window.floofy.report()` as `patch:<mod#part>#…`).
+
+Nothing is rewritten in the browser: native ES modules have no runtime module
+registry to hook and the CSP blocks Blob/data module imports, so a `patch`
+descriptor with `mode: "import-map"` is applied by the Patcher — patched copy
+with rebased imports under `/apps/floofycrew/ui/patched/<chunk>`, one
+import-map key in `index.html`, `modulepreload` hint dropped
+(`floofy_core.spa_patches`). Regex fingerprints are authored for the Python
+Patcher; one the browser cannot compile is reported as a miss with that reason.
 
 ## Tests
 

@@ -57,6 +57,7 @@ from .gateway import GatewayEndpoint, find_endpoints, served_version
 from .governance import AlwaysConfirm, Confirmer, GovernanceSnapshot, GovernanceWarning, survival_check, survival_prompt
 from .patches import PatchDescriptor, PatchResult, Skip, apply_descriptor
 from .payloads import Payload
+from .spa_patches import PATCHED_DIR, apply_import_map_patch, default_ui_root, refresh_patched_index, resolve_chunk_target, ui_url_for
 from .targets import DEFAULT_TARGET_POLICY, TargetClass, TargetPolicy
 
 __all__ = [
@@ -287,6 +288,7 @@ class Patcher:
         governance: GovernanceSnapshot | None = None,
         confirmer: Confirmer | None = None,
         triggers_installed: bool | None = None,
+        ui_root: Path | None = None,
     ):
         self.data_home = Path(data_home)
         self.payloads = list(payloads)
@@ -295,6 +297,8 @@ class Patcher:
         self.confirmed_governance_targets = {t for t in confirmed_governance_targets}
         self._endpoints = list(endpoints) if endpoints is not None else None
         self.host_home = Path(host_home) if host_home else self.data_home.parent
+        #: The installed Loader app's ``ui/`` — patched chunk copies live under ``ui/patched/`` (spike 1.4).
+        self.ui_root = Path(ui_root) if ui_root else default_ui_root(self.host_home)
         self.say = reporter or _silent
         self.audit = AuditLog(self.data_home)
         #: Governance is read for information (task 3.6); ``None`` means "not read".
@@ -381,38 +385,32 @@ class Patcher:
         result.drift = {k: v.value for k, v in drift.classes.items()}
         new = DeployManifest(payload.id, payload.host_version.text, payload.edition, str(payload.root))
 
-        work = self._plan(payload, patches, result)
+        work, import_map_patches = self._plan(payload, patches, result)
         skipped_targets: set[str] = set()
         seeds: list[Path] = []
         index_text: str | None = None
         index_work: _TargetWork | None = None
 
         for item in work:
-            key = str(item.path)
-            action = drift.actions.get(key, DriftAction.NONE)
-            if action is DriftAction.SKIP:
-                skipped_targets.add(key)
-                result.skipped.append({"target": item.relative, "code": "UserEdited", "message": f"{item.relative} was edited by hand since the last apply; left untouched (Requirement 5.3)"})
-                record = old.find_file(key)
-                if record is not None:
-                    new.files.append(record)
-                self.say(f"SKIP {item.relative}: user-edited, left untouched")
-                continue
-            original = self._original_bytes(item.path, action, result)
-            if original is None:
-                result.errors.append(f"{item.relative}: target file is missing and no backup exists")
-                continue
-            text = original.decode("utf-8", "surrogateescape")
-            for planned in item.patches:
-                outcome = apply_descriptor(text, planned.descriptor, payload.host_version)
-                text = outcome.text
-                self._record_outcome(result, planned, outcome)
-            if item.path == payload.index_html:
-                index_text, index_work = text, item
-                continue
-            self._commit_target(payload, item, original, text.encode("utf-8", "surrogateescape"), old, new, result)
-            if item.cache_bust and text.encode("utf-8", "surrogateescape") != original:
-                seeds.append(item.path)
+            outcome_text = self._apply_in_place(payload, item, drift, old, new, result, seeds, skipped_targets)
+            if item.path == payload.index_html and outcome_text is not None:
+                index_text, index_work = outcome_text, item
+
+        if import_map_patches:
+            shell_skipped = str(payload.index_html) in skipped_targets
+            if shell_skipped:
+                for planned in import_map_patches:
+                    result.skipped.append({"mod": planned.mod, "part": planned.part, "target": planned.descriptor.target, "code": "UserEdited", "message": f"{planned.label}: index.html was edited by hand; its import map cannot be extended (Requirement 5.3)"})
+            else:
+                if index_text is None:
+                    shell = self._original_bytes(payload.index_html, drift.actions.get(str(payload.index_html), DriftAction.NONE), result)
+                    if shell is None:
+                        result.errors.append("index.html is missing; import-map patches need the shell")
+                    else:
+                        index_text = shell.decode("utf-8", "surrogateescape")
+                        index_work = _TargetWork(payload.index_html, "kiro_crew/static/dist/index.html", [])
+                if index_text is not None and index_work is not None:
+                    index_text = self._apply_import_maps(payload, import_map_patches, index_text, index_work, drift, old, new, result, seeds, skipped_targets)
 
         if seeds:
             shell_skipped = str(payload.index_html) in skipped_targets
@@ -441,6 +439,7 @@ class Patcher:
                 path.unlink()
         else:
             new.save(path)
+        self._refresh_patched_index()
         self.audit.record(
             "apply",
             payload=payload.id,
@@ -454,9 +453,14 @@ class Patcher:
         )
         return result
 
-    def _plan(self, payload: Payload, patches: list[PlannedPatch], result: PayloadApply) -> list[_TargetWork]:
-        """Group patches by resolved target and apply the target policy (Requirement 5.10, 11.4)."""
+    def _plan(self, payload: Payload, patches: list[PlannedPatch], result: PayloadApply) -> tuple[list[_TargetWork], list[PlannedPatch]]:
+        """Group in-place patches by resolved target and apply the target policy (Requirement 5.10, 11.4).
+
+        ``mode: import-map`` descriptors are returned separately: they never touch
+        their target file and are applied against the shell text (spike 1.4).
+        """
         by_target: dict[Path, _TargetWork] = {}
+        import_maps: list[PlannedPatch] = []
         for planned in patches:
             relative = planned.descriptor.target
             verdict = self.policy.classify(relative)
@@ -471,7 +475,18 @@ class Patcher:
                     self.say(f"SKIP {relative}: governance-altering target not confirmed")
                     continue
                 result.governance_altering.append(relative)
-            resolved = resolve_target(payload, relative)
+            if planned.descriptor.is_import_map:
+                import_maps.append(planned)
+                continue
+            if planned.descriptor.target_is_glob:
+                resolved, skip = resolve_chunk_target(payload, relative)
+                if resolved is None:
+                    result.skipped.append({"mod": planned.mod, "part": planned.part, "target": relative, "op": None, "code": skip.code if skip else "FingerprintMiss", "message": skip.message if skip else relative})
+                    if skip:
+                        self.say(skip.format())
+                    continue
+            else:
+                resolved = resolve_target(payload, relative)
             try:
                 resolved.relative_to(payload.package_dir.parent.resolve())
             except ValueError:
@@ -481,7 +496,96 @@ class Patcher:
             item.patches.append(planned)
             item.cache_bust = item.cache_bust or planned.descriptor.cache_bust
         ordered = sorted(by_target.values(), key=lambda w: (w.path == payload.index_html, str(w.path)))
-        return ordered
+        return ordered, import_maps
+
+    def _apply_in_place(
+        self,
+        payload: Payload,
+        item: _TargetWork,
+        drift: DriftReport,
+        old: DeployManifest,
+        new: DeployManifest,
+        result: PayloadApply,
+        seeds: list[Path],
+        skipped_targets: set[str],
+    ) -> str | None:
+        """Rewrite one target from its recorded original; returns the shell text instead of committing when the target is index.html."""
+        key = str(item.path)
+        action = drift.actions.get(key, DriftAction.NONE)
+        if action is DriftAction.SKIP:
+            skipped_targets.add(key)
+            result.skipped.append({"target": item.relative, "code": "UserEdited", "message": f"{item.relative} was edited by hand since the last apply; left untouched (Requirement 5.3)"})
+            record = old.find_file(key)
+            if record is not None:
+                new.files.append(record)
+            self.say(f"SKIP {item.relative}: user-edited, left untouched")
+            return None
+        original = self._original_bytes(item.path, action, result)
+        if original is None:
+            result.errors.append(f"{item.relative}: target file is missing and no backup exists")
+            return None
+        text = original.decode("utf-8", "surrogateescape")
+        for planned in item.patches:
+            outcome = apply_descriptor(text, planned.descriptor, payload.host_version)
+            text = outcome.text
+            self._record_outcome(result, planned, outcome)
+        if item.path == payload.index_html:
+            return text
+        patched = text.encode("utf-8", "surrogateescape")
+        self._commit_target(payload, item, original, patched, old, new, result)
+        if item.cache_bust and patched != original:
+            seeds.append(item.path)
+        return None
+
+    def _apply_import_maps(
+        self,
+        payload: Payload,
+        patches: list[PlannedPatch],
+        index_text: str,
+        index_work: _TargetWork,
+        drift: DriftReport,
+        old: DeployManifest,
+        new: DeployManifest,
+        result: PayloadApply,
+        seeds: list[Path],
+        skipped_targets: set[str],
+    ) -> str:
+        """Spike 1.4: patched copies under ``ui/patched/`` + import-map keys in the shell; entry chunks fall back to the alias graph."""
+        for planned in patches:
+            outcome = apply_import_map_patch(payload, planned.descriptor, mod=planned.mod, part=planned.part, ui_root=self.ui_root, index_html=index_text, manifest=new)
+            if outcome.fallback:
+                resolved, _skip = resolve_chunk_target(payload, planned.descriptor.target)
+                if resolved is None:
+                    continue
+                result.applied.append(f"{planned.label} -> alias-graph fallback: {outcome.chunk_name} is the entry chunk, not reachable through the import map")
+                self.say(f"  {planned.label}: {outcome.chunk_name} is loaded by <script src>; using the in-place + alias-graph path")
+                item = _TargetWork(resolved, planned.descriptor.target, [planned], cache_bust=True)
+                self._apply_in_place(payload, item, drift, old, new, result, seeds, skipped_targets)
+                continue
+            for skip in outcome.skips:
+                result.skipped.append({"mod": planned.mod, "part": planned.part, "target": skip.target, "op": skip.op_index, "code": skip.code, "message": skip.message})
+                self.say(skip.format())
+            if not outcome.wrote_copy:
+                continue
+            for applied in outcome.result.applied:
+                result.applied.append(f"{planned.label} -> {applied.target}#ops/{applied.op_index} (import-map copy {outcome.chunk_name})")
+            if outcome.copy_written:
+                result.written.append(str(outcome.copy_path))
+                self.say(f"patched copy: {outcome.copy_path} (import map {'/assets/' + outcome.chunk_name} -> ui/{PATCHED_DIR}/{outcome.chunk_name})")
+            else:
+                result.unchanged.append(str(outcome.copy_path))
+            if outcome.index_changed:
+                result.applied.append(f"{planned.label} -> kiro_crew/static/dist/index.html#importMap")
+            index_text = outcome.index_html
+            index_work.patches.append(planned)
+        return index_text
+
+    def _refresh_patched_index(self) -> None:
+        manifests = [m for _path, m in iter_manifests(self.data_home)]
+        try:
+            refresh_patched_index(self.ui_root, manifests)
+        except OSError as exc:
+            self.say(f"WARNING could not refresh {self.ui_root / PATCHED_DIR / 'index.json'}: {exc}")
 
     def _original_bytes(self, path: Path, action: DriftAction, result: PayloadApply) -> bytes | None:
         """The bytes to patch from: the backup (recorded original) or the file itself."""
@@ -575,9 +679,17 @@ class Patcher:
     # -- restore ------------------------------------------------------------------------
 
     def restore(self, payload_ids: Iterable[str] | None = None, *, sweep: bool = True) -> RestoreReport:
-        """Manifest-driven restore, then a glob sweep so a lost manifest still restores (Requirement 5.8)."""
+        """Manifest-driven restore, then a glob sweep so a lost manifest still restores (Requirement 5.8).
+
+        Files under the Loader app's ``ui/`` (patched chunk copies, spike 1.4) are
+        shared by every payload: a restore limited to some payloads keeps a copy
+        another payload's manifest still maps to; a restore of everything sweeps
+        ``ui/patched/`` clean even when no manifest survived.
+        """
         wanted = set(payload_ids) if payload_ids is not None else None
         report = RestoreReport()
+        kept_manifests = [m for _p, m in iter_manifests(self.data_home) if wanted is not None and m.payload not in wanted]
+        still_referenced = {Path(a.path) for m in kept_manifests for a in m.added}
         for payload in self.payloads:
             if wanted is not None and payload.id not in wanted:
                 continue
@@ -590,6 +702,8 @@ class Patcher:
                     if self.backups.restore_file(Path(record.path)):
                         restored.append(record.path)
                 for added in manifest.added:
+                    if Path(added.path) in still_referenced:
+                        continue  # another payload still maps to this ui/ copy
                     if Path(added.path).is_file():
                         Path(added.path).unlink()
                         removed.append(added.path)
@@ -610,7 +724,26 @@ class Patcher:
             for line in removed:
                 self.say(f"removed: {line}")
             self.audit.record("restore", payload=payload.id, files=restored, removed=removed, result="ok")
+        if sweep and wanted is None:
+            swept = self._sweep_ui_patched()
+            if swept:
+                report.payloads.setdefault("ui", {"restored": [], "removed": []})["removed"].extend(swept)
+                for line in swept:
+                    self.say(f"removed: {line}")
+        self._refresh_patched_index()
         return report
+
+    def _sweep_ui_patched(self) -> list[str]:
+        """Remove every patched chunk copy (and sidecar) under ``ui/patched/`` — the restore-all sweep."""
+        removed: list[str] = []
+        patched_dir = self.ui_root / PATCHED_DIR
+        if not patched_dir.is_dir():
+            return removed
+        for path in sorted(patched_dir.iterdir()):
+            if path.is_file() and not path.is_symlink():
+                path.unlink()
+                removed.append(str(path))
+        return removed
 
     def _sweep(self, root: Path) -> tuple[list[str], list[str]]:
         """Every backup under ``root`` goes back over its original; every added file goes away."""
@@ -684,7 +817,7 @@ class Patcher:
             if url:
                 expectations.append((url, record.patched_sha256, "patched"))
         for added in manifest.added:
-            url = url_for(payload, Path(added.path))
+            url = url_for(payload, Path(added.path)) or ui_url_for(self.ui_root, Path(added.path))
             if url:
                 expectations.append((url, added.sha256, "added"))
         if not expectations:
@@ -717,7 +850,7 @@ class Patcher:
     # -- gc -----------------------------------------------------------------------------
 
     def gc(self) -> GcReport:
-        """Remove manifests of payloads that no longer exist on disk (Requirement 6.5)."""
+        """Remove manifests of payloads that no longer exist on disk (Requirement 6.5), and orphaned ``ui/patched/`` copies."""
         report = GcReport()
         known = {p.id for p in self.payloads}
         for path, manifest in list(iter_manifests(self.data_home)):
@@ -729,4 +862,12 @@ class Patcher:
                 self.audit.record("gc", payload=manifest.payload, files=[str(path)], result="ok")
             else:
                 report.kept.append(str(path))
+        referenced = {Path(a.path).resolve() for _p, m in iter_manifests(self.data_home) for a in m.added}
+        patched_dir = self.ui_root / PATCHED_DIR
+        if patched_dir.is_dir():
+            for path in sorted(patched_dir.iterdir()):
+                if path.is_file() and path.name != "index.json" and path.resolve() not in referenced:
+                    path.unlink()
+                    report.removed.append(str(path))
+        self._refresh_patched_index()
         return report

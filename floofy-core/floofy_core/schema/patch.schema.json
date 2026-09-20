@@ -16,8 +16,19 @@
       "const": 1
     },
     "target": {
-      "description": "Path of the file to patch, relative to the payload root (for example kiro_crew/static/dist/index.html). Host Python sources and launcher files are refused as engineering-rule targets (Requirement 5.10); governance files are allowed but flagged governance-altering (Requirement 11.4).",
+      "description": "Path of the file to patch, relative to the payload root (for example kiro_crew/static/dist/index.html). For a content-hashed chunk the name may carry a glob (kiro_crew/static/dist/assets/useTheme-*.js) that must resolve to exactly one file of the payload — a fingerprint on the name, never a hash. Host Python sources and launcher files are refused as engineering-rule targets (Requirement 5.10); governance files are allowed but flagged governance-altering (Requirement 11.4).",
       "$ref": "#/$defs/relativePath"
+    },
+    "mode": {
+      "description": "How the patched text reaches the browser (design spike 1.4). 'in-place' (default): the target file is rewritten (backed up, hash-tracked). 'import-map': the target chunk stays untouched; a patched copy with rebased imports is written under the Loader app's ui/patched/ and one import-map key in index.html swaps it in for every importer — the module-patching path for hashed chunks. An entry chunk loaded by <script src> is not reachable through the import map and falls back to the in-place + alias-graph path.",
+      "type": "string",
+      "enum": ["in-place", "import-map"],
+      "default": "in-place"
+    },
+    "find": {
+      "description": "Optional literal that must occur in the target text before any op applies (Vencord's `find`: identifies the module by content). Absent → the whole descriptor is skipped with FingerprintMiss.",
+      "type": "string",
+      "minLength": 1
     },
     "description": {
       "type": "string",

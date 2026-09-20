@@ -103,6 +103,18 @@ class PatchDescriptor:
     import_map: dict[str, str] = field(default_factory=dict)
     description: str = ""
     source: str = "<inline>"
+    #: ``in-place`` (rewrite the target) or ``import-map`` (patched copy swapped in through the import map — spike 1.4).
+    mode: str = "in-place"
+    #: Optional literal that must occur in the target text before any op applies (module identification).
+    find: str | None = None
+
+    @property
+    def is_import_map(self) -> bool:
+        return self.mode == "import-map"
+
+    @property
+    def target_is_glob(self) -> bool:
+        return any(ch in self.target for ch in "*?[")
 
     @classmethod
     def load(cls, path: Path | str) -> "PatchDescriptor":
@@ -166,6 +178,8 @@ class PatchDescriptor:
             import_map=dict(document.get("importMap") or {}),
             description=document.get("description", ""),
             source=source,
+            mode=str(document.get("mode") or "in-place"),
+            find=document.get("find") if isinstance(document.get("find"), str) and document.get("find") else None,
         )
 
     def applicability(self, host_version: HostVersion | str | None) -> str | None:
@@ -289,6 +303,9 @@ def apply_descriptor(text: str, descriptor: PatchDescriptor, host_version: HostV
     if reason is not None:
         result.skipped.append(Skip(descriptor.target, None, "NotApplicable", f"{reason} ({descriptor.source})"))
         return result
+    if descriptor.find is not None and descriptor.find not in text:
+        result.skipped.append(Skip(descriptor.target, None, "FingerprintMiss", f"find literal {descriptor.find[:80]!r} is absent from {descriptor.target}; the module this descriptor targets is not this file ({descriptor.source})"))
+        return result
     working = text
     for index, op in enumerate(descriptor.ops):
         working, applied, skip = _apply_op(working, op, descriptor.target, index)
@@ -329,8 +346,13 @@ def fingerprint_report(text: str, descriptors: Iterable[PatchDescriptor], host_v
     for descriptor in descriptors:
         if descriptor.applicability(host_version) is not None:
             continue
+        find_ok = descriptor.find is None or descriptor.find in text
         for index, op in enumerate(descriptor.ops):
             key = f"{descriptor.target}#ops/{index}"
+            if not find_ok:
+                report.missed.append(key)
+                report.details[key] = "find-miss"
+                continue
             if op.already_applied(text):
                 report.matched.append(key)
                 report.details[key] = "already-applied"

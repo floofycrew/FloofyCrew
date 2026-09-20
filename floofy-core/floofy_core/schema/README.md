@@ -90,3 +90,16 @@ a literal whose presence means the op is already applied. `cacheBust` marks a
 content-hashed immutable target (Requirement 5.6); `importMap` carries import-map
 keys for the chunk-remap path recorded in design spike 1.4 and is deliberately
 permissive.
+
+Module patches on hashed chunks (design spike 1.4, task 5.3): `mode:
+"import-map"` leaves the target chunk untouched, writes a patched copy with
+rebased imports under the Loader app's `ui/patched/<chunk>` and adds the
+import-map key `"/assets/<chunk>": "/apps/floofycrew/ui/patched/<chunk>"` to
+`index.html` (dropping the chunk's `modulepreload` hint), which swaps the module
+for every importer. The `target` of such a descriptor may carry a glob on the
+hashed name (`kiro_crew/static/dist/assets/useTheme-*.js`) that must resolve to
+exactly one file — a fingerprint on the name, never a hash. `find` is an optional
+literal that must occur in the target text before any op applies (Vencord's
+module identification). The entry chunk loaded by `<script src>` is not
+reachable through the import map; the Patcher falls back to the in-place +
+alias-graph path for it.
