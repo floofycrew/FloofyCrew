@@ -1,41 +1,88 @@
 # FloofyCrew
 
-An **unofficial** modding ecosystem for KiroCrew — mod manifest, in-host loader,
-overlay patcher, mod manager, registry, and a KiroCrew-driven release-tracking
-"Forge" — covering both the Amazon-internal Toolbox edition and the public
-open-source edition.
+An **unofficial** modding ecosystem for KiroCrew — a mod manifest, an in-host
+Loader, an overlay Patcher, a mod manager (CLI and dashboard page), signed mod
+registries with a per-host-version compatibility matrix, and a KiroCrew-driven
+release-tracking "Forge" — covering both the internal edition of KiroCrew and
+the public open-source edition from one codebase.
 
-Status: **package 1 (spikes and infrastructure).** Nothing here is installed
-into any KiroCrew yet.
+> FloofyCrew is an unofficial, community project. It is not affiliated with,
+> endorsed by or supported by Kiro or the KiroCrew maintainers, and it does not
+> use their branding as its own. It attaches to the KiroCrew you already have and
+> never ships a rebuilt host; mods run on your explicit consent, everything it
+> changes is logged and reversible (`floofy restore --all`), and the risk of
+> every mod you install is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md)
+> before `floofy init`.
+
+Status: **release 1.0.0 in preparation.** Every package of the plan is
+implemented; the internal package and the public release tree are built
+reproducibly by `packaging/`; the compatibility matrix rows come from the Forge.
+What a release supports is recorded in `CHANGELOG.md`, in `pyproject.toml`
+(`[tool.floofycrew] supports`) and in the release's `supports.json`.
+
+## Install
+
+Public edition (GitHub releases): `curl -fsSL https://raw.githubusercontent.com/<org>/FloofyCrew/main/packaging/public/install.sh | sh`
+— HTTPS only, every asset verified against `SHA256SUMS`, then `floofy init`
+shows the one-time warning; or `pip install floofycrew-<version>-py3-none-any.whl`
+into the host's venv. Internal edition: clone the `FloofyCrew` data package and
+run its `install.sh` (`packaging/internal/FloofyCrew/README.md`). Either way
+`floofy doctor` afterwards tells you where you stand.
+
+## Documentation
+
+[docs/README.md](docs/README.md) is the index: the manifest reference, the seam
+guide, the Python and SPA APIs with the deprecation policy, patch and
+fingerprint authoring with the reporter, publishing to both registries, the
+consent and trust model, the CLI, update survival, the Forge runbook and the
+two-track measurements.
 
 ## Layout
 
-One repository, one shared core, two thin edition adapters (design DR-3).
+One repository, one shared core, two thin edition adapters (design decision
+DR-3). The shared core and the docs are edition-neutral by construction; CI
+enforces it, and CI measures that ≥ 80 % of the shipped files are byte-identical
+across the two editions (86.7 % of files, 95.8 % of bytes on 1.0.0).
 
 | Path | What |
 |---|---|
-| `floofy-core/` | Shared core (`floofy_core`): manifest, resolver, Patcher engine, registry client, compat, Loader runtime, SPA host. Edition-neutral; CI enforces it |
-| `editions/toolbox/` | Internal edition adapter (`floofy_edition_toolbox`): Toolbox payloads, `BUILD_VERSION`, user-site shim, systemd timer, ***REMOVED*** registry, ***REMOVED*** |
-| `editions/public/` | External edition adapter (`floofy_edition_public`): pipx/venv/desktop payloads, `kiro_crew.__version__` + channel, venv-site shim, PATH wrapper, GitHub registry |
-| `loader-app/` | The Loader packaged as a KiroCrew App (`app.json`, `ui/`) — task 4.1 |
-| `spa-host/` | Dashboard-side ES modules: always-on host, `window.floofy`, boot script, reporter |
-| `registry-tools/` | Build, sign and validate registry indexes; emit `app-registry.json` |
-| `forge/` | Release tracking: watchers (`watch-internal.sh`), build-desk scripts, `docs/build-desk.md` (internal-only notes) |
-| `docs/` | Public documentation (manifest reference, seams, APIs, trust model) |
-| `research/` | Kickoff research reports, prompts, transcripts, `build-notes.md`, spike artefacts (`spikes/`); the agent runner moved to `forge/runner.sh` |
-| `scripts/` | Repository tooling: `check_no_internal_identifiers.py` (+ `de-amazon-allow.txt`), run by CI |
-| `.github/workflows/ci.yml` | CI: de-Amazon check of the shared core, `pytest` via `uv` |
-| `pyproject.toml` | Project metadata (Python ≥ 3.12, no runtime dependencies), dev group, pytest config |
+| `floofy-core/` | the shared core (`floofy_core`): manifest schema and validator, resolver, Patcher engine, registry client and signing, compatibility cache, the `floofy` CLI; JSON Schemas under `floofy_core/schema/`; example mods under `examples/`; fixture payloads and the test suite under `tests/` |
+| `editions/public/` | the public edition adapter (`floofy_edition_public`): pipx / venv / desktop payloads, host version from the package version and channel marker, venv-site shim, PATH wrapper, the public registry endpoint and pinned key |
+| `editions/toolbox/` | the internal edition adapter (`floofy_edition_toolbox`): the internal bundle's payloads and build stamp, user-site shim, the internal registry endpoint, pinned key and identity; `docs/publishing-internal.md` |
+| `loader-app/` | the Loader packaged as a KiroCrew App (`app.json`, `floofy_loader/`, the optional early shim `floofy_early/`, the manager page in `ui/`) |
+| `spa-host/` | the dashboard-side runtime: `window.floofy`, surfaces, patch inspection, the reporter, the first-frame boot script |
+| `mods/` | first-party mods (`rimuru-branding`: theme + first-frame boot + import-map patch) |
+| `registry-tools/` | build, sign and validate registry indexes; emit the KiroCrew-compatible `app-registry.json`; bootstrap a registry repository |
+| `packaging/` | the two release tracks: `internal/` (the `FloofyCrew` data package) and `public/` (release assets, wheel, `install.sh`, the `loader-app` tree) |
+| `forge/` | the release-tracking system: lanes, ledger, provision/check/repair/matrix/release/notify stages, the agent runner; `docs/` holds the build-desk notes (internal-only) |
+| `docs/` | public documentation ([index](docs/README.md)) |
+| `scripts/` | repository tooling: `check_no_internal_identifiers.py`, `build_zipapp.py`, `build_loader_app.py`, `build_wheel.py`, `artifact_identity_report.py`, `install_both_editions.py`, fixture and hash helpers |
+| `research/` | the kickoff research reports and decision records, spike artefacts, build notes |
+| `.github/workflows/` | `ci.yml` (de-Amazon check, two-track measurements, pytest) and `release.yml` (the public release on a `v*` tag) |
 | `.kiro/specs/floofycrew-modding-ecosystem/` | `requirements.md`, `design.md` (decision records + spike outcomes), `tasks.md`, `BLOCKERS.md` |
-| `.kiro/agents/floofy-researcher.json` | Read-only research agent template (per-model variants are derived by the runner) |
+| `pyproject.toml`, `CHANGELOG.md` | project metadata (Python ≥ 3.12, **no runtime dependencies**), `[tool.floofycrew] supports`, the dev group; what each release ships |
 
 ## Development
 
 ```bash
-uv sync                                        # dev tools (pytest, hypothesis, playwright)
-uv run pytest                                  # tests
+uv sync                                          # dev tools (pytest, hypothesis, playwright)
+uv run pytest                                    # the whole suite (~5 min; Playwright tests need Chromium)
 python scripts/check_no_internal_identifiers.py  # what CI's de-amazon job runs
+python scripts/artifact_identity_report.py       # byte-identity across editions
+python scripts/install_both_editions.py          # the same mod archive on both editions
+packaging/public/build.sh --check                # the public release tree, twice, byte-identical
+packaging/internal/build.sh --check              # the internal package, twice, byte-identical
+python -m forge --help                           # the Forge (runs on the maintainer's build host)
 ```
 
-Related: ***REMOVED***'s existing `***REMOVED***KiroCrewThemePatcher` is the direct ancestor of
-the Patcher component and the first mod to be ported.
+Owner decisions the code must never erode: one repository, two thin adapters;
+no internal identifiers in the shared core or `docs/`; no custom host is ever
+shipped; user consent outranks host governance (governance is a warning, never
+a gate); mod network traffic is encrypted-only with loopback as the sole
+exception; the Loader is a KiroCrew App through the App Kit seam; the host's
+plugin entry point is never used.
+
+FloofyCrew's Patcher descends from a standalone dashboard-branding patcher for
+KiroCrew; that patcher's branding is the first mod (`mods/rimuru-branding`), and
+[docs/migrating-from-the-standalone-patcher.md](docs/migrating-from-the-standalone-patcher.md) covers
+the hand-over. Licensed under the MIT License.

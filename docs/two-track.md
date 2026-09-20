@@ -40,7 +40,7 @@ python scripts/artifact_identity_report.py --keep /tmp/trees   # keep both trees
 
 `scripts/install_both_editions.py` builds `mods/rimuru-branding` into one
 deterministic archive (`rimuru-branding-1.0.0.zip`, sha256
-`f20dfdef611de4e08180252d05a0dde8b9a4b8af0b1ae2f5077649b50aa5d249`, 60 431
+`27ea3f4957de93a6dd86f34b07dfce64bc9d7b18258aca086f8524d8a831fd77`, 60 430
 bytes) and installs those bytes on two scratch hosts — one that declares itself
 the internal edition (a `BUILD_VERSION` stamp, `X.Y.Z.N`) and one that does not
 (the public edition) — each with its own scratch data home and a payload copied

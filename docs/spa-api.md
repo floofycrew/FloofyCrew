@@ -1,0 +1,149 @@
+# The SPA API (dashboard side)
+
+A `spa` part is an ES module. With the default `activation: "runtime"` the
+FloofyCrew SPA host imports it into the dashboard document **after** the host
+bundle, inside an error boundary, and calls its default export (or `activate`):
+
+```js
+// spa/main.js
+export default function activate(ctx) {
+  ctx.log.info("hello from", ctx.modId, "on", ctx.host.version);
+  const nav = ctx.surfaces.get("sidebar.nav");          // a live node or null
+  ctx.events.subscribe("surfaces.changed", () => { /* re-render */ });
+  return () => { /* optional cleanup */ };
+}
+export function deactivate(ctx) {}
+```
+
+The SPA host is served from the Loader app's own `ui/`
+(`/apps/floofycrew/ui/host.mjs`), started by the one-line loader tag the Patcher
+injects into `index.html` or by the manager page, and runs once per document. It
+reads the Loader state from `/api/apps/floofycrew/state`, builds `window.floofy`,
+then `import()`s every **active** mod's runtime `spa` files from
+`/api/apps/floofycrew/spa/<id>/`. A failing module is reported to
+`POST /mods/<id>/fault`, disabled with reason `Error`, and never affects other
+mods or the host UI. Everything is same-origin: nothing is fetched or imported
+from another origin, ever.
+
+## `window.floofy`
+
+Frozen after the first state read.
+
+| Member | What |
+|---|---|
+| `version` | the SPA host's own version |
+| `unofficial` | `true` |
+| `host` | `{version, edition, channel, …}` — the Loader's host facts |
+| `api_version` | the FloofyCrew API version (the same string as `floofy.api_version` on the Python side) |
+| `events` | the document-wide event bus (`subscribe`, `publish`) |
+| `surfaces` | stable names for host UI surfaces (below) |
+| `patches` | inspection of the module patches in force (below) |
+| `report(options)` | the reporter (below) |
+| `mods` | a summary of every mod: state, typed reason, parts |
+| `state()` | the latest Loader state document |
+
+Each mod receives its own frozen `ctx`: `modId`, `version`, `host`,
+`api_version`, `baseUrl` (its served `spa/` directory), `events` (scoped: names
+published by the mod are prefixed for attribution), `log`, `surfaces`, and
+`config.read()` — the `exports` its Python side published through `ctx.state`,
+so a mod's two halves share facts without a side channel.
+
+## Surfaces
+
+Host UI surfaces are located by **content fingerprints**, never by chunk hash
+or line number. The shipped registry (`ui/surfaces.json`) has one row per
+surface with a `fromBuild` (the host build it was written against) and two
+fingerprint kinds:
+
+- `dom` — a CSS selector over attributes the host renders literally and that
+  survive minification (`data-testid`, ids, ARIA roles and labels, utility class
+  names), optionally with a required text substring and a `route` prefix (off
+  that route the surface is "not applicable", not a miss). Resolved to live nodes
+  and re-resolved on route change and DOM mutation; `surfaces.changed` fires
+  when a node identity or a match status changed.
+- `bundle` — a literal or regex expected in the module text of a hashed chunk
+  named by its **stem** (`App`, `main`, `useTheme`); the real file name is
+  discovered from the shell's `<script src>` and `modulepreload` hints or from a
+  `./<stem>-<hash>.js` reference inside an already-fetched chunk. Chunk text is
+  fetched same-origin from `/assets/*`.
+
+Shipped names: `shell.root`, `dashboard.shell`, `topbar`, `sidebar.nav`, `logo`,
+`favicon`, `theme.tokens`, `theme.custom-style`, `theme.reset-site`,
+`theme.decor-slot`, `page.main`, `apps.page`, `settings.page`. API:
+`surfaces.names()`, `definitions()`, `get(name)` (a live node or `null`),
+`resolve(name)` (`{status, node, reason}`), `chunks()`, `start()` / `stop()`
+(the observer). Mods may inject extra definitions through the reporter
+(`floofy verify --spa --extra-surfaces`) while authoring their own.
+
+## Patches: inspection only
+
+Module patches are applied at **Patcher time**, not in the browser
+([patching.md](patching.md)). The reasons are measured, not assumed (design
+spike 1.4, headless Chromium against the served dashboard):
+
+- the served Content-Security-Policy blocks `blob:` and `data:` module imports
+  (`script-src-elem` violations), so Vencord-style Blob-module patching is not
+  viable;
+- native ES modules have no runtime module registry to hook, so a chunk inside
+  the host's import graph cannot be swapped after the fact;
+- but the host's `index.html` already carries an inline **import map**, and
+  adding one key — `"/assets/<chunk>": "/apps/floofycrew/ui/patched/<chunk>"` —
+  makes every importer, including dynamic `import()`, evaluate the patched copy
+  the Patcher wrote under the Loader app's `ui/patched/`. The chunk's
+  `modulepreload` hint is dropped in the same operation.
+
+`window.floofy.patches` therefore reports rather than rewrites: `list()` — the
+remaps the Patcher recorded joined with the document's live import map;
+`isApplied(name)` — the map points at the patched copy **and** the served copy
+carries the Patcher's marker; `report()` — every recorded patch's fingerprints
+re-evaluated against the live original chunk text, so the reporter can say which
+patch would stop applying on a new host build.
+
+## Boot activation (first-frame effects)
+
+Runtime `spa` parts load after the host bundle — fine for panels and behaviour,
+too late for a favicon, a logo or theme tokens on a cold client (one flash). For
+those a `spa` part declares `activation: "boot"` with a `boot` object
+([manifest.md](manifest.md)); the Patcher bakes one boot script and the parts'
+scoped CSS into every payload's `index.html`: the palette, favicon, logo, title
+and `data-*` attributes are asserted before React hydrates and re-asserted by a
+`MutationObserver` drift guard until the host settles. The boot hook runs with
+`{id, color, mode, pref, element}`, must be ES5, and is inlined (at most 32 KB,
+no `</script`). The `when.theme` gate keeps a branding mod inert while another
+colour theme is selected.
+
+## What the served CSP allows (and what FloofyCrew never asks for)
+
+The host sets its CSP as an HTTP header on every dashboard response. As served,
+`script-src 'self' 'unsafe-inline' …` admits same-origin module imports
+(`/apps/<name>/ui/…`, `/assets/*`) and runtime-injected inline `<script>` /
+`<script type="module">`; `connect-src 'self' …` admits same-origin fetches of
+chunk text; `blob:` / `data:` module imports are blocked. Everything the SPA host
+does fits inside that policy: FloofyCrew requires **no CSP change** and loads
+**nothing from a third-party origin**. The policy's own third-party allowances
+(the host's widget CDNs and fonts) are the host's; a `spa` part that reached for
+them would be flagged by the manifest network scan like any other remote host.
+Files under `/apps/<name>/ui/` are served with `Cache-Control: no-cache`, so a
+patched copy or a boot asset is live without a restart.
+
+## Reporter
+
+`window.floofy.report()` evaluates every surface fingerprint and every recorded
+patch against the current document and bundle and returns `{matched, missed,
+total, …}` per kind. `floofy verify --spa` runs the same reporter in headless
+Chromium against the served dashboard (`--bundle` runs the offline fingerprint
+check against the payload's files) and prints the matrix shape
+`spaFingerprints {matched, total, missed[]}` — the Forge runs it on every new
+host version and writes the result into the compatibility matrix
+([updating.md](updating.md), [forge-runbook.md](forge-runbook.md)).
+
+## Stability
+
+`window.floofy` follows the same policy as the Python API: mods depend on
+`api_version`; renamed members keep working for two FloofyCrew minors with a
+console warning naming the mod; surface **names** are stable across host
+builds while their fingerprints are maintained per build (`fromBuild`), which
+is exactly what the reporter measures.
+
+---
+Covers Requirements 2.5, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 14.3.
