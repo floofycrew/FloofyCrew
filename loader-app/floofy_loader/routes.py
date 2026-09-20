@@ -16,7 +16,7 @@ the SPA file route is declared once per depth (1–4 segments below the mod id).
 | POST | ``/mods/{id}/fault`` | body ``{message, stack, source: "spa"}``: the SPA host reports a failed module; the mod is disabled with ``Error`` |
 | GET | ``/spa/{id}/{file...}`` | an enabled mod's ``spa`` part files from ``<data home>/spa/<id>/`` (``Cache-Control: no-cache``, typed by extension, path-escape safe) |
 | POST | ``/cli`` | body ``{"argv": [...]}``: run one **allowlisted** ``floofy`` command in-process (the manager UI's actions — task 6.7) and reload the Loader when it mutated the mod set |
-| GET | ``/registry`` | the registry cache summary and the update available for each installed mod |
+| GET | ``/registry`` | the registry cache summary, every source's trust settings and last-refresh verdict, the matrix row for this host, and the update available for each installed mod (graded like the CLI: ``best_version`` against the matrix) |
 
 The manager UI never gets more than the CLI offers, and less where a question
 needs a human at a keyboard: ``init`` (the consent acknowledgement) and any
@@ -160,25 +160,52 @@ def cli_response(runtime: Any, body: Any, *, reload: bool = True) -> Responder:
 
 
 def registry_response(runtime: Any) -> Responder:
-    """``GET /registry`` — the registry cache summary and update availability per installed mod (Requirement 7.3)."""
+    """``GET /registry`` — the registry cache summary, per-source verdicts and the update available per installed mod (Requirement 7.3, 9.2).
+
+    ``sources[]`` is what ``floofy registry list`` shows: every configured source
+    with its trust settings and the ``meta.json`` verdict of its last refresh
+    (signature status, usable, refusal). ``updates`` grades the candidates the
+    way the CLI does — :meth:`floofy_core.registry.IndexCache.best_version`
+    against the cached matrix row for this host's edition × channel × version.
+    """
     if runtime.paths is None or runtime.facts is None:
         return _json(503, {"ok": False, "error": "the Loader has not started"})
+    import json as _json_module  # noqa: PLC0415
+
+    from floofy_core.compat import CompatCache  # noqa: PLC0415
     from floofy_core.modstore import installed_mods, read_source  # noqa: PLC0415
     from floofy_core.registry import IndexCache  # noqa: PLC0415
+    from floofy_core.registry_sources import SourceStore  # noqa: PLC0415
     from floofy_core.semver import InvalidVersion, Version  # noqa: PLC0415
 
-    cache = IndexCache.load(runtime.paths)
+    paths = runtime.paths
+    cache = IndexCache.load(paths)
+    compat = CompatCache.load(paths.compat_cache)
     facts = runtime.facts
+    row = compat.row_for(facts.edition, facts.channel, facts.version)
     updates: dict[str, Any] = {}
-    for mod in installed_mods(runtime.paths, include_broken=False):
+    for mod in installed_mods(paths, include_broken=False):
         key = read_source(mod.dir).get("registryKey") or mod.id
-        entry, picked, why = cache.pick(str(key), base_version=facts.base_version, edition=facts.edition, host_version=facts.version)
+        best = cache.best_version(str(key), base_version=facts.base_version, edition=facts.edition, host_version=facts.version, channel=facts.channel, compat=compat)
+        picked = best.version
         try:
             newer = picked is not None and Version.parse(picked.version) > Version.parse(mod.version)
         except InvalidVersion:
             newer = False
-        updates[mod.id] = {"installed": mod.version, "candidate": picked.version if picked else None, "verdict": picked.verdict_for(facts.version) if picked else None, "update": newer, "inRegistry": entry is not None, "why": why}
-    return _json(200, {"ok": True, "cache": cache.to_dict(), "updates": updates})
+        updates[mod.id] = {"installed": mod.version, "candidate": picked.version if picked else None, "verdict": best.verdict, "update": newer, "inRegistry": best.entry is not None, "why": best.why, "installedVerdict": row.verdict(mod.id, mod.version) if row is not None else None}
+    sources: list[dict[str, Any]] = []
+    try:
+        store = SourceStore.load(paths)
+    except Exception as exc:  # noqa: BLE001 - an unreadable registries.json is reported, not raised
+        store = None
+        sources.append({"error": f"registries.json unreadable: {exc}"})
+    for source in (store.sources if store is not None else []):
+        try:
+            meta = _json_module.loads((paths.cache_sources / source.key / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = None
+        sources.append({**source.to_dict(), "cache": meta})
+    return _json(200, {"ok": True, "cache": cache.to_dict(), "compat": compat.to_dict(row), "sources": sources, "updates": updates})
 
 
 def spa_response(spa_root: Path, mod_id: str, segments: list[str]) -> Responder:

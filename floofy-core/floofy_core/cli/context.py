@@ -179,6 +179,25 @@ class CliContext:
 
         return default_sources(self.adapters(), edition=self.edition())
 
+    def registry_target(self) -> dict[str, Any]:
+        """The keyword arguments :meth:`floofy_core.registry.IndexCache.best_version` needs for *this* host (Requirement 9.2).
+
+        ``base_version`` / ``host_version`` / ``channel`` come from the current
+        payload, ``edition`` from the adapter probe, ``compat`` is the cached
+        matrix (``cache/compat.json``), so the CLI, the manager UI and the
+        Loader grade candidates by the same rule.
+        """
+        from ..compat import CompatCache  # noqa: PLC0415
+
+        current = self.current_payload()
+        return {
+            "base_version": current.host_version.base if current else "0.0.0",
+            "edition": self.edition(),
+            "host_version": current.host_version.text if current else None,
+            "channel": current.channel if current else None,
+            "compat": CompatCache.load(self.home.compat_cache),
+        }
+
     def launcher(self) -> Path | None:
         return find_launcher(self.kirocrew, self.current_payload())
 

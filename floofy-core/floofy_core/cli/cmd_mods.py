@@ -96,20 +96,19 @@ def register(sub: argparse._SubParsersAction) -> None:
 def search(ctx: CliContext, args: argparse.Namespace) -> int:
     cache = IndexCache.load(ctx.home)
     hits = cache.search(args.query)
-    current = ctx.current_payload()
-    host_version = current.host_version.text if current else None
+    target = ctx.registry_target()
     rows = []
     for entry in hits:
         newest = entry.versions[-1] if entry.versions else None
-        picked = cache.pick(entry.key, base_version=current.host_version.base if current else "0.0.0", edition=ctx.edition(), host_version=host_version)[1]
-        rows.append({**entry.to_dict(), "newest": newest.version if newest else None, "worksHere": picked.version if picked else None, "verdict": picked.verdict_for(host_version) if picked else None})
-    ctx.set_result(query=args.query, cache=cache.to_dict(), mods=rows)
+        best = cache.best_version(entry.key, **target)
+        rows.append({**entry.to_dict(), "newest": newest.version if newest else None, "worksHere": best.version.version if best.version else None, "verdict": best.verdict, "why": best.why})
+    ctx.set_result(query=args.query, cache=cache.to_dict(), mods=rows, compat=target["compat"].to_dict(target["compat"].row_for(target["edition"], target["channel"], target["host_version"]) if target["host_version"] else None))
     if not cache.mods:
         ctx.say("the registry cache is empty: " + ("; ".join(cache.notes) if cache.notes else "no mods listed"))
         return 0
     ctx.say(f"{len(rows)} mod(s) match {args.query!r} in the registry cache ({cache.source}):")
     for row in rows:
-        works = f"works here: {row['worksHere']}" + (f" ({row['verdict']})" if row["verdict"] else "") if row["worksHere"] else "no version declares support for this host"
+        works = f"works here: {row['worksHere']}" + (f" ({row['verdict']})" if row["verdict"] else " (untested)") if row["worksHere"] else f"nothing known to work on this host ({row['why']})"
         ctx.say(f"  {row['key']} — {row['name']}: {row['description'][:80]} [newest {row['newest']}; {works}]")
     return 0
 
@@ -198,16 +197,9 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable
 
 def install(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.require_consent("install a mod")
-    current = ctx.current_payload()
+    target = ctx.registry_target()
     try:
-        source = resolve_source(
-            args.ref,
-            home=ctx.home,
-            base_version=current.host_version.base if current else "0.0.0",
-            edition=ctx.edition(),
-            host_version=current.host_version.text if current else None,
-            expected_sha256=args.sha256,
-        )
+        source = resolve_source(args.ref, home=ctx.home, expected_sha256=args.sha256, opener_for=ctx.url_opener, **target)
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     try:
@@ -309,8 +301,7 @@ def update(ctx: CliContext, args: argparse.Namespace) -> int:
     if not cache.mods:
         raise CliError("the registry cache is empty: " + ("; ".join(cache.notes) if cache.notes else "nothing to update from") + " (floofy registry refresh)")
     current = ctx.current_payload()
-    base = current.host_version.base if current else "0.0.0"
-    host_version = current.host_version.text if current else None
+    target = ctx.registry_target()
     wanted = set(args.ids)
     plan: list[dict[str, Any]] = []
     for mod in ctx.mods(include_broken=False):
@@ -320,8 +311,9 @@ def update(ctx: CliContext, args: argparse.Namespace) -> int:
         key = source.get("registryKey") or mod.id
         if not wanted and not args.all and source.get("source") != "registry":
             continue
-        entry, picked, why = cache.pick(str(key), base_version=base, edition=ctx.edition(), host_version=host_version)
-        row: dict[str, Any] = {"id": mod.id, "installed": mod.version, "candidate": picked.version if picked else None, "verdict": picked.verdict_for(host_version) if picked else None, "why": why}
+        best = cache.best_version(str(key), **target)
+        picked = best.version
+        row: dict[str, Any] = {"id": mod.id, "key": str(key), "installed": mod.version, "candidate": picked.version if picked else None, "verdict": best.verdict, "why": best.why, "inRegistry": best.entry is not None}
         try:
             newer = picked is not None and Version.parse(picked.version) > Version.parse(mod.version)
         except InvalidVersion:
@@ -331,7 +323,7 @@ def update(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.set_result(plan=plan, applied=[])
     for row in plan:
         if row["update"]:
-            ctx.say(f"{row['id']}: {row['installed']} -> {row['candidate']}" + (f" ({row['verdict']} here)" if row["verdict"] else ""))
+            ctx.say(f"{row['id']}: {row['installed']} -> {row['candidate']}" + (f" ({row['verdict']} here)" if row["verdict"] else " (untested here)"))
         else:
             ctx.say(f"{row['id']}: up to date at {row['installed']}" + (f" ({row['why']})" if row["why"] else ""))
     if args.check:
@@ -339,7 +331,7 @@ def update(ctx: CliContext, args: argparse.Namespace) -> int:
     for row in [r for r in plan if r["update"]]:
         source: ResolvedSource | None = None
         try:
-            source = resolve_source(f"{row['id']}@{row['candidate']}", home=ctx.home, base_version=base, edition=ctx.edition(), host_version=host_version)
+            source = resolve_source(f"{row['key']}@{row['candidate']}", home=ctx.home, opener_for=ctx.url_opener, **target)
             outcome = install_source(ctx, source, now=args.now, enable_code=False, pre_confirmed=list(args.confirm_governance_target), accept_flags=args.accept_flags, keep_enabled=True)
             ctx.result["applied"].append({"id": row["id"], "version": row["candidate"], "outcome": outcome})
         except InstallError as exc:

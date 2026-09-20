@@ -6,6 +6,7 @@ directories: ``--home`` for the host home and ``KIRO_HOME`` for the agent seam.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
@@ -72,14 +73,23 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         def run(self, *args: str, **kw):
             return run(["--home", str(home), "--root", str(payload), *args], non_interactive=True, actor="test", **kw)
 
-        def publish(self, index: dict, *, signed: bool = False, compat: dict | None = None, at: str = "/reg/") -> None:
+        def publish(self, index: dict, *, signed: bool = False, compat: dict | None = None, at: str = "/reg/", key=None, compat_key=None) -> None:
+            """Serve ``index`` (and ``compat``) at ``at``; ``key`` (a ``KeyPair``) signs it properly, ``signed=True`` without a key plants a bogus signature."""
+            from floofy_core.signing import sign_detached
+
             _Registry.files[f"{at}index.json"] = json.dumps(index).encode("utf-8")
-            if signed:
+            if key is not None:
+                _Registry.files[f"{at}index.json.sig"] = json.dumps(sign_detached(index, key).to_dict()).encode("utf-8")
+            elif signed:
                 _Registry.files[f"{at}index.json.sig"] = b"fake-signature"
             else:
                 _Registry.files.pop(f"{at}index.json.sig", None)
             if compat is not None:
                 _Registry.files[f"{at}compat.json"] = json.dumps(compat).encode("utf-8")
+                if compat_key is not None:
+                    _Registry.files[f"{at}compat.json.sig"] = json.dumps(sign_detached(compat, compat_key).to_dict()).encode("utf-8")
+                else:
+                    _Registry.files.pop(f"{at}compat.json.sig", None)
 
     try:
         yield Env()
@@ -183,7 +193,7 @@ def test_allow_unsigned_is_the_users_explicit_audited_loosening(env):
     cache = IndexCache.load(env.paths)
     assert [m.key for m in cache.mods] == ["reggy"] and cache.mods[0].source == "test", "the configured name is the source label, not the index's own claim"
     found = env.run("--json", "search", "reggy")
-    assert found.json["mods"][0]["worksHere"] == "1.0.0" and found.json["mods"][0]["verdict"] is None, "the index's own compat cell is empty; the matrix row lives in compat.json"
+    assert found.json["mods"][0]["worksHere"] == "1.0.0" and found.json["mods"][0]["verdict"] == "tested", "the index's own compat cell is empty; the matrix row in compat.json grades the version (Requirement 9.2)"
     doctor = env.run("--json", "doctor")
     assert doctor.json["compat"]["row"]["mods"] == {"reggy@1.0.0": "tested"}, "doctor shows the compat verdict for this host version"
     # adding the same source again without --allow-unsigned tightens it back (not another loosening) — even without a refetch
@@ -214,6 +224,85 @@ def test_verified_signature_makes_the_source_usable_without_loosening(env, monke
     assert [m.id for m in IndexCache.load(env.paths).mods] == ["reggy"]
     assert not any(r["op"] == "registry-trust-loosened" for r in read_audit(env.paths.audit))
     assert "TRUST LOOSENED" not in added.stderr
+
+
+def test_real_signature_flow_verified_tampered_and_audited_override(env):
+    """The end-to-end trust chain with real keys (task 7.3, 7.6): pinned key → verified; tampered → refused; --allow-unsigned → admitted + audit."""
+    from floofy_core.signing import generate_keypair, sign_detached
+
+    key, stranger = generate_keypair("registry"), generate_keypair("stranger")
+    public_b64 = base64.b64encode(key.public_key).decode("ascii")
+    compat = {"schema": 1, "rows": [{"edition": "internal", "channel": "beta", "hostVersion": "0.7.0.5", "framework": {"loader": "ok"}, "mods": {"reggy@1.0.0": "tested"}}]}
+    env.publish(INDEX, key=key, compat=compat, compat_key=key)
+    # 1. the user pins the source's public key: verified, usable, no loosening
+    added = env.run("--json", "registry", "add", env.base, "--name", "signed", "--public-key", public_b64)
+    assert added.exit == 0, added.stderr
+    verdict = added.json["sources"][0]
+    assert verdict["signature"]["status"] == "verified" and verdict["signature"]["keyId"] == key.key_id and verdict["usable"] is True and verdict["pinnedPublicKey"] is True
+    assert verdict["compatSignature"]["status"] == "verified" and added.json["mergedCompatRows"] == 1
+    assert SourceStore.load(env.paths).sources[0].key_id == key.key_id, "--key-id is derived from the pinned key"
+    assert "TRUST LOOSENED" not in added.stderr and not any(r["op"] == "registry-trust-loosened" for r in read_audit(env.paths.audit))
+    assert f"signature verified by key {key.key_id}" in env.run("registry", "refresh").stdout
+    # 2. the same index signed by a stranger: invalid, refused by default, nothing merged
+    env.publish(INDEX, key=stranger, compat=compat)
+    refused = env.run("--json", "registry", "refresh")
+    assert refused.exit == 1 and refused.json["sources"][0]["signature"]["status"] == "invalid" and "pinned to key" in refused.json["sources"][0]["signature"]["detail"]
+    assert IndexCache.load(env.paths).mods == [] and read_audit(env.paths.audit)[-1]["result"] == "refused"
+    # 3. tampered bytes under a genuine signature: invalid
+    tampered_bytes = json.dumps({**INDEX, "mods": [{**INDEX["mods"][0], "versions": [{**INDEX["mods"][0]["versions"][0], "files": [{"url": "https://evil.example/reggy.zip", "sha256": "ee" * 32, "size": 1}]}]}]}).encode("utf-8")
+    _Registry.files["/reg/index.json"] = tampered_bytes
+    _Registry.files["/reg/index.json.sig"] = json.dumps(sign_detached(INDEX, key).to_dict()).encode("utf-8")
+    tampered = env.run("--json", "registry", "refresh")
+    assert tampered.exit == 1 and tampered.json["sources"][0]["signature"]["status"] == "invalid" and "does not match" in tampered.json["sources"][0]["signature"]["detail"]
+    assert "refused by default" in tampered.stderr and "does not match" in tampered.stderr
+    # 4. the user's explicit override admits it, loudly, with the audit rows (Requirement 8.3, 11.3)
+    admitted = env.run("--json", "registry", "add", env.base, "--allow-unsigned")
+    assert admitted.exit == 0 and admitted.json["sources"][0]["usable"] is True and admitted.json["sources"][0]["signature"]["status"] == "invalid"
+    assert "TRUST LOOSENED" in admitted.stderr and "INVALID" in admitted.stderr
+    ops = [r["op"] for r in read_audit(env.paths.audit)]
+    assert ops.count("registry-trust-loosened") == 1 and ops[-1] == "registry-refresh"
+    assert read_audit(env.paths.audit)[-1]["sources"][0] == {"label": "signed", "url": env.base, "status": "invalid", "usable": True, "allowUnsigned": True}
+    assert [m.id for m in IndexCache.load(env.paths).mods] == ["reggy"]
+    listed = env.run("--json", "registry", "list")
+    assert listed.json["sources"][0]["cache"]["usable"] is True and listed.json["sources"][0]["publicKey"] == public_b64
+    # 5. tightening back restores the default without a refetch; the compat rows of a tampered matrix follow the same rule
+    tightened = env.run("--json", "registry", "add", env.base, "--no-refresh")
+    assert tightened.json["mergedMods"] == 0 and tightened.json["mergedCompatRows"] == 0
+    env.publish(INDEX, key=key, compat=compat)  # index signed, compat.json unsigned
+    partial = env.run("--json", "registry", "refresh")
+    assert partial.exit == 0 and partial.json["sources"][0]["compatSignature"]["status"] == "unsigned" and partial.json["mergedMods"] == 1 and partial.json["mergedCompatRows"] == 0, "a verified index does not vouch for an unsigned matrix beside it"
+    # 6. a verified index older than the cached one is flagged as a rollback
+    env.publish({**INDEX, "generatedAt": "2020-01-01T00:00:00Z"}, key=key)
+    stale = env.run("--json", "registry", "refresh")
+    assert stale.exit == 0 and "older than the cached one" in stale.json["sources"][0]["rollback"] and "older than" in stale.stderr
+
+
+def test_install_from_a_signed_registry_checks_size_and_hash(env):
+    from floofy_core.signing import generate_keypair
+
+    key = generate_keypair()
+    mod = write_mod(env.work / "reggy", "reggy", parts=[{"kind": "agent", "side": "gateway", "path": "agents/r.json"}], files={"agents/r.json": "{}"})
+    archive = _zip(mod, "reggy")
+    _Registry.files["/files/reggy-1.0.0.zip"] = archive
+    files_base = f"http://127.0.0.1:{env.port}/files/"
+    good = {"url": files_base + "reggy-1.0.0.zip", "sha256": hashlib.sha256(archive).hexdigest(), "size": len(archive)}
+    index = {**INDEX, "mods": [{**INDEX["mods"][0], "versions": [{"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {}, "files": [{**good, "size": len(archive) + 1}]}]}]}
+    env.publish(index, key=key)
+    assert env.run("registry", "add", env.base, "--name", "signed", "--public-key", base64.b64encode(key.public_key).decode("ascii")).exit == 0
+    wrong_size = env.run("--yes", "install", "reggy")
+    assert wrong_size.exit == 1 and "size mismatch" in wrong_size.stderr and not (env.paths.mods / "reggy").exists()
+    index["mods"][0]["versions"][0]["files"] = [{**good, "sha256": "ab" * 32}]
+    env.publish(index, key=key)
+    assert env.run("registry", "refresh").exit == 0
+    wrong_hash = env.run("--yes", "install", "reggy")
+    assert wrong_hash.exit == 1 and "sha256 mismatch" in wrong_hash.stderr
+    index["mods"][0]["versions"][0]["files"] = [good]
+    env.publish(index, key=key)
+    assert env.run("registry", "refresh").exit == 0
+    installed = env.run("--yes", "--json", "install", "reggy")
+    assert installed.exit == 0, installed.stderr
+    assert installed.json["source"]["kind"] == "registry" and installed.json["source"]["sha256"] == good["sha256"]
+    assert env.run("--json", "which", good["sha256"]).json["hits"][0]["mod"] == "reggy"
 
 
 def test_colliding_ids_are_namespaced_by_the_configured_source_label(env):

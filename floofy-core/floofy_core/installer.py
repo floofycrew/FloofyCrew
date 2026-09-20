@@ -174,6 +174,7 @@ def resolve_source(
     opener_for: Callable[[str], Any] | None = None,
     channel: str | None = None,
     expected_size: int | None = None,
+    compat: CompatCache | None = None,
 ) -> ResolvedSource:
     """Turn ``<id[@version]|path|url>`` into a local mod directory to validate.
 
@@ -212,7 +213,7 @@ def resolve_source(
     # a registry reference: id or id@version
     mod_ref, _, version = ref.partition("@")
     cache = IndexCache.load(home)
-    entry, picked, why = cache.pick(mod_ref, base_version=base_version, edition=edition, host_version=host_version, requested=requested_version or version or None, channel=channel, compat=CompatCache.load(home.compat_cache))
+    entry, picked, why = cache.pick(mod_ref, base_version=base_version, edition=edition, host_version=host_version, requested=requested_version or version or None, channel=channel, compat=compat if compat is not None else CompatCache.load(home.compat_cache))
     if entry is None or picked is None:
         hint = "; ".join(cache.notes) if cache.notes else "run `floofy search` to see what the cache knows"
         raise InstallError(f"{why} ({hint})")
@@ -231,6 +232,7 @@ def resolve_source(
         opener=opener,
         opener_for=opener_for,
         expected_size=int(size) if isinstance(size, int) and not isinstance(size, bool) and size >= 0 else None,
+        compat=compat,
     )
     source.kind = "registry"
     source.ref = f"{entry.key}@{picked.version}"
