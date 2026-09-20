@@ -19,6 +19,7 @@ unofficial and says so in every banner.
 | `--kirocrew PATH` | the host's `kirocrew` launcher (default: `PATH`, then the payload's own) |
 | `--port PORT`, `--token TOKEN` | a running gateway's loopback port and a dashboard session token (default: the dashboard socket in the host home, a minted token) |
 | `--quiet`, `-q` | less prose |
+| `--no-color` | plain output: no ANSI styling and no banner — styling is also off when stdout is not a terminal, when `NO_COLOR` is set (any value) and with `--json`; `--json` output is byte-identical with and without styling |
 | `--vanilla` | the next gateway boot runs with every mod disabled, once |
 
 ## Commands

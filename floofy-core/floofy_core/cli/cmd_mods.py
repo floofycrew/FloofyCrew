@@ -210,7 +210,7 @@ def list_mods(ctx: CliContext, args: argparse.Namespace) -> int:
         ctx.say("no mods installed (floofy install <id | path | archive | https URL | git reference>)")
         return 0
     for r in rows:
-        ctx.say(f"  {r['id']} {r['version']}  enabled={r['enabled']}  tier={r['tier']}  source={r['source'] or 'none'}{' ' + str(r['ref']) if r['ref'] else ''}" + (f" @{str(r['commit'])[:12]}" if r["commit"] else "") + (" (dev link)" if r["link"] else "") + (f" PROBLEM: {r['problem']}" if r["problem"] else ""))
+        ctx.say(f"  {ctx.paint(r['id'], 'bold')} {r['version']}  enabled={ctx.paint(str(r['enabled']), 'ok' if r['enabled'] else 'muted')}  tier={r['tier']}  source={r['source'] or 'none'}{' ' + str(r['ref']) if r['ref'] else ''}" + (f" @{str(r['commit'])[:12]}" if r["commit"] else "") + (" (dev link)" if r["link"] else "") + (f" {ctx.paint('PROBLEM:', 'danger')} {r['problem']}" if r["problem"] else ""))
     return 0
 
 

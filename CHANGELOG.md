@@ -13,6 +13,15 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Added
 
+- Terminal style layer (Requirement 15.1, task 10.1): the CLI paints its human
+  output with a small semantic palette (`heading`, `ok`, `warn`, `danger`,
+  `muted`, `accent`) and the weights bold/dim/italic, choosing the colour depth
+  from `COLORTERM` (`truecolor`/`24bit` → 24-bit) and `TERM` (`256color` → 256,
+  else 16). Styling is off when stdout is not a terminal, under `NO_COLOR` (any
+  value), with the new global `--no-color`, on `TERM=dumb` and always with
+  `--json`, whose output stays byte-identical; `FORCE_COLOR` turns it on for a
+  pipe. What a line says never depends on colour: the transcript the manager page
+  reads is plain text.
 - `floofy install <git reference>` — `ssh://<host>/<path>@<tag>` or
   `https://<host>/<owner>/<repo>[.git]@<tag>` (optional `#<subdirectory>`): a
   shallow clone at the tag with your own git credentials, the commit recorded,

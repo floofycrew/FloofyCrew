@@ -18,12 +18,21 @@ Text output goes to ``out`` (stdout by default); in ``--json`` mode the prose is
 suppressed and the command's result document is printed once at the end by
 :mod:`floofy_core.cli.main`. Warnings always go to ``err`` so a JSON consumer
 still sees them.
+
+Styling (Requirement 15.1): :attr:`Console.style` is the :class:`Style` of
+``out`` — detected by :func:`floofy_core.cli.main.execute` from the terminal and
+the switches, off for the in-process ``run()`` the manager UI uses. Painted
+fragments (:meth:`Console.paint`, ``say(tone=…)``) reach ``out`` with their
+sequences and the :attr:`transcript` without them, so what a line *says* never
+depends on colour; ``--json`` turns styling off altogether.
 """
 from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
 from typing import IO, Callable, Iterable
+
+from .style import Style, strip_ansi
 
 __all__ = ["Console"]
 
@@ -41,25 +50,53 @@ class Console:
     quiet: bool = False
     #: Pre-supplied typed answers (``--confirm-governance-target``), consumed by :meth:`typed`.
     pre_typed: set[str] = field(default_factory=set)
-    #: Everything printed, for callers that capture (the UI's in-process run).
+    #: Everything printed, for callers that capture (the UI's in-process run). Always plain text.
     transcript: list[str] = field(default_factory=list)
+    #: The styling of ``out``; ``None`` until :func:`floofy_core.cli.main.execute` detects it (off by default).
+    style: Style | None = None
 
-    def say(self, message: str = "") -> None:
-        self.transcript.append(message)
+    # -- styling -----------------------------------------------------------------------------
+
+    @property
+    def styling(self) -> Style:
+        return self.style if self.style is not None else Style.off()
+
+    @property
+    def err_styling(self) -> Style:
+        """``err`` is painted only when it is a terminal too (or styling was forced)."""
+        style = self.styling
+        if style.forced or _isatty(self.err):
+            return style
+        return Style.off()
+
+    def paint(self, text: str, tone: str) -> str:
+        """A fragment of ``out`` in the palette colour ``tone`` (plain when styling is off)."""
+        return self.styling.paint(text, tone)
+
+    # -- output ------------------------------------------------------------------------------
+
+    def say(self, message: str = "", *, tone: str | None = None) -> None:
+        """Print one line; ``tone`` paints the whole line. The transcript keeps the plain text."""
+        self.transcript.append(strip_ansi(message))
         if not self.quiet:
-            print(message, file=self.out)
+            print(self.styling.paint(message, tone) if tone else message, file=self.out)
+
+    def heading(self, message: str) -> None:
+        self.say(message, tone="heading")
 
     def lines(self, messages: Iterable[str]) -> None:
         for message in messages:
             self.say(message)
 
     def warn(self, message: str) -> None:
-        self.transcript.append("WARNING " + message)
-        print("WARNING " + message, file=self.err)
+        self.transcript.append("WARNING " + strip_ansi(message))
+        print(self.err_styling.warn("WARNING") + " " + message, file=self.err)
 
     def error(self, message: str) -> None:
-        self.transcript.append("ERROR " + message)
-        print("ERROR " + message, file=self.err)
+        self.transcript.append("ERROR " + strip_ansi(message))
+        print(self.err_styling.danger("ERROR") + " " + message, file=self.err)
+
+    # -- questions ---------------------------------------------------------------------------
 
     def _read(self, prompt: str) -> str | None:
         reader = self.input_fn or input
@@ -97,3 +134,10 @@ class Console:
         ok = answer is not None and answer.strip() == expected
         self.transcript.append(f"{what}: {'typed' if ok else 'not confirmed'}")
         return ok
+
+
+def _isatty(stream: IO[str]) -> bool:
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, ValueError):
+        return False

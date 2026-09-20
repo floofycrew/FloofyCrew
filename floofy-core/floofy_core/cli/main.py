@@ -11,7 +11,9 @@ Global flags: ``--home`` (host home; default ``KIROCREW_HOME`` or ``~/.kiro/crew
 ``--json``, ``--yes`` (ordinary confirmations only — never the one-time consent
 or a governance-altering per-file confirmation), ``--root`` (extra payload
 root, repeatable), ``--no-adapters``, ``--kirocrew`` (the host launcher),
-``--port``/``--token`` (a running gateway), ``--version``.
+``--port``/``--token`` (a running gateway), ``--no-color`` (plain output;
+styling is also off on a non-terminal, under ``NO_COLOR`` and with ``--json`` —
+Requirement 15.1), ``--version``.
 
 :func:`run` executes one command in-process and returns ``RunResult(exit,
 stdout, json)``; the Loader's ``POST /api/apps/floofycrew/cli`` route calls it
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +33,7 @@ from typing import Any, Callable
 from .. import API_VERSION, __version__ as FRAMEWORK_VERSION
 from .console import Console
 from .context import CliContext, CliError, build_context, dumps
+from .style import Style
 
 __all__ = ["RunResult", "build_parser", "main", "run"]
 
@@ -78,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=None, help="loopback port of a running gateway (default: the dashboard socket in the host home)")
     parser.add_argument("--token", default=None, help="a dashboard session token to use instead of minting one")
     parser.add_argument("--quiet", "-q", action="store_true", help="less prose")
+    parser.add_argument("--no-color", action="store_true", help="plain output: no ANSI styling (also off on a non-terminal, under NO_COLOR, and with --json)")
     parser.add_argument("--vanilla", action="store_true", help="same as `floofy vanilla`: the next gateway boot runs with every mod disabled, once")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
@@ -103,6 +108,11 @@ def _version_lines() -> list[str]:
     return [f"floofy {FRAMEWORK_VERSION} (api {API_VERSION}) — {UNOFFICIAL}"]
 
 
+def _say_version(console: Console) -> None:
+    """The one-line version banner, painted (the text is :func:`_version_lines`)."""
+    console.say(f"{console.paint(f'floofy {FRAMEWORK_VERSION}', 'heading')} {console.paint(f'(api {API_VERSION})', 'muted')} — {console.paint(UNOFFICIAL, 'italic')}")
+
+
 def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway: bool = False, on_mutation: Callable[[str], None] | None = None, allow: frozenset[str] | None = None, live_state: Callable[[], dict[str, Any]] | None = None) -> tuple[int, dict[str, Any]]:
     """Parse and run one command; returns ``(exit code, result document)``."""
     parser = build_parser()
@@ -114,8 +124,11 @@ def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway
     console.assume_yes = bool(args.yes)
     console.quiet = console.quiet or bool(args.json) or bool(args.quiet)
     console.non_interactive = console.non_interactive or bool(args.json) or (console.input_fn is None and not _stdin_is_tty())
+    if console.style is None:
+        # Requirement 15.1: off on a non-terminal, under NO_COLOR, with --no-color and always with --json
+        console.style = Style.detect(env=os.environ, is_tty=_isatty(console.out), no_color=bool(args.no_color) or bool(args.json))
     if args.version:
-        console.say(_version_lines()[0])
+        _say_version(console)
         return 0, {"version": FRAMEWORK_VERSION, "apiVersion": API_VERSION, "unofficial": True}
     if args.vanilla and not args.command:
         args.command = "vanilla"
@@ -153,6 +166,13 @@ def _stdin_is_tty() -> bool:
         return False
 
 
+def _isatty(stream: Any) -> bool:
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, ValueError):
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     """The console-script / ``python -m`` entry: prints, exits."""
     args = list(sys.argv[1:] if argv is None else argv)
@@ -168,10 +188,11 @@ def run(argv: list[str], *, home: Path | str | None = None, non_interactive: boo
 
     ``non_interactive`` makes every ordinary confirmation take its default (``no``
     unless ``assume_yes``); typed confirmations (consent, governance-altering
-    targets) are refused outright — they stay CLI-only by design.
+    targets) are refused outright — they stay CLI-only by design. Styling is off:
+    the captured text is for machines and the manager page.
     """
     out, err = io.StringIO(), io.StringIO()
-    console = Console(out=out, err=err, non_interactive=non_interactive, assume_yes=assume_yes)
+    console = Console(out=out, err=err, non_interactive=non_interactive, assume_yes=assume_yes, style=Style.off())
     full = list(argv)
     if home is not None and "--home" not in full:
         full = ["--home", str(home), *full]

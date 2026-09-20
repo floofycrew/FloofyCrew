@@ -87,8 +87,12 @@ class CliContext:
 
     # -- output ------------------------------------------------------------------------------
 
-    def say(self, message: str = "") -> None:
-        self.console.say(message)
+    def say(self, message: str = "", *, tone: str | None = None) -> None:
+        self.console.say(message, tone=tone)
+
+    def paint(self, text: str, tone: str) -> str:
+        """A painted fragment for ``say`` (plain when styling is off; Requirement 15.1)."""
+        return self.console.paint(text, tone)
 
     def warn(self, message: str) -> None:
         self.console.warn(message)

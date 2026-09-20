@@ -73,12 +73,12 @@ def _consent_step(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any]:
         ctx.say(f"consent: already recorded on {current.acknowledged_at} by {current.by or '?'} (warning v{current.warning_version}); --reaccept to see the warning again")
         return {**current.to_dict(), "status": "existing"}
     ctx.say("")
-    ctx.say("=" * 72)
-    ctx.say("  READ THIS ONCE — FloofyCrew consent")
-    ctx.say("=" * 72)
+    ctx.say("=" * 72, tone="danger")
+    ctx.say("  READ THIS ONCE — FloofyCrew consent", tone="heading")
+    ctx.say("=" * 72, tone="danger")
     for line in WARNING_TEXT.rstrip().splitlines():
         ctx.say("  " + line)
-    ctx.say("=" * 72)
+    ctx.say("=" * 72, tone="danger")
     if args.accept_flag:
         how = "flag"
         ctx.say(f"consent: acknowledged with --i-accept-the-risk (recorded as such)")
@@ -226,7 +226,7 @@ def _early_step(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any]:
 
 
 def init(ctx: CliContext, args: argparse.Namespace) -> int:
-    ctx.say("floofy init — FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew.")
+    ctx.say(f"{ctx.paint('floofy init', 'heading')} — {ctx.paint('FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew.', 'italic')}")
     consent = _consent_step(ctx, args)
     ctx.home.ensure()
     ctx.home.profiles.mkdir(parents=True, exist_ok=True)

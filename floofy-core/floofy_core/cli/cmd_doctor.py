@@ -255,26 +255,26 @@ def _quarantine_summary(ctx: CliContext) -> dict[str, list[str]]:
 
 def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
     about, host, loader = report["floofycrew"], report["host"], report["loader"]
-    ctx.say(f"floofy doctor — FloofyCrew {about['version']} (api {about['apiVersion']}, unofficial) on Python {about['python']}")
-    ctx.say(f"host: edition={host['edition']} version={host['version']} channel={host['channel']} home={host['hostHome']}")
+    ctx.say(f"{ctx.paint('floofy doctor', 'heading')} — FloofyCrew {about['version']} (api {about['apiVersion']}, {ctx.paint('unofficial', 'italic')}) on Python {about['python']}")
+    ctx.say(f"{ctx.paint('host:', 'accent')} edition={host['edition']} version={host['version']} channel={host['channel']} home={host['hostHome']}")
     gateway = host["gateway"]
-    ctx.say(f"gateway: {'running, serving ' + str(gateway['servedVersion']) + ' at ' + str(gateway['endpoint']) if gateway['running'] else 'not running (or not reachable from here)'}")
+    ctx.say(f"{ctx.paint('gateway:', 'accent')} {ctx.paint('running', 'ok') + ', serving ' + str(gateway['servedVersion']) + ' at ' + str(gateway['endpoint']) if gateway['running'] else ctx.paint('not running (or not reachable from here)', 'muted')}")
     for payload in host["payloads"]:
         flags = ", ".join(f for f, on in (("current", payload["current"]), ("dormant", payload["dormant"])) if on) or "-"
         ctx.say(f"  payload {payload['id']} [{payload['edition']}, {payload['channel'] or '?'}; {flags}] {payload['root']}")
     if not host["payloads"]:
         for root in host["searchedRoots"]:
             ctx.say(f"  searched root: {root}")
-    ctx.say(f"loader app: installed={loader['installed']} enabled={loader['enabled']} version={loader['version']} ({loader['appDir']})")
+    ctx.say(f"{ctx.paint('loader app:', 'accent')} installed={loader['installed']} enabled={loader['enabled']} version={loader['version']} ({loader['appDir']})")
     if loader["state"]:
         state = loader["state"]
         ctx.say(f"  last boot ({loader['stateSource']}): loader={state.get('loader')} active={state.get('active')} at {state.get('bootedAt')}" + (" [vanilla boot]" if state.get("vanilla") else ""))
         for error in state.get("errors") or []:
-            ctx.say(f"  loader error: {error}")
+            ctx.say(f"  loader error: {error}", tone="danger")
     if loader["failure"]:
-        ctx.say(f"  LOADER FAILURE during {loader['failure'].get('phase')}: {loader['failure'].get('error')}")
+        ctx.say(f"  LOADER FAILURE during {loader['failure'].get('phase')}: {loader['failure'].get('error')}", tone="danger")
     consent = report["consent"]
-    ctx.say(f"consent: {consent['status']}" + (f" (v{consent['warningVersion']} by {consent['by']} at {consent['acknowledgedAt']}, {consent.get('how') or 'unknown'})" if consent["status"] == "ok" else f" — {consent['message']}"))
+    ctx.say(f"{ctx.paint('consent:', 'accent')} {ctx.paint(consent['status'], 'ok' if consent['status'] == 'ok' else 'warn')}" + (f" (v{consent['warningVersion']} by {consent['by']} at {consent['acknowledgedAt']}, {consent.get('how') or 'unknown'})" if consent["status"] == "ok" else f" — {consent['message']}"))
     shim = report["earlyShim"]
     if shim.get("available"):
         for entry in shim["payloads"]:
@@ -285,12 +285,12 @@ def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
     else:
         ctx.say(f"early shim: {shim.get('detail')}")
     for trigger in report["triggers"]["managers"]:
-        ctx.say(f"trigger [{trigger['kind']}]: {'installed' if trigger['installed'] else 'missing'}" + (f", active={trigger['active']}" if trigger.get("active") is not None else "") + (f" — {trigger['detail']}" if trigger.get("detail") else ""))
+        ctx.say(f"trigger [{trigger['kind']}]: {ctx.paint('installed', 'ok') if trigger['installed'] else ctx.paint('missing', 'warn')}" + (f", active={trigger['active']}" if trigger.get("active") is not None else "") + (f" — {trigger['detail']}" if trigger.get("detail") else ""))
     startup = report["triggers"]["loaderStartup"]
-    ctx.say(f"trigger [loader-startup]: {'present' if startup['installed'] else 'missing'} — {startup['detail']}")
+    ctx.say(f"trigger [loader-startup]: {ctx.paint('present', 'ok') if startup['installed'] else ctx.paint('missing', 'warn')} — {startup['detail']}")
     governance = report["governance"]
     if governance["warnings"]:
-        ctx.say("governance (information only — never a gate):")
+        ctx.say("governance (information only — never a gate):", tone="warn")
         for warning in governance["warnings"]:
             who = f" [{', '.join(warning['affectedTargets'])}]" if warning["affectedTargets"] else ""
             ctx.say(f"  {warning['code']}{who}: {warning['message']}")
@@ -311,11 +311,11 @@ def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
     if report["vanillaRequested"]:
         ctx.say("vanilla boot requested: the next gateway start disables every mod once")
     if report["problems"]:
-        ctx.say("problems:")
+        ctx.say("problems:", tone="danger")
         for problem in report["problems"]:
             ctx.say(f"  - {problem}")
     else:
-        ctx.say("no problems found")
+        ctx.say("no problems found", tone="ok")
 
 
 # --- status -----------------------------------------------------------------------------------------
@@ -360,18 +360,19 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
         rows.append(row)
     pending = sorted(p.name for p in ctx.home.pending.iterdir()) if ctx.home.pending.is_dir() else []
     ctx.set_result(loader={"source": source, "state": (state or {}).get("loader"), "bootedAt": (state or {}).get("bootedAt"), "vanilla": (state or {}).get("vanilla")}, mods=rows, pending=pending, quarantine=_quarantine_summary(ctx), host={"version": current.host_version.text if current else None, "edition": ctx.edition()})
-    ctx.say(f"floofy status — {len(rows)} mod(s); loader state from {source}" + (f" ({(state or {}).get('loader')}, booted {(state or {}).get('bootedAt')})" if state else ""))
+    ctx.say(f"{ctx.paint('floofy status', 'heading')} — {len(rows)} mod(s); loader state from {source}" + (f" ({(state or {}).get('loader')}, booted {(state or {}).get('bootedAt')})" if state else ""))
     for row in rows:
         marker = "on " if row["active"] else ("--" if row["enabled"] is False else "off")
+        glyph = ctx.paint(f"[{marker}]", "ok" if row["active"] else ("muted" if row["enabled"] is False else "warn"))
         reason = f" reason={row['reason']}" if row["reason"] else ""
-        ctx.say(f"  [{marker}] {row['id']} {row['version']}  enabled={row['enabled']} compat={row['hostCompat']} tier={row['tier']}{reason}" + (f" — {row['detail']}" if row["detail"] else "") + (" (dev link)" if row["link"] else ""))
+        ctx.say(f"  {glyph} {ctx.paint(row['id'], 'bold')} {row['version']}  enabled={row['enabled']} compat={row['hostCompat']} tier={row['tier']}{reason}" + (f" — {row['detail']}" if row["detail"] else "") + (" (dev link)" if row["link"] else ""))
         for part in row["parts"]:
             seam_note = f"; on disk: {part['seamStatus']}" if part.get("seamStatus") else ""
             ctx.say(f"       part {part['index']} {part['kind']}/{part.get('side', '?')} {part.get('path', '')}: {part.get('status', '?')} via {part.get('seam', '')}{seam_note}" + (" [modifies payload files]" if part.get("modifiesPayload") else ""))
         for warning in row["warnings"]:
-            ctx.say(f"       warning {warning.get('code')}: {warning.get('message')}")
+            ctx.say(f"       {ctx.paint('warning', 'warn')} {warning.get('code')}: {warning.get('message')}")
         for warning in row["governance"]:
-            ctx.say(f"       governance {warning.get('code')}: {warning.get('message')}")
+            ctx.say(f"       {ctx.paint('governance', 'warn')} {warning.get('code')}: {warning.get('message')}")
     if pending:
         ctx.say(f"pending (applied at the next gateway start — restart to apply): {', '.join(pending)}")
     quarantine = _quarantine_summary(ctx)
