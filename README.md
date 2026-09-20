@@ -6,6 +6,31 @@ registries with a per-host-version compatibility matrix, and a KiroCrew-driven
 release-tracking "Forge" — covering both the internal edition of KiroCrew and
 the public open-source edition from one codebase.
 
+## Install
+
+Public edition (GitHub releases; HTTPS only, every asset verified against
+`SHA256SUMS`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/<org>/FloofyCrew/main/packaging/public/install.sh | sh
+floofy doctor
+```
+
+or, into the host's own virtualenv: `pip install floofycrew-<version>-py3-none-any.whl`.
+
+Internal edition (the `FloofyCrew` ***REMOVED*** data package; the clone URL and the
+details are in [packaging/internal/FloofyCrew/README.md](packaging/internal/FloofyCrew/README.md)):
+
+```bash
+git clone <the FloofyCrew package> && cd FloofyCrew
+bash install.sh            # add `-- --i-accept-the-risk` only for automation you own
+floofy doctor
+```
+
+Both paths end in `floofy init`, which shows the one-time warning and installs
+nothing before you acknowledge it; `floofy doctor` afterwards tells you where
+you stand, and `floofy restore --all` takes everything back out.
+
 > FloofyCrew is an unofficial, community project. It is not affiliated with,
 > endorsed by or supported by Kiro or the KiroCrew maintainers, and it does not
 > use their branding as its own. It attaches to the KiroCrew you already have and
@@ -20,15 +45,6 @@ reproducibly by `packaging/`; the compatibility matrix rows come from the Forge.
 What the release supports is in [CHANGELOG.md](CHANGELOG.md), in
 `pyproject.toml` (`[tool.floofycrew] supports`) and in the release's
 `supports.json`.
-
-## Install
-
-Public edition (GitHub releases): `curl -fsSL https://raw.githubusercontent.com/<org>/FloofyCrew/main/packaging/public/install.sh | sh`
-— HTTPS only, every asset verified against `SHA256SUMS`, then `floofy init`
-shows the one-time warning; or `pip install floofycrew-<version>-py3-none-any.whl`
-into the host's venv. Internal edition: clone the `FloofyCrew` data package and
-run its `install.sh` (`packaging/internal/FloofyCrew/README.md`). Either way
-`floofy doctor` afterwards tells you where you stand.
 
 ## Documentation
 
