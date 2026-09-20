@@ -36,9 +36,9 @@
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\\+([0-9a-zA-Z-]+(\\.[0-9a-zA-Z-]+)*))?$"
     },
     "hostVersion": {
-      "description": "A host version as the host prints it: X.Y.Z (public), X.Y.Z.N (internal) or X.Y.Z-insider.N / X.Y.Z.devN (public pre-releases).",
+      "description": "A host version as the host prints it (floofy_core.semver.HostVersion; the same pattern as compat.schema.json): X.Y.Z (public), X.Y.Z.N (internal), X.Y.ZrcN / X.Y.Z.devN / X.Y.Z-insider.N (public pre-releases).",
       "type": "string",
-      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([.-][0-9A-Za-z.-]+)?$"
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+((a|b|rc)[0-9]+)?(\\.[0-9]+)?(\\.dev[0-9]+)?(-[0-9A-Za-z][0-9A-Za-z.-]*)?$"
     },
     "verdict": { "type": "string", "enum": ["tested", "expected", "broken"] },
     "url": { "type": "string", "pattern": "^https://[^\\s]+$" },

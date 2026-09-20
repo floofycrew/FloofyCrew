@@ -95,6 +95,13 @@ def test_build_index_from_records_folds_the_matrix_and_passes_the_schema(registr
     ok, message = index_matches(repo.index_path, result)
     assert not ok and "stale" in message
     assert fold_compat(None, "x", "1.0.0") == {}
+    # the publisher's release stamp never makes the CI gate fail: `build --floofycrew 1.0.0`
+    # then a plain `build --check` (the templates' gate) passes, an explicit different stamp does not
+    assert main(["build", str(registry.root), "--floofycrew", "1.0.0"]) == 0
+    assert json.loads(repo.index_path.read_text(encoding="utf-8"))["floofycrew"] == "1.0.0"
+    assert main(["build", str(registry.root), "--check"]) == 0
+    assert main(["build", str(registry.root), "--check", "--floofycrew", "1.0.0"]) == 0
+    assert main(["build", str(registry.root), "--check", "--floofycrew", "1.0.1"]) == 1
 
 
 def test_build_reports_record_defects(registry: ScratchRegistry, tmp_path: Path):

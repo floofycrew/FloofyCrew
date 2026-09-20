@@ -148,7 +148,15 @@ def write_index(repo: RegistryRepo, result: BuildResult, *, out: Path | None = N
 
 
 def index_matches(existing: Path, result: BuildResult) -> tuple[bool, str]:
-    """Whether the committed index equals the rebuilt one, ignoring ``generatedAt`` (compared in canonical form)."""
+    """Whether the committed index equals the rebuilt one (compared in canonical form).
+
+    ``generatedAt`` is ignored, and so is the ``floofycrew`` release stamp when the
+    rebuild was not given one: the stamp is set by whoever publishes (the Forge's
+    release stage, ``build --floofycrew``), while the CI gate (``build --check``,
+    Requirement 8.7) only knows the records under ``mods/`` — a gate that failed on
+    the publisher's own stamp would reject every release. An explicit
+    ``--floofycrew`` on the check still has to match.
+    """
     try:
         committed = json.loads(Path(existing).read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -157,8 +165,9 @@ def index_matches(existing: Path, result: BuildResult) -> tuple[bool, str]:
         return False, f"{existing}: {exc}"
     if not isinstance(committed, dict):
         return False, f"{existing}: not a JSON object"
-    left = {k: v for k, v in committed.items() if k != "generatedAt"}
-    right = {k: v for k, v in result.index.items() if k != "generatedAt"}
+    ignored = {"generatedAt"} | ({"floofycrew"} if "floofycrew" not in result.index else set())
+    left = {k: v for k, v in committed.items() if k not in ignored}
+    right = {k: v for k, v in result.index.items() if k not in ignored}
     if canonical_bytes(left) != canonical_bytes(right):
         return False, f"{existing} is stale: it differs from the index rebuilt from mods/ (run `registry_tools build` and commit)"
     return True, f"{existing} is up to date with mods/"

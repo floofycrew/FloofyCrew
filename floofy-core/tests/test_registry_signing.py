@@ -322,6 +322,38 @@ def test_index_and_compat_schemas_accept_the_design_examples_and_reject_defects(
 
 
 
+@pytest.mark.parametrize(
+    ("host_version", "accepted"),
+    [
+        ("0.6.0", True),  # public stable
+        ("0.7.0.5", True),  # internal build number
+        ("0.7.0rc5", True),  # public insider: a PEP 440 pre-release, no separator
+        ("0.8.0.dev20260920060902", True),  # public nightly
+        ("0.7.0-insider.3", True),  # the design's hyphenated pre-release form
+        ("0.7.0a1", True),
+        ("0.7", False),
+        ("v0.7.0", False),
+        ("0.7.0 rc5", False),
+        ("latest", False),
+    ],
+)
+def test_both_schemas_accept_every_host_version_shape_the_host_prints(host_version: str, accepted: bool):
+    """Requirement 8.1 and 9.1: an index compat cell and a matrix row must accept the same host
+    version strings — the Forge's public insider row (``0.7.0rc5``) was refused by the index
+    schema while ``compat.schema.json`` took it, so ``registry_tools build`` could not fold the
+    measured cell into ``index.json``."""
+    index_schema, compat_schema = load_schema("index"), load_schema("compat")
+    assert index_schema["$defs"]["hostVersion"]["pattern"] == compat_schema["$defs"]["hostVersion"]["pattern"]
+    index = json.loads(json.dumps(INDEX_EXAMPLE))
+    index["mods"][0]["versions"][0]["compat"] = {host_version: "tested"}
+    row = json.loads(json.dumps(COMPAT_EXAMPLE))
+    row["rows"][0]["hostVersion"] = host_version
+    index_ok = validate_instance(index, index_schema) == []
+    compat_ok = validate_instance(row, compat_schema) == []
+    assert index_ok is accepted and compat_ok is accepted, (host_version, index_ok, compat_ok)
+
+
+
 # --- the client: grading, hash lookup, namespacing, downloads (Requirement 8.4, 8.5, 9.2) ------------------------
 
 
