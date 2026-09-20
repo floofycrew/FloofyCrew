@@ -29,6 +29,8 @@ from registry_tools.submission import validate_submission
 
 from registry_testing import REPO_ROOT
 
+pytestmark = pytest.mark.registry
+
 EDITION_CONFIGS = {json.loads(p.read_text(encoding="utf-8"))["edition"]: p for p in REPO_ROOT.glob("editions/*/floofy_edition_*/registry.json")}
 FIXTURE_DIST = REPO_ROOT / "floofy-core" / "tests" / "fixtures" / "dist-0.7.0.5"
 

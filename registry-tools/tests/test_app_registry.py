@@ -17,6 +17,8 @@ from registry_tools.repo import RegistryRepo
 
 from registry_testing import REPO_ROOT, ScratchRegistry
 
+pytestmark = pytest.mark.registry
+
 
 def _licensed(registry: ScratchRegistry, kind: str, target: Path, **overrides) -> Path:
     root = registry.copy_example(kind, target)

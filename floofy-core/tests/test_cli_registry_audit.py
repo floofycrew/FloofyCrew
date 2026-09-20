@@ -28,6 +28,8 @@ from floofy_core.registry_sources import Source, SourceStore, VerifyResult, sour
 from floofy_testing import fake_payload
 from test_cli_mods import write_mod
 
+pytestmark = pytest.mark.registry
+
 
 class _Registry(BaseHTTPRequestHandler):
     files: dict[str, bytes] = {}

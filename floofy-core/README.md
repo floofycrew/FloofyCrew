@@ -70,4 +70,13 @@ lands in `KIRO_HOME`, which `--home` does not move), and every conftest
 fingerprints the live dashboard shells and the live drop-in seams' `.floofy-owner`
 sidecars before and after the run. The opt-in real-gateway smoke
 (`tests/test_real_gateway.py`, `FLOOFY_REAL_PAYLOAD=1`) runs a copy of a payload
-under `.scratch/` with scratch homes; see its docstring.
+under `.scratch/` with scratch homes; see its docstring. `pytest -m registry`
+runs the registry and compatibility-matrix suite alone (task 7.6; ~20 s):
+`tests/test_registry_signing.py` is its index — RFC 8032 vectors and the openssl
+cross-check, sign/verify/tamper, pinned keys, schemas, `best_version` grading,
+hash lookup, collision namespacing, download checks — with the end-to-end CLI
+trust chain in `tests/test_cli_registry_audit.py`, the tooling in
+`registry-tools/tests/`, the adapters' pinned keys in `editions/*/tests/` and the
+host-side acceptance (`app-registry.json` read by the host's own reader, the
+operator row's `PUT` round trip) in `registry-tools/tests/test_app_registry.py`
+and `loader-app/tests/test_gateway.py`.

@@ -1,30 +1,52 @@
-"""Registry schemas, canonical JSON and the Ed25519 detached signature (tasks 7.1, 7.6; Requirement 8.1, 8.3, 9.1, 13.3).
+"""The registry test suite of the core (tasks 7.1–7.6; Requirement 8.1, 8.3, 8.4, 8.5, 9.1, 9.2, 13.3).
 
-Pure functions and fixtures only — no network, no live install. The RFC 8032 §7.1
-vectors pin the curve arithmetic; an opt-in ``openssl`` cross-check (skipped when
-the binary lacks Ed25519) pins it against an independent implementation.
+Design "Testing Strategy → Registry" and where each item lives (``pytest -m registry``
+runs them all; the whole registry set adds well under 30 s to the suite):
+
+| Item | Where |
+|---|---|
+| sign/verify round trip (fresh keys), RFC 8032 §7.1 vectors, openssl cross-check | here: ``test_rfc8032_vectors_sign_and_verify``, ``test_sign_verify_round_trip_tamper_and_key_pinning``, ``test_openssl_cross_check`` |
+| tampered index refused by default, admitted with the audited ``--allow-unsigned`` | ``test_cli_registry_audit.py::test_real_signature_flow_verified_tampered_and_audited_override`` (end to end through the CLI, real keys), the verifier alone here in ``test_verify_index_uses_edition_and_source_pinned_keys`` |
+| hash lookup (Requirement 8.5) | here: ``test_hash_lookup_resolves_mod_at_version``; ``test_cli_registry_audit.py::test_which_resolves_hashes_from_cache_and_installed_mods`` |
+| federated collision namespacing (Requirement 8.4) | here: ``test_colliding_ids_are_namespaced_by_the_callers_label``; ``test_cli_registry_audit.py::test_colliding_ids_are_namespaced_by_the_configured_source_label`` |
+| ``best_version`` selection (Requirement 9.2) | here: ``test_best_version_grades_tested_over_expected_over_unknown_and_excludes_broken``, ``test_matrix_row_outranks_the_inline_cell_and_falls_back_across_channels`` |
+| download hash + size checks | here: ``test_download_checks_sha256_and_size_and_discards_the_file`` |
+| schemas (index, compat, signature) accept the design examples | here: ``test_index_and_compat_schemas_accept_the_design_examples_and_reject_defects`` |
+| ``app-registry.json`` accepted by the host's own reader | ``registry-tools/tests/test_app_registry.py::test_emitted_rows_are_accepted_by_the_hosts_reader`` (the payload copy's interpreter runs ``kiro_crew.apps.registry``) and the operator row's ``PUT`` round trip on a scratch gateway in ``loader-app/tests/test_gateway.py::test_9b_…`` |
+| registry-tools: build, sign, validate-submission, compat-merge, bootstrap | ``registry-tools/tests/`` |
+| the adapters' pinned keys and default sources | ``editions/*/tests/test_*_registry.py`` |
+
+Pure functions and fixtures only — no network beyond loopback, no live install.
 """
 from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import io
 import json
-import os
 import shutil
 import stat
 import subprocess
-import tempfile
+import threading
+import zipfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 from floofy_core import registry_sources
 from floofy_core.canonical import CANONICAL_FORM, CanonicalError, canonical_bytes, canonical_bytes_of_json
+from floofy_core.compat import CompatCache
+from floofy_core.installer import InstallError, download
+from floofy_core.registry import IndexCache
 from floofy_core.schema import SCHEMA_IDS, load_schema
 from floofy_core.schema.check import validate_instance
 from floofy_core.sigverify import SignatureError, ed25519_verify, key_id, parse_signature_document, verify_detached
-from floofy_core.signing import KeyPair, ed25519_sign, generate_keypair, keypair_from_seed, load_private_key, load_public_key_record, main as signing_main, sign_detached, sign_document
+from floofy_core.signing import ed25519_sign, generate_keypair, keypair_from_seed, load_private_key, load_public_key_record, main as signing_main, sign_detached, sign_document
 from floofy_core.registry_sources import Source, verify_index
+
+pytestmark = pytest.mark.registry
 
 # RFC 8032 §7.1: (secret key, public key, message, signature), all hex.
 RFC8032_VECTORS = [
@@ -297,3 +319,126 @@ def test_index_and_compat_schemas_accept_the_design_examples_and_reject_defects(
     assert any("framework/loader" in m for m in messages) and any("not a cell" in m for m in messages) and any("'reason'" in m for m in messages)
     assert validate_instance({"schema": 1, "rows": []}, compat_schema) == []
     assert validate_instance({"schema": 1, "source": "x", "generatedAt": "2026-01-01T00:00:00Z", "mods": []}, index_schema) == []
+
+
+
+# --- the client: grading, hash lookup, namespacing, downloads (Requirement 8.4, 8.5, 9.2) ------------------------
+
+
+def _index(versions: list[dict]) -> IndexCache:
+    return IndexCache.from_documents([("src", {"schema": 1, "source": "src", "mods": [{"id": "m", "name": "M", "versions": [{"kirocrew": ">=0.7.0 <0.9.0", "compat": {}, "files": [{"url": "https://x.example/m.zip", "sha256": "0" * 64, "size": 1}], **v} for v in versions]}]})])
+
+
+def _compat(rows: list[dict]) -> CompatCache:
+    return CompatCache.from_dict({"schema": 1, "rows": [{"framework": {"loader": "ok"}, **r} for r in rows]})
+
+
+HOST = {"base_version": "0.7.0", "edition": "internal", "host_version": "0.7.0.5", "channel": "beta"}
+
+
+def test_best_version_grades_tested_over_expected_over_unknown_and_excludes_broken():
+    cache = _index([
+        {"version": "0.9.0", "compat": {"0.7.0.5": "tested"}},
+        {"version": "1.0.0", "compat": {"0.7.0.5": "expected"}},
+        {"version": "1.1.0"},
+        {"version": "2.0.0", "compat": {"0.7.0.5": "broken"}},
+        {"version": "3.0.0", "kirocrew": ">=0.9.0"},
+        {"version": "3.1.0", "editions": ["external"]},
+        {"version": "4.0.0", "compat": {"0.7.0.5": "tested"}, "yanked": "pulled: data loss"},
+        {"version": "not-semver"},
+    ])
+    best = cache.best_version("m", **HOST)
+    assert (best.version.version, best.verdict) == ("0.9.0", "tested"), "tested beats newer expected and unknown; broken, out-of-range, other-edition, yanked never"
+    assert cache.pick("m", **HOST)[1].version == "0.9.0" and cache.pick("m", requested="1.1.0", **HOST)[1].version == "1.1.0"
+    plain = _index([{"version": "1.0.0"}, {"version": "1.2.0"}, {"version": "1.1.0"}])
+    assert plain.best_version("m", **HOST).version.version == "1.2.0" and plain.best_version("m", **HOST).verdict is None, "without any verdict the newest in range wins"
+    none = _index([{"version": "2.0.0", "compat": {"0.7.0.5": "broken"}}, {"version": "3.0.0", "kirocrew": ">=0.9.0"}])
+    answer = none.best_version("m", **HOST)
+    assert answer.version is None and "2.0.0 (broken on 0.7.0.5)" in answer.why and "3.0.0 (declares kirocrew >=0.9.0)" in answer.why, "every exclusion is named"
+    assert cache.best_version("nope", **HOST).why == "'nope' is not in the registry cache"
+    assert answer.to_dict() == {"key": "m", "version": None, "verdict": None, "why": answer.why}
+
+
+def test_matrix_row_outranks_the_inline_cell_and_falls_back_across_channels():
+    cache = _index([{"version": "1.0.0", "compat": {"0.7.0.5": "tested"}}, {"version": "1.1.0", "compat": {"0.7.0.5": "expected"}}])
+    compat = _compat([{"edition": "internal", "channel": "beta", "hostVersion": "0.7.0.5", "mods": {"m@1.1.0": "tested", "m@1.0.0": "broken"}}])
+    best = cache.best_version("m", compat=compat, **HOST)
+    assert (best.version.version, best.verdict) == ("1.1.0", "tested"), "the matrix row wins over the index's inline cells"
+    all_broken = _compat([{"edition": "internal", "channel": "beta", "hostVersion": "0.7.0.5", "mods": {"m@1.0.0": "broken", "m@1.1.0": "broken"}}])
+    assert "1.0.0 (broken on 0.7.0.5)" in cache.best_version("m", compat=all_broken, **HOST).why
+    stable_only = _compat([{"edition": "internal", "channel": "stable", "hostVersion": "0.7.0.5", "mods": {"m@1.1.0": "tested"}}])
+    assert cache.best_version("m", compat=stable_only, **HOST).version.version == "1.1.0", "a build whose channel has no row takes the same edition's row for that version"
+    assert cache.best_version("m", compat=stable_only, **{**HOST, "channel": None}).version.version == "1.1.0"
+    other = _compat([{"edition": "external", "channel": "stable", "hostVersion": "0.7.0", "mods": {"m@1.1.0": "tested"}}])
+    assert cache.best_version("m", compat=other, **HOST).version.version == "1.0.0", "another edition's row does not apply"
+    partial = _compat([{"edition": "internal", "channel": "beta", "hostVersion": "0.7.0.5", "mods": {"m@1.0.0": "expected"}}])
+    assert cache.best_version("m", compat=partial, **HOST).version.version == "1.1.0", "a cell for one version only leaves the others to their inline verdicts"
+    overridden = CompatCache.from_dict({"schema": 1, "rows": [{"edition": "internal", "channel": "beta", "hostVersion": "0.7.0.5", "framework": {"loader": "ok"}, "mods": {"m@1.1.0": "tested"}, "overrides": [{"cell": "m@1.1.0", "verdict": "broken", "reason": "r", "by": "b"}]}]})
+    assert cache.best_version("m", compat=overridden, **HOST).version.version == "1.0.0", "a human override is applied by the reader"
+
+
+def test_hash_lookup_resolves_mod_at_version():
+    """Requirement 8.5: any file's sha256 → mod@version (and the file) from the index."""
+    cache = IndexCache.from_documents([("src", {"schema": 1, "source": "src", "mods": [
+        {"id": "a", "name": "A", "versions": [{"version": "1.0.0", "files": [{"url": "https://x/a-1.zip", "sha256": "aa" * 32, "size": 1}]}, {"version": "1.1.0", "files": [{"url": "https://x/a-1.1.zip", "sha256": "ab" * 32, "size": 1}, {"url": "https://x/a-1.1.tar.gz", "sha256": "ac" * 32, "size": 1}]}]},
+        {"id": "b", "name": "B", "versions": [{"version": "2.0.0", "files": [{"url": "https://x/b.zip", "sha256": "AB" * 32, "size": 1}]}]},
+    ]})])
+    hits = cache.by_hash("ab" * 32)
+    assert [(e.key, v.version, f["url"]) for e, v, f in hits] == [("a", "1.1.0", "https://x/a-1.1.zip"), ("b", "2.0.0", "https://x/b.zip")], "case-insensitive; every match reported"
+    assert [(e.key, v.version) for e, v, _ in cache.by_hash("AC" * 32)] == [("a", "1.1.0")]
+    assert cache.by_hash("00" * 32) == [] and cache.by_hash("") == []
+
+
+def test_colliding_ids_are_namespaced_by_the_callers_label():
+    """Requirement 8.4: the same id from two sources gets ``<label>/<id>`` keys under the labels the caller (the user's config) chose."""
+    alpha = {"schema": 1, "source": "claims-to-be-official", "mods": [{"id": "reggy", "name": "R", "versions": [{"version": "1.0.0"}]}, {"id": "solo", "name": "S", "versions": []}]}
+    beta = {"schema": 1, "source": "claims-to-be-official", "mods": [{"id": "reggy", "name": "R", "versions": [{"version": "2.0.0"}]}]}
+    cache = IndexCache.from_documents([("alpha", alpha), ("beta", beta)], prefer_label=True)
+    assert sorted(m.key for m in cache.mods) == ["alpha/reggy", "beta/reggy", "solo"]
+    assert cache.find("reggy") is None, "ambiguous bare id resolves to nothing"
+    assert cache.find("alpha/reggy").versions[0].version == "1.0.0" and cache.find("beta/reggy").versions[0].version == "2.0.0" and cache.find("solo").key == "solo"
+    assert {m.source for m in cache.mods} == {"alpha", "beta"}, "the index's own `source` claim never becomes the namespace"
+    assert any("namespaced as alpha/reggy and beta/reggy" in n for n in cache.notes)
+    claimed = IndexCache.from_documents([("alpha", alpha), ("beta", beta)])
+    assert sorted(m.key for m in claimed.mods) == ["reggy", "solo"], "without prefer_label both documents claim one source, so the second `reggy` is dropped as a duplicate listing — which is why the merged cache namespaces by the user's labels instead"
+
+
+class _Files(BaseHTTPRequestHandler):
+    payload = b""
+
+    def log_message(self, *_args) -> None:
+        return None
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(self.payload)))
+        self.end_headers()
+        self.wfile.write(self.payload)
+
+
+def test_download_checks_sha256_and_size_and_discards_the_file(tmp_path: Path):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("m/floofy.json", "{}")
+    _Files.payload = buffer.getvalue()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Files)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/m.zip"
+        digest = hashlib.sha256(_Files.payload).hexdigest()
+        target = tmp_path / "m.zip"
+        assert download(url, target, expected_sha256=digest, expected_size=len(_Files.payload)) == digest and target.is_file()
+        with pytest.raises(InstallError, match="sha256 mismatch"):
+            download(url, tmp_path / "bad.zip", expected_sha256="ab" * 32)
+        assert not (tmp_path / "bad.zip").exists(), "a mismatching download is discarded"
+        with pytest.raises(InstallError, match="the index says"):
+            download(url, tmp_path / "small.zip", expected_size=len(_Files.payload) - 1)
+        assert not (tmp_path / "small.zip").exists()
+        with pytest.raises(InstallError, match="size mismatch"):
+            download(url, tmp_path / "big.zip", expected_size=len(_Files.payload) + 10)
+        assert not (tmp_path / "big.zip").exists()
+        with pytest.raises(InstallError, match="https"):
+            download("http://registry.example/m.zip", tmp_path / "plain.zip")
+    finally:
+        server.shutdown()
+        server.server_close()

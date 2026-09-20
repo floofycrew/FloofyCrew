@@ -30,3 +30,6 @@ package = false
 testpaths = ["floofy-core/tests", "editions/toolbox/tests", "editions/public/tests", "loader-app/tests", "spa-host/tests", "registry-tools/tests"]
 pythonpath = ["floofy-core", "floofy-core/tests", "editions/toolbox", "editions/public", "scripts", "loader-app", "loader-app/tests", "registry-tools", "registry-tools/tests"]
 addopts = "-ra"
+markers = [
+    "registry: the registry and compatibility-matrix suite (task 7.6, Requirement 13.3); `pytest -m registry`",
+]

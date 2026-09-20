@@ -24,6 +24,8 @@ from registry_tools.submission import validate_submission
 
 from registry_testing import EXAMPLES_DIR, ScratchRegistry, zip_mod
 
+pytestmark = pytest.mark.registry
+
 
 def _licensed_copy(registry: ScratchRegistry, kind: str, target: Path, **overrides) -> Path:
     """The shipped example mod with a LICENSE file and a widened framework range, ``files[]`` rehashed."""

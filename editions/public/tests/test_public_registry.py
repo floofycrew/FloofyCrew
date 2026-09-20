@@ -4,11 +4,15 @@ from __future__ import annotations
 import base64
 import json
 
+import pytest
+
 import floofy_edition_public
 from floofy_core.editions import default_sources, registry_keys, registry_opener
 from floofy_core.registry_sources import Source
 from floofy_core.sigverify import key_id
 from floofy_edition_public.registry import CONFIG_PATH, archive_url_template
+
+pytestmark = pytest.mark.registry
 
 
 def test_pinned_keys_and_default_source_are_consistent():
