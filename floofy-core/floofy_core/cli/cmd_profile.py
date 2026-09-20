@@ -25,6 +25,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     use.add_argument("--now", action="store_true", help="install missing mods immediately and reload a running gateway")
     use.add_argument("--check", action="store_true", help="only show the plan")
     use.add_argument("--confirm-governance-target", action="append", default=[], metavar="PATH")
+    use.add_argument("--accept-unlisted-source", action="store_true", help="accept the unlisted-source line of a git reference the profile pins (recorded; --yes never accepts it)")
     export = actions.add_parser("export", help="write a profile to a single file")
     export.add_argument("name")
     export.add_argument("file")
@@ -112,7 +113,7 @@ def _use(ctx: CliContext, args: argparse.Namespace) -> int:
             source: ResolvedSource | None = None
             try:
                 source = resolve_source(step["ref"], home=ctx.home, base_version=base, edition=ctx.edition(), host_version=host_version, requested_version=step["version"] if "@" not in step["ref"] else None, opener_for=ctx.url_opener)
-                outcome = install_source(ctx, source, now=args.now, enable_code=step["enabled"], pre_confirmed=list(args.confirm_governance_target), accept_flags=ctx.assume_yes)
+                outcome = install_source(ctx, source, now=args.now, enable_code=step["enabled"], pre_confirmed=list(args.confirm_governance_target), accept_flags=ctx.assume_yes, accept_unlisted=bool(getattr(args, "accept_unlisted_source", False)))
                 ctx.set_enabled(step["id"], step["enabled"])
                 changed = True
                 ctx.result["applied"].append({"id": step["id"], "action": step["action"], "version": step["version"], "how": outcome["placed"]["how"]})

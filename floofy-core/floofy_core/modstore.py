@@ -8,8 +8,11 @@
 * :func:`code_kinds_of` — whether a manifest has ``python-hook``/``spa`` parts
   (those land disabled after install);
 * the install source record ``mods/<id>/.floofy/source.json`` the manager writes
-  (``{"source": "path|archive|url|registry", "ref": ..., "sha256": ..., "installedAt": ...}``)
-  so profiles and ``update`` know where a mod came from.
+  (``{"source": "path|archive|url|registry|git", "ref": ..., "sha256": ..., "installedAt": ...,
+  "version": ..., "registryKey": ..., "tier": "unlisted|listed",
+  "commit": ..., "git": {"url", "tag", "ref", "subdirectory", "commit"}, "link": {...}}`` — the
+  last three only when a clone was involved, Requirement 8.8, 8.9, 8.11) so
+  profiles, ``update`` and ``floofy info`` know where a mod came from.
 """
 from __future__ import annotations
 

@@ -6,13 +6,17 @@ reused in-process by the manager UI:
 * :func:`resolve_source` — a mod reference is a **path** (directory or
   ``.zip``/``.tar.gz``), a **URL** (HTTPS only; plaintext ``http://`` is refused
   unless the host is loopback — Requirement 11.6 applies to FloofyCrew's own
-  traffic too) or a **registry id** (``id`` / ``id@version`` from the merged
-  ``cache/index.json``, with the index's ``sha256`` checked after download);
+  traffic too), a **git reference** (``ssh://…@tag``, ``https://…[.git]@tag``:
+  shallow-cloned with the user's own credentials, Requirement 8.8 —
+  :mod:`floofy_core.gitsource`) or a **registry id** (``id`` / ``id@version`` from
+  the merged ``cache/index.json``, with the index's ``sha256`` checked after
+  download, or resolved through the clone path when the record is link-based);
 * :func:`disclose` — what the manager shows before install (Requirement 11.7):
   every part with kind, side, seam and whether it modifies payload files; the
   declared ``network.hosts[]`` and ``credentials``; the validator's governance
   and network flags; the host's admission verdict for ``app`` parts and the
-  theme route's state, both as **warnings** (Requirement 2.3, 11.2);
+  theme route's state, both as **warnings** (Requirement 2.3, 11.2); the source
+  tier and, for a git reference, the extra *unlisted source* line (Requirement 8.8, 8.11);
 * :func:`governance_targets` — the exact paths that need a per-file typed
   confirmation (Requirement 11.4);
 * :func:`place` — copy the validated tree into ``pending/<id>/`` (a gateway is
@@ -39,6 +43,7 @@ from typing import Any, Callable
 from .archive import ArchiveError, is_archive, open_archive_safely
 from .compat import CompatCache
 from .datahome import DataHome
+from .gitsource import UNLISTED_SOURCE_LINE, GitRef, GitRefError, fetch as git_fetch, manifest_sha256, verify_files
 from .governance import GovernanceSnapshot, warnings_for
 from .kinds import SEAMS, KindContext, PartOutcome, handlers
 from .modstore import code_kinds_of, parts_of, write_source
@@ -46,6 +51,7 @@ from .netscan import is_loopback_host
 from .patches import PatchDescriptor, PatchDescriptorError
 from .registry import IndexCache
 from .targets import DEFAULT_TARGET_POLICY, TargetClass, TargetPolicy
+from .tier import TIER_LISTED, TIER_UNLISTED
 from .validator import ValidationReport, validate_mod
 
 __all__ = [
@@ -58,6 +64,7 @@ __all__ = [
     "download",
     "governance_targets",
     "place",
+    "resolve_git",
     "resolve_source",
     "run_handlers",
     "sha256_of",
@@ -85,12 +92,20 @@ def sha256_of(path: Path) -> str:
 
 @dataclass
 class ResolvedSource:
-    kind: str  # path | archive | url | registry
+    kind: str  # path | archive | url | registry | git
     ref: str
     root: Path  # the mod directory to validate and copy
     sha256: str | None = None
     version: str | None = None
     registry_key: str | None = None
+    #: The commit a git reference or a link record resolved to (Requirement 8.8, 8.9).
+    commit: str | None = None
+    #: ``unlisted`` / ``listed`` at install time (Requirement 8.11; ``tested`` is derived against the running host when shown).
+    tier: str = TIER_UNLISTED
+    #: The parsed git reference (``url``, ``tag``, ``ref``, ``subdirectory``) when a clone was involved.
+    git: dict[str, Any] | None = None
+    #: The registry link record the clone was checked against (``repo``, ``tag``, ``commit``, ``manifestSha256``), when any.
+    link: dict[str, Any] | None = None
     _cleanup: list[Path] = field(default_factory=list, repr=False)
 
     def cleanup(self) -> None:
@@ -98,8 +113,31 @@ class ResolvedSource:
             shutil.rmtree(path, ignore_errors=True)
         self._cleanup.clear()
 
+    @property
+    def unlisted_git(self) -> bool:
+        """A git reference the user named directly — the install that needs the extra consent line (Requirement 8.8)."""
+        return self.kind == "git"
+
     def to_dict(self) -> dict[str, Any]:
-        return {"kind": self.kind, "ref": self.ref, "sha256": self.sha256, "version": self.version, "registryKey": self.registry_key}
+        record: dict[str, Any] = {"kind": self.kind, "ref": self.ref, "sha256": self.sha256, "version": self.version, "registryKey": self.registry_key, "tier": self.tier}
+        if self.commit:
+            record["commit"] = self.commit
+        if self.git:
+            record["git"] = dict(self.git)
+        if self.link:
+            record["link"] = dict(self.link)
+        return record
+
+    def record_extra(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        """The fields :func:`floofy_core.modstore.write_source` adds beyond ``source``/``ref``/``sha256``."""
+        extra: dict[str, Any] = {"registryKey": self.registry_key, "version": str(manifest.get("version") or ""), "tier": self.tier}
+        if self.commit:
+            extra["commit"] = self.commit
+        if self.git:
+            extra["git"] = {**self.git, "commit": self.commit}
+        if self.link:
+            extra["link"] = dict(self.link)
+        return extra
 
 
 def _refuse_plaintext(url: str) -> None:
@@ -161,6 +199,35 @@ def _extract(archive: Path, source: ResolvedSource) -> Path:
         raise InstallError(f"{archive}: unsafe archive: {exc} (Requirement 1.8)") from exc
 
 
+def resolve_git(reference: GitRef, *, home: DataHome, tier: str = TIER_UNLISTED) -> ResolvedSource:
+    """Shallow-clone a parsed git reference into the cache and return it as a ``git`` source (Requirement 8.8).
+
+    The checkout must hold a ``floofy.json`` at its root (or under the reference's
+    ``#subdirectory``); the manifest's own ``files[]`` is verified right here so a
+    tampered checkout is refused before anything is disclosed — ``floofy validate``
+    repeats the check in the install flow. ``sha256`` is the canonical-manifest
+    hash (what a link record pins, Requirement 8.9), ``commit`` the clone's HEAD.
+    """
+    try:
+        checkout, commit = git_fetch(reference, home)
+    except GitRefError as exc:
+        raise InstallError(str(exc)) from exc
+    root = checkout / reference.subdirectory if reference.subdirectory else checkout
+    if not (root / "floofy.json").is_file():
+        hint = f" (the mod is not at the repository root: name its directory as {reference.text}#<subdirectory>)" if not reference.subdirectory else ""
+        raise InstallError(f"{reference.text}: no floofy.json in the checkout at {root}{hint}")
+    try:
+        manifest = manifest_of(root)
+        verify_files(root, [f for f in (manifest.get("files") or []) if isinstance(f, dict)])
+        digest = manifest_sha256(root)
+    except (OSError, ValueError) as exc:
+        raise InstallError(f"{reference.text}: floofy.json is unreadable: {exc}") from exc
+    except GitRefError as exc:
+        raise InstallError(f"{reference.text} at {commit[:12]}: {exc} — refusing the checkout (Requirement 8.8)") from exc
+    source = ResolvedSource("git", reference.text, root, sha256=digest, version=str(manifest.get("version") or "") or None, commit=commit, tier=tier, git=reference.to_dict())
+    return source
+
+
 def resolve_source(
     ref: str,
     *,
@@ -175,14 +242,18 @@ def resolve_source(
     channel: str | None = None,
     expected_size: int | None = None,
     compat: CompatCache | None = None,
+    git_ref: str | None = None,
 ) -> ResolvedSource:
-    """Turn ``<id[@version]|path|url>`` into a local mod directory to validate.
+    """Turn ``<id[@version]|path|url|git reference>`` into a local mod directory to validate.
 
     ``opener_for(url)`` supplies an edition adapter's network identity per URL
     (:func:`floofy_core.editions.registry_opener`); ``opener`` is the fallback for
     every URL. A registry reference picks the newest version known to work on this
     host (:meth:`floofy_core.registry.IndexCache.pick`, Requirement 9.2) and checks
-    the downloaded archive against the index's ``sha256`` **and** ``size``.
+    the downloaded archive against the index's ``sha256`` **and** ``size``. A git
+    reference (``ssh://…@tag``, ``https://…[.git]@tag``; :class:`floofy_core.gitsource.GitRef`)
+    is shallow-cloned with the user's own credentials; ``git_ref`` is the explicit
+    ``--ref <branch|commit>`` that admits an unpinned reference (Requirement 8.8).
     """
     candidate = Path(ref).expanduser()
     if candidate.exists():
@@ -193,6 +264,14 @@ def resolve_source(
             source.root = _extract(candidate, source)
             return source
         raise InstallError(f"{ref}: not a mod directory or a .zip/.tar.gz archive")
+    if GitRef.looks_like(ref, explicit_ref=git_ref):
+        try:
+            reference = GitRef.parse(ref, ref=git_ref)
+        except GitRefError as exc:
+            raise InstallError(str(exc)) from exc
+        return resolve_git(reference, home=home)
+    if git_ref is not None:
+        raise InstallError(f"--ref only applies to a git reference (ssh://… or https://…), not to {ref!r}")
     if ref.startswith(("http://", "https://")):
         source = ResolvedSource("url", ref, Path("."))
         scratch = Path(tempfile.mkdtemp(prefix="floofy-download-"))
@@ -238,6 +317,7 @@ def resolve_source(
     source.ref = f"{entry.key}@{picked.version}"
     source.version = picked.version
     source.registry_key = entry.key
+    source.tier = TIER_LISTED
     return source
 
 
@@ -280,6 +360,9 @@ class Disclosure:
     confirm_kinds: list[str]
     lands_disabled: bool
     errors: list[dict[str, Any]]
+    #: The source tier this install will have (Requirement 8.11) and, for a git reference, the facts behind the extra consent line.
+    tier: str = TIER_UNLISTED
+    unlisted_source: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -295,10 +378,19 @@ class Disclosure:
             "confirmKinds": list(self.confirm_kinds),
             "landsDisabled": self.lands_disabled,
             "errors": list(self.errors),
+            "tier": self.tier,
+            "unlistedSource": dict(self.unlisted_source) if self.unlisted_source else None,
         }
 
     def lines(self) -> list[str]:
         out = [f"{self.name} ({self.mod_id} {self.version})"]
+        if self.unlisted_source:
+            where = self.unlisted_source.get("ref") or self.unlisted_source.get("url")
+            commit = str(self.unlisted_source.get("commit") or "")[:12]
+            out.append(f"  UNLISTED SOURCE: {UNLISTED_SOURCE_LINE} — {where}" + (f" (commit {commit})" if commit else ""))
+            out.append("    nothing about this source is trusted beyond your consent; the mod's own files[] hashes were verified (Requirement 8.8)")
+        else:
+            out.append(f"  source tier: {self.tier}" + (" (no curator review, no compatibility data)" if self.tier == TIER_UNLISTED else ""))
         out.append("  parts:")
         for part in self.parts:
             payload = " [MODIFIES PAYLOAD FILES]" if part["modifiesPayload"] else ""
@@ -320,7 +412,8 @@ class Disclosure:
         return out
 
 
-def disclose(root: Path, report: ValidationReport, snapshot: GovernanceSnapshot | None, *, policy: TargetPolicy | None = None) -> Disclosure:
+def disclose(root: Path, report: ValidationReport, snapshot: GovernanceSnapshot | None, *, policy: TargetPolicy | None = None, source: ResolvedSource | None = None) -> Disclosure:
+    """Everything the user sees before saying yes; ``source`` adds the tier and, for a git reference, the unlisted-source line (Requirement 8.8, 8.11)."""
     manifest = report.manifest or {}
     parts = []
     for index, part in enumerate(parts_of(manifest)):
@@ -348,6 +441,8 @@ def disclose(root: Path, report: ValidationReport, snapshot: GovernanceSnapshot 
         confirm_kinds=sorted(kinds & CONFIRM_KINDS),
         lands_disabled=bool(code_kinds_of(manifest)),
         errors=[f.to_dict() for f in report.errors],
+        tier=source.tier if source is not None else TIER_UNLISTED,
+        unlisted_source=({"url": (source.git or {}).get("url"), "ref": source.ref, "commit": source.commit} if source is not None and source.unlisted_git else None),
     )
 
 
@@ -385,7 +480,7 @@ def place(home: DataHome, source: ResolvedSource, manifest: dict[str, Any], *, s
         shutil.rmtree(target / ".floofy", ignore_errors=True)
         shutil.copytree(runtime_backup, target / ".floofy")
         shutil.rmtree(runtime_backup.parent, ignore_errors=True)
-    write_source(target, source=source.kind, ref=source.ref, sha256=source.sha256, extra={"registryKey": source.registry_key, "version": str(manifest.get("version") or "")})
+    write_source(target, source=source.kind, ref=source.ref, sha256=source.sha256, extra=source.record_extra(manifest))
     return target, ("staged" if stage else "installed")
 
 

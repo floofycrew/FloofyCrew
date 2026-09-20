@@ -16,6 +16,7 @@ Everything FloofyCrew reads or writes on the user's machine lives under
       deploy/<payload>.json   deployment manifests (Requirement 5.2)
       registries.json         sources + per-source trust (Requirement 8.4)
       cache/{index,compat}.json      merged registry caches; cache/sources/<key>/ per source
+      cache/sources/git/<key>/       shallow clones of git references and link records (Requirement 8.8, 8.9)
       profiles/<name>.lock.json      named mod sets (Requirement 7.5)
       audit.jsonl             every mutating operation (Requirement 11.5)
       early.json              early-activation list (optional, Requirement 3.2)
@@ -103,6 +104,11 @@ class DataHome:
     @property
     def cache_sources(self) -> Path:
         return self.cache / "sources"
+
+    @property
+    def cache_git(self) -> Path:
+        """Shallow clones of git references and link records, one directory per repository + pinned point (Requirement 8.8, 8.9)."""
+        return self.cache_sources / "git"
 
     @property
     def registries(self) -> Path:

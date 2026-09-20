@@ -24,8 +24,8 @@ Measured on the 1.0.0 tree:
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 169 | 195 | 86.7 % |
-| bytes | 1 803 003 | 1 882 435 | 95.8 % |
+| files | 174 | 200 | 87.0 % |
+| bytes | 1 863 761 | 1 947 101 | 95.7 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:

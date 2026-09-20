@@ -2,15 +2,19 @@
 
 The install flow, in the order the user experiences it:
 
-1. resolve the reference (path, archive, HTTPS URL, or ``id[@version]`` from the
-   registry cache) and run ``floofy validate`` on the tree — errors refuse;
+1. resolve the reference (path, archive, HTTPS URL, git reference — shallow clone
+   at the tag with the user's own credentials, Requirement 8.8 — or ``id[@version]``
+   from the registry cache) and run ``floofy validate`` on the tree — errors refuse;
 2. **disclose** (Requirement 11.7): parts with kind/side/seam and whether any
    modifies payload files, declared ``network.hosts[]`` + ``credentials``, the
    validator's governance and network flags, the host's admission verdict for
-   ``app`` parts and the theme route's state (warnings, never gates);
+   ``app`` parts and the theme route's state (warnings, never gates), the source
+   tier and — for a git reference — the extra line "unlisted source: no curator
+   review, no compatibility data" (Requirement 8.8, 8.11);
 3. **confirm**: ``python-hook`` / ``patch`` / ``app`` kinds need a yes (``--yes``
-   works); network flags need acceptance (``--yes`` works); every
-   governance-altering target needs its exact path typed —
+   works); network flags need acceptance (``--yes`` works); the unlisted-source
+   line needs the typed phrase or ``--accept-unlisted-source`` (recorded; ``--yes``
+   never covers it); every governance-altering target needs its exact path typed —
    ``--confirm-governance-target <path>`` per file for automation, each one
    recorded; ``--yes`` never covers these (Requirement 11.4);
 4. **place**: into ``pending/<id>/`` when a gateway runs and ``--now`` is absent
@@ -37,6 +41,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..consent import ACCEPT_PHRASE
+from ..gitsource import UNLISTED_SOURCE_LINE
 from ..installer import CONFIRM_KINDS, InstallError, ResolvedSource, disclose, manifest_of, place, resolve_source, run_handlers, validate
 from ..modstore import code_kinds_of, read_source
 from ..registry import IndexCache
@@ -52,13 +58,15 @@ def register(sub: argparse._SubParsersAction) -> None:
     s.add_argument("query", nargs="?", default="", help="words to match in id, name, description and tags")
     s.set_defaults(handler=search)
 
-    i = sub.add_parser("install", help="install a mod from a path, an archive, an https URL or the registry (id[@version])")
-    i.add_argument("ref", help="mod directory, .zip/.tar.gz, https://… URL, or registry id[@version]")
+    i = sub.add_parser("install", help="install a mod from a path, an archive, an https URL, a git reference (ssh://…@tag, https://…@tag) or the registry (id[@version])")
+    i.add_argument("ref", help="mod directory, .zip/.tar.gz, https://… URL, git reference ssh://<host>/<path>[@<tag>][#<subdir>] / https://<host>/<owner>/<repo>[.git][@<tag>], or registry id[@version]")
     i.add_argument("--now", action="store_true", help="install immediately and reload a running gateway (default: stage for the next gateway start)")
     i.add_argument("--enable", action="store_true", help="enable code parts right away instead of landing disabled")
     i.add_argument("--sha256", default=None, help="expected SHA-256 of a downloaded archive")
+    i.add_argument("--ref", dest="ref_name", default=None, metavar="BRANCH|COMMIT", help="git reference only: install an UNPINNED checkout (no @tag) on purpose; the resolved commit is recorded")
     i.add_argument("--confirm-governance-target", action="append", default=[], metavar="PATH", help="pre-confirm one governance-altering target path (repeatable; each recorded in the audit log)")
     i.add_argument("--accept-flags", action="store_true", help="accept the network/unlisted-file flags without asking (--yes implies)")
+    i.add_argument("--accept-unlisted-source", action="store_true", help=f"git reference only: accept the extra consent line '{UNLISTED_SOURCE_LINE}' without typing {ACCEPT_PHRASE} (automation; recorded as such; --yes never accepts it)")
     i.set_defaults(handler=install)
 
     u = sub.add_parser("uninstall", help="remove a mod (staged while a gateway runs unless --now)")
@@ -116,38 +124,55 @@ def search(ctx: CliContext, args: argparse.Namespace) -> int:
 # --- install ----------------------------------------------------------------------------------
 
 
-def _confirm_install(ctx: CliContext, disclosure, *, pre_confirmed: list[str], accept_flags: bool) -> tuple[bool, list[str], str]:
-    """Return ``(go, confirmed_targets, refusal)`` after the Requirement 11.7 / 11.4 questions."""
+def _confirm_install(ctx: CliContext, disclosure, *, pre_confirmed: list[str], accept_flags: bool, accept_unlisted: bool = False) -> tuple[bool, list[str], str, str | None]:
+    """Return ``(go, confirmed_targets, refusal, unlisted_how)`` after the Requirement 11.7 / 11.4 / 8.8 questions.
+
+    The unlisted-source line of a git reference is confirmed like the one-time
+    warning: the user types :data:`floofy_core.consent.ACCEPT_PHRASE`, or
+    automation passes ``--accept-unlisted-source`` (``unlisted_how`` records
+    ``typed`` / ``flag``). ``--yes`` never covers it (Requirement 8.8, 11.1).
+    """
     if disclosure.confirm_kinds:
         kinds = ", ".join(disclosure.confirm_kinds)
         if not ctx.console.confirm(f"This mod has {kinds} parts that run with gateway privileges or modify payload files. Install {disclosure.mod_id} {disclosure.version}?", default=False):
-            return False, [], f"install of {disclosure.mod_id} declined ({kinds} parts need an explicit yes; --yes for automation)"
+            return False, [], f"install of {disclosure.mod_id} declined ({kinds} parts need an explicit yes; --yes for automation)", None
     if disclosure.flags and not accept_flags:
         if not ctx.console.confirm(f"Accept the {len(disclosure.flags)} flag(s) above (network/unlisted files) for {disclosure.mod_id}?", default=False):
-            return False, [], f"install of {disclosure.mod_id} declined: flags not accepted (--accept-flags or --yes for automation)"
+            return False, [], f"install of {disclosure.mod_id} declined: flags not accepted (--accept-flags or --yes for automation)", None
+    unlisted_how: str | None = None
+    if disclosure.unlisted_source:
+        if accept_unlisted:
+            unlisted_how = "flag"
+            ctx.console.transcript.append("unlisted source: accepted with --accept-unlisted-source")
+        else:
+            where = disclosure.unlisted_source.get("ref") or disclosure.unlisted_source.get("url")
+            prompt = f"UNLISTED SOURCE: {UNLISTED_SOURCE_LINE}. Type {ACCEPT_PHRASE} to install {disclosure.mod_id} {disclosure.version} from {where} anyway (anything else aborts): "
+            if not ctx.console.typed(prompt, ACCEPT_PHRASE, what="unlisted source"):
+                return False, [], f"install of {disclosure.mod_id} refused: the unlisted-source line was not confirmed — type {ACCEPT_PHRASE} at the prompt, or pass --accept-unlisted-source for automation (--yes never accepts it; Requirement 8.8)", None
+            unlisted_how = "typed"
     confirmed: list[str] = []
     ctx.console.pre_typed.update(pre_confirmed)
     for target in disclosure.governance_targets:
         prompt = f"GOVERNANCE-ALTERING: {disclosure.mod_id} writes to the host governance file {target}. Type the exact path to confirm this one file: "
         if not ctx.console.typed(prompt, target, what=f"governance target {target}"):
-            return False, confirmed, f"install of {disclosure.mod_id} refused: governance-altering target {target} was not confirmed by typing its path (--confirm-governance-target {target} for automation; --yes never covers it)"
+            return False, confirmed, f"install of {disclosure.mod_id} refused: governance-altering target {target} was not confirmed by typing its path (--confirm-governance-target {target} for automation; --yes never covers it)", unlisted_how
         confirmed.append(target)
         ctx.audit.record("governance-target-confirm", mod=disclosure.mod_id, version=disclosure.version, files=[target], governanceFlags=["GovernanceAltering"], result="confirmed", detail="pre-confirmed by flag" if target in pre_confirmed else "typed at the prompt")
-    return True, confirmed, ""
+    return True, confirmed, "", unlisted_how
 
 
-def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable_code: bool, pre_confirmed: list[str], accept_flags: bool, keep_enabled: bool = False) -> dict[str, Any]:
+def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable_code: bool, pre_confirmed: list[str], accept_flags: bool, keep_enabled: bool = False, accept_unlisted: bool = False) -> dict[str, Any]:
     """Validate → disclose → confirm → place → seam handlers → flag → audit (→ reload). Shared by install/update/profile."""
     report = validate(source.root)
-    disclosure = disclose(source.root, report, ctx.governance())
+    disclosure = disclose(source.root, report, ctx.governance(), source=source)
     for line in disclosure.lines():
         ctx.say(line)
     outcome: dict[str, Any] = {"source": source.to_dict(), "disclosure": disclosure.to_dict(), "validation": report.to_dict()}
     if not report.ok:
         raise InstallError(f"{disclosure.mod_id}: `floofy validate` found {len(report.errors)} error(s); not installed")
-    go, confirmed, refusal = _confirm_install(ctx, disclosure, pre_confirmed=pre_confirmed, accept_flags=accept_flags or ctx.assume_yes)
+    go, confirmed, refusal, unlisted_how = _confirm_install(ctx, disclosure, pre_confirmed=pre_confirmed, accept_flags=accept_flags or ctx.assume_yes, accept_unlisted=accept_unlisted)
     if not go:
-        ctx.audit.record("install", mod=disclosure.mod_id, version=disclosure.version, result="declined", detail=refusal, governanceFlags=[f["code"] for f in disclosure.flags])
+        ctx.audit.record("install", mod=disclosure.mod_id, version=disclosure.version, result="declined", detail=refusal, governanceFlags=[f["code"] for f in disclosure.flags], source=source.to_dict(), commit=source.commit, tier=source.tier)
         raise InstallError(refusal)
     manifest = manifest_of(source.root)
     mod_id = str(manifest["id"])
@@ -176,7 +201,11 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable
         files=[p["path"] for p in disclosure.parts],
         governanceFlags=sorted({f["code"] for f in disclosure.flags} | ({"GovernanceAltering"} if confirmed else set())),
         result="ok",
-        detail=f"{placed} into {target}; enabled={enabled_now}; confirmed governance targets: {confirmed or '-'}; source {source.kind} {source.ref}",
+        detail=f"{placed} into {target}; enabled={enabled_now}; confirmed governance targets: {confirmed or '-'}; source {source.kind} {source.ref}" + (f" at commit {source.commit}" if source.commit else "") + (f"; unlisted source accepted ({unlisted_how})" if unlisted_how else ""),
+        source=source.to_dict(),
+        commit=source.commit,
+        tier=source.tier,
+        unlistedSource=({**disclosure.unlisted_source, "how": unlisted_how} if disclosure.unlisted_source else None),
     )
     if stage:
         ctx.say(f"{mod_id} {disclosure.version}: staged in pending/ — restart the gateway to apply (or run with --now).")
@@ -199,11 +228,11 @@ def install(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.require_consent("install a mod")
     target = ctx.registry_target()
     try:
-        source = resolve_source(args.ref, home=ctx.home, expected_sha256=args.sha256, opener_for=ctx.url_opener, **target)
+        source = resolve_source(args.ref, home=ctx.home, expected_sha256=args.sha256, opener_for=ctx.url_opener, git_ref=args.ref_name, **target)
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     try:
-        outcome = install_source(ctx, source, now=args.now, enable_code=args.enable, pre_confirmed=list(args.confirm_governance_target), accept_flags=args.accept_flags)
+        outcome = install_source(ctx, source, now=args.now, enable_code=args.enable, pre_confirmed=list(args.confirm_governance_target), accept_flags=args.accept_flags, accept_unlisted=args.accept_unlisted_source)
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     finally:
