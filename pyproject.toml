@@ -32,5 +32,6 @@ pythonpath = ["floofy-core", "floofy-core/tests", "editions/toolbox", "editions/
 addopts = "-ra"
 markers = [
     "registry: the registry and compatibility-matrix suite (task 7.6, Requirement 13.3); `pytest -m registry`",
+    "slow: a Forge test that clones this repository and builds the artifacts (a few seconds each)",
     "forge: the Forge suite — ledger, watchers on recorded feeds, provision/check/release with fake commands, runner fallback, notify dry-run (task 8.8, Requirement 13.3); `pytest -m forge`",
 ]
