@@ -5,7 +5,11 @@
   "description": "Unofficial mod loader for KiroCrew. Not affiliated with Kiro or KiroCrew. Runs the FloofyCrew mods you chose, on your consent, inside the gateway; serves the mod manager page.",
   "author": "FloofyCrew contributors",
   "license": "MIT",
-  "tags": ["mods", "unofficial", "floofycrew"],
+  "tags": [
+    "mods",
+    "unofficial",
+    "floofycrew"
+  ],
   "ui": {
     "entry": "index.mjs"
   },
@@ -16,5 +20,37 @@
       "on_shutdown": "floofy_loader.hooks:on_shutdown"
     }
   },
-  "permissions": {}
+  "permissions": {},
+  "floofycrew": {
+    "unofficial": true,
+    "dataHome": "<host home>/floofy",
+    "routesMountedAt": "/api/apps/floofycrew",
+    "routes": [
+      {
+        "method": "GET",
+        "path": "/state",
+        "purpose": "LoaderState JSON (+ api_version, unofficial)"
+      },
+      {
+        "method": "GET",
+        "path": "/health",
+        "purpose": "Loader liveness"
+      },
+      {
+        "method": "POST",
+        "path": "/reload",
+        "purpose": "re-run the boot sequence (apply pending/ now)"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/fault",
+        "purpose": "SPA host reports a failed module {message, stack, source}"
+      },
+      {
+        "method": "GET",
+        "path": "/spa/{id}/{file...}",
+        "purpose": "an enabled mod's spa part files (1-4 segments)"
+      }
+    ]
+  }
 }

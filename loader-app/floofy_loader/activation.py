@@ -62,7 +62,7 @@ class ModContext:
     http: Any = None
     config: Any = None
     events: Any = None
-    #: The mod's private data directory (``<data home>/mods/<id>/``) — never a payload root.
+    #: The mod's private data directory (``<data home>/mods/<id>/.floofy/``) — never a payload root.
     data_dir: Path | None = None
     #: Facts a mod publishes (``ctx.state["marker"] = 1``); exposed as ``exports`` in the state API.
     state: dict[str, Any] = field(default_factory=dict)

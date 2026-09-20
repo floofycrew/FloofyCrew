@@ -28,6 +28,9 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 | `floofy_loader/pending.py` | staged installs/removals, `enabled.json`, `patch` part planning for the Patcher |
 | `floofy_loader/compat.py` | the `cache/compat.json` reader (`CompatCache.row_for`, verdicts) |
 | `floofy_loader/paths.py` | the data-home layout |
+| `floofy_loader/storage.py` | `ModConfig` (`ctx.config`, atomic JSON under `mods/<id>/.floofy/config.json`), `mod_logger` (`floofy.mods.<id>`, rotating `mods/<id>/.floofy/mod.log`, `[floofy:<id>]` prefix), `mod_data_dir` containment |
+| `floofy_loader/events.py` | `EventBus` / `ModEvents` (`ctx.events`, `floofy.events`): fail-open pub/sub with attribution and history |
+| `floofy_loader/routes.py` | the gateway routes (pure responders + the aiohttp `AppRoute` adapter) |
 | `floofy_loader/net.py` | `FloofyHttp` (`ctx.http`, `floofy.fetch`), `NetworkPolicy`, `FloofyNetworkDenied`: the encrypted-only rule with the loopback exemption, declared hosts, audited denials, policy-checked redirects |
 | `floofy_loader/hooks_registry.py` | `HookRegistry` / `ModHooks` (`ctx.hooks`): `before`/`after`/`replace` on `pkg.module:attr` and `route:METHOD /path` targets, per-mod attribution, identity-restoring unwind, fail-open faults |
 | `floofy_loader/host.py`, `api.py` | `floofy.host` facts and the `floofy` facade (below) |
@@ -202,6 +205,41 @@ in-process hook routes. Path parameters match one segment (`{id}` →
 `([^/]+)`, L47–L67). Segments the host reserves under an app's namespace
 (`manifest.py` L1347 `CORE_APP_ROUTE_SEGMENTS`: `_jobs config dev disable enable
 manifest migrate-cleanup open token uninstall update`) are never used here.
+
+The Loader's route table (`floofy_loader/routes.py` `ROUTE_TABLE`, mirrored in
+`app.json` under the `floofycrew` block the host passes through as `extra`):
+
+| Method | Path under `/api/apps/floofycrew` | Purpose |
+|---|---|---|
+| GET | `/state` | the full `LoaderState` JSON plus `api_version`, `loaderVersion`, `unofficial: true`, `hooks[]`, `faults[]`, `network{}`, `events{}` |
+| GET | `/health` | `{ok, loader, active[], bootedAt, unofficial, api_version, loaderVersion}` |
+| POST | `/reload` | re-run the boot sequence (deactivate all, apply `pending/`, re-read `enabled.json`, activate); returns the new state — the manager's "apply now" |
+| POST | `/mods/{id}/fault` | body `{"message", "stack", "source": "spa"}` from the SPA host's error boundary; the mod is disabled with reason `Error`, its `spa/<id>/` files stop being served, `mod.faulted` is published |
+| GET | `/spa/{id}/<up to 4 segments>` | an **active** mod's `spa` part files from `<data home>/spa/<id>/` — `Content-Type` by extension (`text/javascript` for `.js`/`.mjs`), `Cache-Control: no-cache`, `X-Content-Type-Options: nosniff`, no dotfiles, no escapes. This is what `host.mjs` (5.1) imports |
+
+All of them sit behind the dashboard auth (cookie or `?token=`); the manager UI,
+served same-origin, calls them with `fetch("/api/apps/floofycrew/state")`.
+
+## `ctx.config`, `ctx.log`, `ctx.events` (Requirement 3.7, 3.8)
+
+* `ctx.config` — `ModConfig`: `get/set/update/delete/clear/items/to_dict`, dict
+  syntax, JSON values only, atomic writes to `<data home>/mods/<id>/.floofy/config.json`.
+  The `.floofy/` dot-directory is invisible to `floofy validate` (dotted path
+  parts are skipped), so runtime files never show up as unlisted mod files, and
+  `mod_data_dir` refuses anything outside `mods/<id>/` or under the host payload.
+  `ctx.data_dir` is that directory.
+* `ctx.log` — `logging.getLogger("floofy.mods.<id>")`: a small rotating
+  `mods/<id>/.floofy/mod.log` plus propagation to the gateway log with every
+  record prefixed `[floofy:<id>]`.
+* `ctx.events` / `floofy.events` — the Loader bus: `subscribe(name, fn(name,
+  payload))`, `unsubscribe`, `publish(name, payload)`; `"*"` subscribes to
+  everything; delivery is synchronous and fail-open (a raising subscriber is
+  logged and counted, the others still get the event); a mod's subscriptions are
+  dropped when it deactivates. Loader events: `mod.activated`, `mod.deactivated`,
+  `mod.quarantined`, `mod.faulted`, `host.version_changed` (the previous
+  `loader-state.json` ran another host version), `loader.state` (after every
+  boot/reload). The state API shows subscriptions, the last 20 events and errors
+  under `events{}`.
 
 ## Boot sequence and data home
 

@@ -4,10 +4,11 @@ One process-wide :class:`LoaderRuntime` holds what the host handed us (the
 ``AppContext`` from ``kiro_crew/apps/context.py`` L55: ``name``, ``data_dir``,
 ``logger``, ``health``…), runs the boot sequence (:mod:`floofy_loader.boot`),
 keeps the live activations for shutdown, publishes the state
-(``loader-state.json`` for ``floofy doctor``; the routes of task 4.6 read the
-same object) and wires the per-mod collaborators: the hook registry
-(:mod:`floofy_loader.hooks_registry`), the network client (4.5), config store,
-logger and event bus (4.6).
+(``loader-state.json`` for ``floofy doctor``; the routes of
+:mod:`floofy_loader.routes` read the same object) and wires the per-mod
+collaborators: the hook registry (:mod:`floofy_loader.hooks_registry`), the
+network client (:mod:`floofy_loader.net`), the config store and logger
+(:mod:`floofy_loader.storage`) and the event bus (:mod:`floofy_loader.events`).
 
 Failure of the Loader itself is the shim's business (``hooks.py`` records
 ``loader-failure.json``; the gateway boots vanilla — Requirement 3.6); this
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,11 +30,13 @@ from floofy_core.resolver import Reason
 from . import __version__, api
 from .activation import MOD_NAMESPACE, ModContext, deactivate_part, drop_mod_modules
 from .boot import BootDeps, BootResult, boot, deactivate_all
+from .events import EventBus, ModEvents
 from .hooks_registry import HookRegistry
 from .host import HostFacts, read_host_facts
 from .net import FloofyHttp, Response
 from .paths import FloofyPaths
 from .state import utc_now
+from .storage import ModConfig, mod_data_dir, mod_logger
 
 logger = logging.getLogger("floofy.loader")
 
@@ -50,6 +54,7 @@ class LoaderRuntime:
     shutdown_errors: list[str] = field(default_factory=list)
     boot_started_at: str = ""
     hooks: HookRegistry = field(default_factory=HookRegistry)
+    events: EventBus = field(default_factory=EventBus)
     faults: list[dict[str, Any]] = field(default_factory=list)
     http_clients: dict[str, FloofyHttp] = field(default_factory=dict)
     audit: AuditLog | None = None
@@ -57,22 +62,45 @@ class LoaderRuntime:
     def __post_init__(self) -> None:
         self.hooks = HookRegistry(on_fault=self.on_hook_fault)
 
-    # -- collaborators (tasks 4.5–4.6 add the network client, config store and event bus) -------
+    # -- versions ----------------------------------------------------------------------------------
+
+    @staticmethod
+    def api_version() -> str:
+        return api.API_VERSION
+
+    @staticmethod
+    def loader_version() -> str:
+        return __version__
+
+    # -- per-mod collaborators -------------------------------------------------------------------------
 
     def make_context(self, mod_id: str, version: str, mod_dir: Path, manifest: dict[str, Any]) -> ModContext:
         assert self.facts is not None and self.paths is not None
-        http = FloofyHttp.from_manifest(mod_id, manifest, audit=self.audit.record if self.audit is not None else None)
+        audit = self.audit.record if self.audit is not None else None
+        http = FloofyHttp.from_manifest(mod_id, manifest, audit=audit)
         self.http_clients[mod_id] = http
+        payload_root = self.facts.payload_root
         return ModContext(
             mod_id=mod_id,
             version=version,
             mod_dir=mod_dir,
             host=self.facts,
-            log=logging.getLogger(f"floofy.mods.{mod_id}"),
+            log=mod_logger(self.paths.data_home, mod_id, payload_root=payload_root),
             hooks=self.hooks.for_mod(mod_id),
             http=http,
-            data_dir=self.paths.mod_dir(mod_id),
+            config=ModConfig(self.paths.data_home, mod_id, payload_root=payload_root),
+            events=ModEvents(self.events, mod_id),
+            data_dir=mod_data_dir(self.paths.data_home, mod_id, payload_root=payload_root),
         )
+
+    def on_mod_deactivated(self, mod_id: str) -> None:
+        """Unwind hooks and subscriptions of ``mod_id`` (Requirement 3.4, 3.8)."""
+        removed = self.hooks.deactivate(mod_id)
+        dropped = self.events.unsubscribe_mod(mod_id)
+        if removed or dropped:
+            logger.info("unwound %d hook(s) and %d subscription(s) of %s", removed, dropped, mod_id)
+        version = self.result.state.mods[mod_id].version if self.result is not None and mod_id in self.result.state.mods else None
+        self.events.publish("mod.deactivated", {"mod": mod_id, "version": version})
 
     def http_for(self, mod_id: str) -> FloofyHttp:
         """The network client of ``mod_id``; an unknown caller gets the strictest policy (no declared hosts)."""
@@ -88,12 +116,6 @@ class LoaderRuntime:
         mod_id = caller[len(prefix):].split(".", 1)[0] if caller.startswith(prefix) else f"unknown:{caller}"
         return self.http_for(mod_id).fetch(url, **kwargs)
 
-    def on_mod_deactivated(self, mod_id: str) -> None:
-        """Unwind every hook registration of ``mod_id`` (Requirement 3.4: restored on deactivate)."""
-        removed = self.hooks.deactivate(mod_id)
-        if removed:
-            logger.info("unwound %d hook registration(s) of %s", removed, mod_id)
-
     def deps(self) -> BootDeps:
         assert self.facts is not None and self.paths is not None
         return BootDeps(paths=self.paths, facts=self.facts, make_context=self.make_context, log=logger, on_deactivated=self.on_mod_deactivated)
@@ -105,11 +127,11 @@ class LoaderRuntime:
         self.fault_mod(mod_id, f"hook on {target} raised {type(exc).__name__}: {exc}", source="hook", traceback_text="".join(traceback.format_exception(exc)))
 
     def fault_mod(self, mod_id: str, message: str, *, source: str = "runtime", traceback_text: str = "") -> bool:
-        """Disable ``mod_id`` after a runtime failure (hook fault, SPA fault route): fail-open, the host continues.
+        """Disable ``mod_id`` after a runtime failure (hook fault, SPA fault report): fail-open, the host continues.
 
         Returns ``False`` when the mod is unknown to this boot.
         """
-        if self.result is None or mod_id not in self.result.state.mods:
+        if self.result is None or mod_id not in self.result.state.mods or self.paths is None:
             return False
         record = {"mod": mod_id, "source": source, "message": message, "ts": utc_now()}
         self.faults.append(record)
@@ -119,15 +141,21 @@ class LoaderRuntime:
                 deactivate_part(handle, activation.ctx)
             drop_mod_modules(mod_id)
         self.hooks.deactivate(mod_id)
+        self.events.unsubscribe_mod(mod_id)
         mod_state = self.result.state.mods[mod_id]
         mod_state.errors.append(f"{source}: {message}")
         if traceback_text:
             mod_state.errors.append(traceback_text[-2000:])
         mod_state.set_reason(Reason.Error.value, message)
         for part in mod_state.parts:
-            if part.status == "active":
+            if part.status == "active" or (source == "spa" and part.kind == "spa"):
                 part.status = "error"
+                if source == "spa" and part.kind == "spa":
+                    part.detail = message[:200]
+        shutil.rmtree(self.paths.spa_dir(mod_id), ignore_errors=True)
         logger.error("mod %s disabled after a %s fault: %s", mod_id, source, message)
+        self.events.publish("mod.deactivated", {"mod": mod_id, "version": mod_state.version})
+        self.events.publish("mod.faulted", {"mod": mod_id, "source": source, "message": message})
         self.write_state()
         return True
 
@@ -141,18 +169,33 @@ class LoaderRuntime:
         self.paths = FloofyPaths(self.facts.data_home)
         self.audit = AuditLog(self.paths.data_home)
         self.http_clients.clear()
-        api.bind(host_facts=self.facts, fetch_impl=self.fetch)
+        api.bind(host_facts=self.facts, fetch_impl=self.fetch, event_bus=self.events)
         api.install_alias()
         logger.info("FloofyCrew Loader %s (unofficial) booting: host %s %s/%s data_home=%s", __version__, self.facts.version, self.facts.edition, self.facts.channel, self.facts.data_home)
+        previous = self._previous_host_version()
         self.result = boot(self.deps())
         self.started = True
         self.write_state()
+        self._announce(previous)
         state = self.result.state
         summary = f"FloofyCrew Loader {__version__} (unofficial): loader={state.loader} active={state.active} inactive={sorted(m for m in state.mods if not state.mods[m].active)}"
         logger.info(summary)
         host_logger = getattr(ctx, "logger", None)
         if host_logger is not None:
             host_logger.info(summary)
+
+    def reload(self) -> None:
+        """Re-run the boot sequence (the manager's "apply now"): deactivate everything, then boot again."""
+        if self.facts is None or self.paths is None:
+            raise RuntimeError("the Loader has not started")
+        if self.result is not None:
+            deactivate_all(self.result, self.deps())
+        self.hooks.shutdown()
+        self.http_clients.clear()
+        self.boot_started_at = utc_now()
+        self.result = boot(self.deps())
+        self.write_state()
+        self._announce(None)
 
     def shutdown(self, ctx: Any) -> None:
         if self.result is not None:
@@ -167,7 +210,38 @@ class LoaderRuntime:
         logger.info("FloofyCrew Loader on_shutdown (%d error(s))", len(self.shutdown_errors))
 
     def register_routes(self, ctx: Any) -> list:
-        return []
+        """``backend.hooks.routes``: the host's ``AppRoute`` list (empty, with a log line, outside a gateway)."""
+        try:
+            from .routes import build_routes  # noqa: PLC0415 - needs aiohttp, present only inside the gateway
+
+            return build_routes(self)
+        except ModuleNotFoundError as exc:
+            if exc.name and exc.name.split(".")[0] in ("aiohttp", "kiro_crew"):
+                logger.info("routes not registered: %s is not importable (not running inside a gateway)", exc.name)
+                return []
+            raise
+
+    # -- events ------------------------------------------------------------------------------
+
+    def _previous_host_version(self) -> str | None:
+        assert self.paths is not None
+        try:
+            previous = json.loads(self.paths.loader_state.read_text(encoding="utf-8"))
+            return str(previous.get("host", {}).get("version")) if isinstance(previous, dict) else None
+        except (OSError, ValueError):
+            return None
+
+    def _announce(self, previous_version: str | None) -> None:
+        assert self.result is not None and self.facts is not None
+        state = self.result.state
+        if previous_version and previous_version != self.facts.version:
+            self.events.publish("host.version_changed", {"previous": previous_version, "current": self.facts.version})
+        for mod_id in state.active:
+            self.events.publish("mod.activated", {"mod": mod_id, "version": state.mods[mod_id].version})
+        for mod_id, mod_state in state.mods.items():
+            if mod_state.quarantined:
+                self.events.publish("mod.quarantined", {"mod": mod_id, "version": mod_state.version, "hostVersion": self.facts.version})
+        self.events.publish("loader.state", {"loader": state.loader, "active": state.active, "bootedAt": state.booted_at})
 
     # -- state -------------------------------------------------------------------------------
 
@@ -182,6 +256,7 @@ class LoaderRuntime:
         payload["hooks"] = [r.to_dict() for r in self.hooks.registrations()]
         payload["faults"] = list(self.faults)
         payload["network"] = {mod_id: client.to_dict() for mod_id, client in sorted(self.http_clients.items())}
+        payload["events"] = self.events.to_dict()
         return payload
 
     def write_state(self) -> None:

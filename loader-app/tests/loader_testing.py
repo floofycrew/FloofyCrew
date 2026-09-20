@@ -53,3 +53,180 @@ def bundle_interpreter(payload: Path) -> Path | None:
         if best is None or int(suffix) > best[0]:
             best = (int(suffix), candidate)
     return best[1] if best else None
+
+
+
+# --- a scratch gateway (payload copy + scratch homes) ------------------------------------------------
+
+import http.cookiejar  # noqa: E402
+import json  # noqa: E402
+import shutil  # noqa: E402
+import signal  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+import time  # noqa: E402
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
+from typing import Any  # noqa: E402
+
+SCRATCH_ROOT = REPO_ROOT / ".scratch" / "loader-tests"
+#: Environment for the scratch gateway; an edition's identity-check skip variable can be added via
+#: ``FLOOFY_SCRATCH_GATEWAY_ENV="K=V,K=V"`` (the internal adapter's README names it).
+GATEWAY_ENV_EXTRA = "FLOOFY_SCRATCH_GATEWAY_ENV"
+
+
+def build_loader_app(out: Path) -> Path:
+    """Assemble the installable Loader app directory (all editions) at ``out``."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import build_loader_app as builder  # noqa: PLC0415
+
+    return builder.build(out, list(builder.EDITIONS))
+
+
+@dataclass
+class HttpReply:
+    status: int
+    headers: dict[str, str]
+    body: bytes
+
+    def json(self) -> Any:
+        return json.loads(self.body.decode("utf-8"))
+
+
+@dataclass
+class GatewayClient:
+    """Loopback HTTP client that exchanges the one-time link token for the dashboard cookie once."""
+
+    port: int
+    token: str
+    jar: http.cookiejar.CookieJar = field(default_factory=http.cookiejar.CookieJar)
+    _exchanged: bool = False
+
+    @property
+    def base(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+    def request(self, method: str, path: str, body: Any = None, *, auth: bool = True, timeout: float = 30.0) -> HttpReply:
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
+        url = self.base + path
+        if auth and not self._exchanged:
+            url += ("&" if "?" in url else "?") + "token=" + self.token
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        request = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"} if data is not None else {})
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                reply = HttpReply(response.status, {k.lower(): v for k, v in response.headers.items()}, response.read())
+        except urllib.error.HTTPError as error:
+            reply = HttpReply(error.code, {k.lower(): v for k, v in (error.headers.items() if error.headers else [])}, error.read())
+        if auth and not self._exchanged and any(c.name.startswith("mc_token_") for c in self.jar):
+            self._exchanged = True
+        return reply
+
+    def get(self, path: str, **kw: Any) -> HttpReply:
+        return self.request("GET", path, **kw)
+
+    def post(self, path: str, body: Any = None, **kw: Any) -> HttpReply:
+        return self.request("POST", path, body, **kw)
+
+
+@dataclass
+class ScratchGateway:
+    """One ``kirocrew gateway --test-mode --no-crons --no-tunnel`` on a payload copy with scratch homes."""
+
+    payload: Path
+    scratch: Path
+    process: subprocess.Popen | None = None
+    ready: dict[str, Any] = field(default_factory=dict)
+    extra_env: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def home(self) -> Path:
+        return self.scratch / "home"
+
+    @property
+    def data_home(self) -> Path:
+        return self.home / "floofy"
+
+    @property
+    def launcher(self) -> Path:
+        return self.payload / "bin" / "kirocrew"
+
+    def env(self) -> dict[str, str]:
+        env = dict(
+            os.environ,
+            KIROCREW_HOME=str(self.home),
+            KIRO_HOME=str(self.scratch / "kiro"),
+            KIROCREW_SKIP_MODEL_DOWNLOAD="1",
+            PYTHONUNBUFFERED="1",
+            FLOOFY_NO_ADAPTERS="1",  # the Loader inside the scratch gateway never lists live install roots
+        )
+        env.pop("FLOOFY_LOADER_SELFTEST_FAIL", None)
+        for pair in filter(None, os.environ.get(GATEWAY_ENV_EXTRA, "").split(",")):
+            key, _, value = pair.partition("=")
+            env[key.strip()] = value.strip()
+        env.update(self.extra_env)
+        return env
+
+    def cli(self, *args: str, timeout: float = 120.0) -> subprocess.CompletedProcess:
+        """Run ``kirocrew <args>`` against the scratch home (install, enable, ...)."""
+        self.home.mkdir(parents=True, exist_ok=True)
+        (self.scratch / "kiro").mkdir(parents=True, exist_ok=True)
+        return subprocess.run([str(self.launcher), *args], env=self.env(), capture_output=True, text=True, timeout=timeout, check=False, cwd=str(self.payload))
+
+    def start(self, *, timeout: float = 180.0) -> "ScratchGateway":
+        self.home.mkdir(parents=True, exist_ok=True)
+        (self.scratch / "kiro").mkdir(parents=True, exist_ok=True)
+        out_path, err_path = self.scratch / "gateway.out", self.scratch / "gateway.err"
+        out = out_path.open("w", encoding="utf-8")
+        err = err_path.open("w", encoding="utf-8")
+        self.process = subprocess.Popen(
+            [str(self.launcher), "gateway", "--test-mode", "--no-crons", "--no-tunnel"],
+            env=self.env(),
+            stdout=out,
+            stderr=err,
+            cwd=str(self.payload),
+            start_new_session=True,
+        )
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.process.poll() is not None:
+                raise RuntimeError(f"gateway exited early: {err_path.read_text(encoding='utf-8', errors='replace')[-3000:]}")
+            for line in out_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("KIROCREW_READY:"):
+                    self.ready = json.loads(line[len("KIROCREW_READY:") :])
+                    return self
+            time.sleep(0.5)
+        raise RuntimeError(f"gateway did not print KIROCREW_READY within {timeout} s")
+
+    def client(self) -> GatewayClient:
+        return GatewayClient(int(self.ready["port"]), str(self.ready["token"]))
+
+    def stderr(self) -> str:
+        try:
+            return (self.scratch / "gateway.err").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    def stop(self, *, timeout: float = 30.0) -> None:
+        if self.process is None:
+            return
+        try:
+            os.killpg(self.process.pid, signal.SIGTERM)
+            self.process.wait(timeout=timeout)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        finally:
+            self.process = None
+
+
+def fresh_scratch(name: str) -> Path:
+    """An empty ``.scratch/loader-tests/<name>/`` directory."""
+    target = SCRATCH_ROOT / name
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+    return target
