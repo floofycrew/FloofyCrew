@@ -47,6 +47,20 @@ KiroCrew; it never ships a rebuilt host.
   recorded exactly as before with `how: "screen"`; `--i-accept-the-risk` (`flag`)
   and the typed `I ACCEPT` prompt without a terminal (`typed`) are unchanged, and
   `--yes` still never answers. Typed governance confirmations stay typed.
+- Interactive `floofy` (Requirement 15.4, 15.6, task 10.5): bare `floofy` on a
+  terminal opens a keyboard-driven interface (curses, standard library) — the
+  banner, a host summary (edition, version, channel, Loader state, consent) and
+  menus for mods (list with state and source tier; info, enable, disable, update,
+  uninstall, yeet/restore, install from the registry or from a git reference),
+  registries (add, remove, refresh, trust — `--allow-unsigned` behind the same
+  warning and an explicit accept item), profiles (save, use/switch, export,
+  import), doctor and check-for-updates. Every action runs the same handler as
+  its subcommand (`actor: tui` in the audit row) and shows its output in a
+  scrollable pane; the one-time consent is the full-screen `[ I AGREE ]` frame,
+  a governance-altering target stays a typed text field. Arrows or `j`/`k`,
+  Enter, Esc/`q`, `/` to filter; no mouse. Without a terminal bare `floofy`
+  prints the usage as before; when curses cannot start (`TERM=dumb`, no terminfo)
+  it prints the usage plus a one-line hint.
 - `floofy install <git reference>` — `ssh://<host>/<path>@<tag>` or
   `https://<host>/<owner>/<repo>[.git]@<tag>` (optional `#<subdirectory>`): a
   shallow clone at the tag with your own git credentials, the commit recorded,

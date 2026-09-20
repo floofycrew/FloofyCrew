@@ -18,7 +18,10 @@ Requirement 15.1), ``--version``.
 :func:`run` executes one command in-process and returns ``RunResult(exit,
 stdout, json)``; the Loader's ``POST /api/apps/floofycrew/cli`` route calls it
 with ``non_interactive=True`` and an allowlist, so the UI and the CLI share one
-implementation (design "Manager (CLI + UI)").
+implementation (design "Manager (CLI + UI)"). Bare ``floofy`` on a terminal opens
+the interactive interface of :mod:`floofy_core.cli.tui` (Requirement 15.4), which
+runs every action through :func:`execute` too; without a terminal it prints the
+usage as before.
 """
 from __future__ import annotations
 
@@ -123,7 +126,7 @@ def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway
         return exc.exit_code, {"error": str(exc)}
     console.assume_yes = bool(args.yes)
     console.quiet = console.quiet or bool(args.json) or bool(args.quiet)
-    console.non_interactive = console.non_interactive or bool(args.json) or (console.input_fn is None and not _stdin_is_tty())
+    console.non_interactive = console.non_interactive or bool(args.json) or (not console.has_controls and not _stdin_is_tty())
     if console.style is None:
         # Requirement 15.1: off on a non-terminal, under NO_COLOR, with --no-color and always with --json
         console.style = Style.detect(env=os.environ, is_tty=_isatty(console.out), no_color=bool(args.no_color) or bool(args.json))
@@ -135,7 +138,20 @@ def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway
         args.command = "vanilla"
         args.handler = __import__(f"{__package__}.cmd_doctor", fromlist=["vanilla"]).vanilla
     if not args.command:
+        # Requirement 15.4/15.6: bare `floofy` on a terminal opens the interactive interface; without one, or when
+        # curses cannot start here, the usage as today (plus a one-line hint in the latter case) and exit 2.
+        hint: str | None = None
+        if console.screen_available:
+            from .tui import FALLBACK_HINT, launch  # noqa: PLC0415
+
+            code = launch(args, console)
+            if code is not None:
+                return code, {"command": "interactive", "exit": code, "unofficial": True}
+            hint = FALLBACK_HINT
         parser.print_help(file=console.out if not console.quiet else io.StringIO())
+        if hint is not None:
+            console.say("")
+            console.say(hint, tone="muted")
         return 2, {"error": "no command"}
     if allow is not None and args.command not in allow:
         console.error(f"`floofy {args.command}` is not available from this surface (allowed: {', '.join(sorted(allow))})")

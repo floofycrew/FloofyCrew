@@ -67,6 +67,11 @@ class Console:
     # -- the full-screen consent (Requirement 15.3) --------------------------------------------
 
     @property
+    def has_controls(self) -> bool:
+        """Something can answer questions here: a scripted ``input_fn`` or a host's controls (the interactive ``floofy``)."""
+        return self.input_fn is not None or self.confirm_fn is not None or self.typed_fn is not None
+
+    @property
     def screen_available(self) -> bool:
         """Both stdin and ``out`` are terminals and nothing asked for a plain run: a full-screen control may be drawn."""
         if self.non_interactive or self.quiet or self.input_fn is not None:
