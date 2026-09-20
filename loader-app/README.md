@@ -20,7 +20,7 @@ FloofyCrew is **unofficial** and says so in `displayName` and `description`
 |---|---|
 | `app.json` | the host manifest (`kiro_crew/apps/manifest.py` `AppManifest`): name `floofycrew`, hooks `floofy_loader.hooks:{register_routes,on_startup,on_shutdown}`, `ui.entry` `index.mjs`, `permissions` `{}` |
 | `floofy_loader/hooks.py` | the shim the host imports: puts the app directory on `sys.path`, delegates to `floofy_loader.runtime`, and turns any failure into `<data home>/loader-failure.json` so the gateway boots vanilla (Requirement 3.6) |
-| `floofy_loader/runtime.py` | the process-wide `LoaderRuntime` (`startup` / `shutdown` / `register_routes`): reads the host facts, runs `boot()`, keeps the live activations, writes `loader-state.json` |
+| `floofy_loader/runtime.py` | the process-wide `LoaderRuntime` (`startup` / `shutdown` / `register_routes`): reads the host facts, runs the manager's host-version-change handling in-process (`floofy apply --if-changed`, actor `loader`) when the previous `loader-state.json` ran another host version — reporter, anchors, compat, re-apply, yeet BEFORE the mods boot — then `boot()`, keeps the live activations, writes `loader-state.json` (`hostChange` carries that outcome) |
 | `floofy_loader/boot.py` | the boot sequence (`boot(BootDeps) -> BootResult`, `deactivate_all`) with injectable collaborators (context factory, governance reader, patch runner) |
 | `floofy_loader/state.py` | `LoaderState` / `ModState` / `PartState`, the closed `REASONS` vocabulary, `SEAM_BY_KIND` |
 | `floofy_loader/consent.py` | re-export of `floofy_core.consent` (`consent.json` reader/writer, `WARNING_TEXT`, `WARNING_VERSION`, `ACCEPT_PHRASE`, `ConsentRequired`) — the text lives in the core so the `floofy` CLI never imports this package |

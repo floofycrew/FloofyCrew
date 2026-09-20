@@ -49,3 +49,16 @@ def reapply_triggers(host_home: Path, command: list[str], **kwargs):
 def early_shim_kind(payload) -> str:
     """A venv payload processes only its venv site; a bundle/desktop payload its user site (spike 1.5)."""
     return "venv-site" if payload is not None and (payload.root / "pyvenv.cfg").is_file() else "user-site"
+
+
+def update_hold(host_home: Path, *, duration: str | None, release: bool) -> dict:  # noqa: ARG001
+    """``floofy hold``: the public edition has no pause switch; explain how to pin instead (Requirement 6.6)."""
+    return {
+        "ok": True,
+        "detail": (
+            "the public edition has no update pause: pin the host instead — `pipx install kirocrew==<version> --force` for a pipx install, "
+            "`<venv>/bin/pip install kirocrew==<version>` for a managed venv, or disable auto-update in the desktop app's settings; "
+            "`floofy apply` re-applies after any update"
+        ),
+        "command": None,
+    }

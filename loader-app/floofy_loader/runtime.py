@@ -58,6 +58,8 @@ class LoaderRuntime:
     faults: list[dict[str, Any]] = field(default_factory=list)
     http_clients: dict[str, FloofyHttp] = field(default_factory=dict)
     audit: AuditLog | None = None
+    #: The outcome of the in-process host-version-change handling that ran before this boot (Requirement 6.2).
+    host_change: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         self.hooks = HookRegistry(on_fault=self.on_hook_fault)
@@ -173,6 +175,8 @@ class LoaderRuntime:
         api.install_alias()
         logger.info("FloofyCrew Loader %s (unofficial) booting: host %s %s/%s data_home=%s", __version__, self.facts.version, self.facts.edition, self.facts.channel, self.facts.data_home)
         previous = self._previous_host_version()
+        if previous and previous != self.facts.version:
+            self._handle_host_change(previous)
         self.result = boot(self.deps())
         self.started = True
         self.write_state()
@@ -221,6 +225,27 @@ class LoaderRuntime:
                 return []
             raise
 
+    # -- host version change -------------------------------------------------------------------
+
+    def _handle_host_change(self, previous_version: str) -> None:
+        """The Loader is a re-apply trigger (Requirement 6.1): a new host version runs the manager's
+        host-change handling in-process — reporter, anchors, compat, re-apply, yeet — BEFORE the mods boot,
+        so a mod the new version breaks is quarantined rather than activated (Requirement 6.2)."""
+        assert self.facts is not None
+        try:
+            from floofy_core.cli.main import run as cli_run  # noqa: PLC0415
+
+            argv = ["apply", "--if-changed", "--no-verify"]
+            if self.facts.package_dir is not None:
+                argv = ["--root", str(self.facts.package_dir.parent), *argv]  # the running payload, whatever discovery else finds
+            result = cli_run(argv, home=self.facts.host_home, in_gateway=True, actor="loader", assume_yes=True)
+            self.host_change = {"previous": previous_version, "current": self.facts.version, "exit": result.exit, "outcome": result.json, "stderr": result.stderr[-2000:]}
+            yeeted = [y.get("id") for y in (result.json.get("yeeted") or [])]
+            logger.info("host version changed %s -> %s: host-change handling exit %s, yeeted %s", previous_version, self.facts.version, result.exit, yeeted)
+        except Exception as exc:  # noqa: BLE001 - never fatal for the boot
+            self.host_change = {"previous": previous_version, "current": self.facts.version, "error": f"{type(exc).__name__}: {exc}"}
+            logger.exception("host-change handling failed; booting anyway")
+
     # -- events ------------------------------------------------------------------------------
 
     def _previous_host_version(self) -> str | None:
@@ -257,6 +282,7 @@ class LoaderRuntime:
         payload["faults"] = list(self.faults)
         payload["network"] = {mod_id: client.to_dict() for mod_id, client in sorted(self.http_clients.items())}
         payload["events"] = self.events.to_dict()
+        payload["hostChange"] = self.host_change
         return payload
 
     def write_state(self) -> None:

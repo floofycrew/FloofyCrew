@@ -91,11 +91,18 @@ class CompatCache:
         return cache
 
     def row_for(self, edition: str, channel: str | None, host_version: str) -> CompatRow | None:
-        """The row for this host; an internal build whose channel is unknown matches any channel with that version."""
-        for row in self.rows:
-            if row.edition == edition and row.host_version == host_version and (channel is None or row.channel == channel):
+        """The row for this host.
+
+        The exact ``edition × channel × hostVersion`` row wins. A build whose
+        channel is unknown, or whose channel has no row yet, takes the same
+        edition's row for that version on another channel: the channels of a
+        stamped build are the same bytes (design DR-4), so its verdict carries.
+        """
+        same_version = [row for row in self.rows if row.edition == edition and row.host_version == host_version]
+        for row in same_version:
+            if channel is None or row.channel == channel:
                 return row
-        return None
+        return same_version[0] if same_version else None
 
     def to_dict(self, row: CompatRow | None = None) -> dict[str, Any]:
         return {
