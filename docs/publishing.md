@@ -104,7 +104,10 @@ version known to work on their exact host version and never pick a `broken`
 one. A curator may override a cell with a reason (`registry_tools compat-merge
 … --override <id>@<version>=broken --reason … --by …`). To withdraw a version,
 set `"yanked": "<reason>"` in its `release.json`: it stays listed for
-transparency and is never picked automatically.
+transparency and is never picked automatically. To point users at the release
+notes of a version, set `"changelog": "https://…"` in its `release.json` (or
+`links.changelog` in the manifest): `floofy update --check` and the FloofyCrew
+App show that link beside the available update, falling back to the mod's `repo`.
 
 ## Federated sources
 

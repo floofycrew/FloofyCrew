@@ -210,7 +210,21 @@ def registry_response(runtime: Any) -> Responder:
         except InvalidVersion:
             newer = False
         tiers[mod.id] = tier_of(source, mod_id=mod.id, version=mod.version, compat_row=row)
-        updates[mod.id] = {"installed": mod.version, "candidate": picked.version if picked else None, "verdict": best.verdict, "update": newer, "inRegistry": best.entry is not None, "why": best.why, "installedVerdict": row.verdict(mod.id, mod.version) if row is not None else None, "tier": tiers[mod.id], "candidateTier": tier_for_candidate(best.verdict) if picked is not None else None}
+        updates[mod.id] = {
+            "installed": mod.version,
+            "candidate": picked.version if picked else None,
+            "verdict": best.verdict,
+            "update": newer,
+            "inRegistry": best.entry is not None,
+            "why": best.why,
+            "installedVerdict": row.verdict(mod.id, mod.version) if row is not None else None,
+            "tier": tiers[mod.id],
+            "candidateTier": tier_for_candidate(best.verdict) if picked is not None else None,
+            # Requirement 16.6: the candidate's release notes (the record's changelog URL, else the mod's repository)
+            "changelog": (picked.changelog if picked is not None else None) or (best.entry.repo if best.entry is not None else None),
+            "repo": best.entry.repo if best.entry is not None else None,
+            "key": str(key),
+        }
     sources: list[dict[str, Any]] = []
     try:
         store = SourceStore.load(paths)

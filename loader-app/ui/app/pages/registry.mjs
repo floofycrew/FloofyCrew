@@ -69,9 +69,17 @@ function AddSourceForm({ manager }) {
   );
 }
 
-/** One search hit: the tier an install would have here, the version known to work, the compat verdict, an Install button. */
+/** The matrix verdict of one version on this host: the folded compat cell (tested / expected / broken), else untested. */
+export function compatCell(version, hostVersion) {
+  const cell = version && version.compat && hostVersion ? version.compat[hostVersion] : undefined;
+  return cell || "untested";
+}
+
+/** One search hit: the tier an install would have here, the version known to work, every version's compat cell for this host, Install. */
 export function SearchHit({ hit, manager }) {
+  const hostVersion = ((manager.state || {}).host || {}).version;
   const works = hit.worksHere ? `works here: ${hit.worksHere}${hit.verdict ? ` (${hit.verdict})` : " (untested)"}` : `nothing known to work here${hit.why ? ` — ${hit.why}` : ""}`;
+  const cellStyle = (cell) => (cell === "tested" ? styles.ok : cell === "expected" ? styles.warn : cell === "broken" ? styles.danger : styles.muted);
   return React.createElement(
     "div",
     { style: { borderTop: styles.row.borderTop, padding: "0.5rem 0" }, "data-testid": `floofycrew-hit-${hit.key}` },
@@ -83,6 +91,12 @@ export function SearchHit({ hit, manager }) {
       React.createElement("span", { style: { ...styles.badge, ...(hit.tier === "tested" ? styles.ok : {}) }, "data-testid": `floofycrew-hit-tier-${hit.key}` }, `tier: ${hit.tier || "listed"}`),
       React.createElement("span", { style: { ...styles.badge, ...(hit.verdict === "tested" ? styles.ok : hit.verdict === "expected" ? styles.warn : hit.worksHere ? {} : styles.danger) }, "data-testid": `floofycrew-hit-compat-${hit.key}` }, works),
       React.createElement("span", { style: styles.badge }, `${hit.record || "archive"} record · ${hit.source || ""}`),
+    ),
+    React.createElement(
+      "div",
+      { style: { marginTop: "0.3rem" }, "data-testid": `floofycrew-hit-versions-${hit.key}` },
+      React.createElement("span", { style: styles.muted }, `versions on ${hostVersion || "this host"}: `),
+      (hit.versions || []).map((version) => React.createElement("span", { key: version.version, style: { ...styles.badge, ...cellStyle(compatCell(version, hostVersion)) }, title: version.changelog || "" }, `${version.version}: ${compatCell(version, hostVersion)}${version.yanked ? " (yanked)" : ""}`)),
     ),
     React.createElement(
       "div",
@@ -110,9 +124,40 @@ export function RegistryPage({ manager, rest }) {
     search(query).catch(() => setHits([]));
   }, [registry]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const updates = Object.entries((registry && registry.updates) || {}).filter(([, u]) => u && u.update);
+  const selfUpdate = registry && registry.selfUpdate;
+
   return React.createElement(
     React.Fragment,
     null,
+    React.createElement(
+      "div",
+      { style: styles.card, "data-testid": "floofycrew-updates" },
+      React.createElement("h2", { style: styles.cardTitle }, "Updates"),
+      selfUpdate && selfUpdate.available
+        ? React.createElement("div", { style: { ...styles.warn, marginBottom: "0.4rem" }, "data-testid": "floofycrew-self-update" }, `FloofyCrew ${selfUpdate.version} is available for this host${selfUpdate.notes ? " — " : ""}`, selfUpdate.notes ? React.createElement("a", { href: selfUpdate.notes, target: "_blank", rel: "noopener noreferrer", style: styles.accent }, "release notes") : null, React.createElement("span", { style: styles.muted }, " — at a terminal: ", React.createElement("code", { style: styles.command }, "floofy self-update")))
+        : null,
+      updates.length === 0
+        ? React.createElement("div", { style: styles.muted }, "every installed mod is at the newest version the registry cache knows to work here")
+        : updates.map(([id, update]) =>
+            React.createElement(
+              "div",
+              { key: id, style: { borderTop: styles.row.borderTop, padding: "0.4rem 0" }, "data-testid": `floofycrew-update-row-${id}` },
+              React.createElement("strong", null, id),
+              ` ${update.installed} → ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : " (untested here)"} `,
+              update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: styles.accent, "data-testid": `floofycrew-update-changelog-${id}` }, "release notes") : null,
+              React.createElement("div", { style: { marginTop: "0.2rem" } }, React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, {}) }, "Update (staged)"), React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, { now: true }) }, "Update now")),
+            ),
+          ),
+      React.createElement(
+        "div",
+        { style: { marginTop: "0.5rem" } },
+        React.createElement("button", { style: styles.button, disabled: busy, "data-testid": "floofycrew-update-check", onClick: () => manager.act("/mods/update-check", {}) }, "Check for updates"),
+        updates.length ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": "floofycrew-update-all", onClick: () => manager.act("/mods/update-all", {}) }, `Update all ${updates.length} (staged)`) : null,
+        updates.length ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act("/mods/update-all", { now: true }) }, "Update all now") : null,
+      ),
+      commandNote(React, "The same at a terminal:", "floofy update [--all] [--check] [--now]"),
+    ),
     React.createElement(
       "div",
       { style: styles.card, "data-testid": "floofycrew-sources" },

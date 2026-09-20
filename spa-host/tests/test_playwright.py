@@ -347,6 +347,25 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         page.click('[data-testid="floofycrew-nav-mods"]')
         page.wait_for_selector('[data-testid="floofycrew-mod-row-rimuru-branding"]', timeout=30000)
         assert page.inner_text('[data-testid="floofycrew-banner"]').count("UNOFFICIAL") == 1, "the banner stays on every page"
+        # task 11.4 — update availability with the release-notes link, the Registry page's Updates card and search badges
+        index_cache = FloofyPaths(harness.gw.data_home).index_cache
+        index_cache.write_text(json.dumps({"schema": 1, "source": "seeded", "mods": [{"id": "spa-healthy", "name": "spa-healthy", "description": "browser test mod", "authors": ["tests"], "tags": ["test"], "repo": "https://forge.example/spa-healthy", "versions": [{"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {}, "files": [{"url": "https://example.invalid/a.zip", "sha256": "0" * 64}]}, {"version": "1.1.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {"0.7.0.5": "expected"}, "files": [{"url": "https://example.invalid/b.zip", "sha256": "1" * 64}], "changelog": "https://forge.example/spa-healthy/releases/1.1.0"}]}]}), encoding="utf-8")
+        try:
+            page.reload(wait_until="load")
+            page.wait_for_selector('[data-testid="floofycrew-update-spa-healthy"]', timeout=60000)
+            assert "update available: 1.1.0 (expected here)" in page.inner_text('[data-testid="floofycrew-update-spa-healthy"]')
+            assert page.get_attribute('[data-testid="floofycrew-changelog-spa-healthy"]', "href") == "https://forge.example/spa-healthy/releases/1.1.0"
+            assert page.locator('[data-testid="floofycrew-update-button-spa-healthy"]').count() == 1 and page.locator('[data-testid="floofycrew-update-now-spa-healthy"]').count() == 1
+            page.click('[data-testid="floofycrew-nav-registry"]')
+            page.wait_for_selector('[data-testid="floofycrew-update-row-spa-healthy"]', timeout=60000)
+            assert page.get_attribute('[data-testid="floofycrew-update-changelog-spa-healthy"]', "href") == "https://forge.example/spa-healthy/releases/1.1.0"
+            assert "Update all 1" in page.inner_text('[data-testid="floofycrew-update-all"]')
+            page.wait_for_selector('[data-testid="floofycrew-hit-spa-healthy"]', timeout=60000)
+            versions = page.inner_text('[data-testid="floofycrew-hit-versions-spa-healthy"]')
+            assert "1.0.0: untested" in versions and "1.1.0: expected" in versions, versions
+            assert page.inner_text('[data-testid="floofycrew-hit-tier-spa-healthy"]') == "tier: listed" and "works here: 1.1.0 (expected)" in page.inner_text('[data-testid="floofycrew-hit-compat-spa-healthy"]')
+        finally:
+            index_cache.unlink()
     finally:
         context.close()
 
@@ -418,10 +437,14 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         assert [r["op"] for r in rows] == ["governance-target-confirm", "agent-install", "install"], rows
         assert rows[0]["actor"] == "app" and rows[0]["detail"] == "typed at the prompt" and rows[0]["files"] == ["security_policy.json"]
         assert rows[-1]["actor"] == "app" and "GovernanceAltering" in rows[-1]["governanceFlags"] and "staged into" in rows[-1]["detail"]
-        # apply now = the Loader's reload: the staged mod lands
+        # apply now = the Loader's reload (POST /reload): the staged mod lands in mods/
         page.click('[data-testid="floofycrew-apply-now"]')
-        page.wait_for_function("() => !document.querySelector('[data-testid=\"floofycrew-pending\"]')", timeout=60000)
-        assert (data_home / "mods" / "govy").is_dir()
+        deadline = time.time() + 120
+        while time.time() < deadline and not (data_home / "mods" / "govy").is_dir():
+            time.sleep(0.5)
+        if not (data_home / "mods" / "govy").is_dir():
+            raise AssertionError(f"apply now did not land the staged mod; output pane: {page.inner_text('[data-testid=\"floofycrew-output\"]')!r}; state pending: {client.get(f'{API}/state').json().get('pending')}")
+        page.wait_for_function("() => !document.querySelector('[data-testid=\"floofycrew-pending\"]')", timeout=90000)
         removed = client.post(f"{API}/mods/govy/uninstall", {"now": True, "confirmations": {"yes": True}})
         assert removed.status == 200, removed.body[:300]
 

@@ -424,3 +424,81 @@ def test_yeet_and_restore_routes(homes: Path):
     status, body = home.call("mods.yeet_restore", body={"version": versions[0]})
     assert status == 200 and (home.paths.mods / "alpha").is_dir()
     assert home.call("mods.yeet_restore", body={"version": "../x"})[0] == 400
+
+
+
+# --- updates (task 11.4) ------------------------------------------------------------------------------------
+
+
+def _archive_server(mod_dir: Path, top: str):
+    """A loopback HTTP server holding one zip of ``mod_dir``; returns ``(server, url, sha256)``."""
+    import io
+    import threading
+    import zipfile
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for path in sorted(mod_dir.rglob("*")):
+            if path.is_file():
+                archive.write(path, f"{top}/{path.relative_to(mod_dir).as_posix()}")
+    payload = buffer.getvalue()
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):  # noqa: D401
+            return
+
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}/{top}.zip", sha(payload)
+
+
+def test_update_check_and_one_click_update_share_the_cli_path(homes: Path):
+    """Requirement 16.6: update availability with the changelog link, and an update through `floofy update <id>`."""
+    app = Home(homes / "app", consent=True)
+    cli = Home(homes / "cli", consent=True, payload=app.payload)
+    newer = write_mod(homes / "src" / "reggy", "reggy", parts=[{"kind": "agent", "side": "gateway", "path": "agents/r.json"}], files={"agents/r.json": json.dumps({"name": "r"})}, extra={"version": "1.1.0"})
+    server, url, digest = _archive_server(newer, "reggy")
+    try:
+        index = {"schema": 1, "source": "test-source", "generatedAt": "2026-09-19T00:00:00Z", "mods": [{"id": "reggy", "name": "Reggy", "description": "a registry mod", "authors": ["tests"], "tags": [], "repo": "https://forge.example/reggy", "versions": [{"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {}, "files": [{"url": url, "sha256": digest}]}, {"version": "1.1.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {"0.7.0.5": "expected"}, "files": [{"url": url, "sha256": digest}], "changelog": "https://forge.example/reggy/releases/1.1.0"}]}]}
+        for home in (app, cli):
+            home.paths.index_cache.write_text(json.dumps(index), encoding="utf-8")
+            installed = make_mod(home.paths, "reggy", code=None, parts=[{"kind": "agent", "side": "gateway", "path": "agents/r.json"}], files={"agents/r.json": json.dumps({"name": "r"})})
+            (installed / ".floofy").mkdir(exist_ok=True)
+            (installed / ".floofy" / "source.json").write_text(json.dumps({"source": "registry", "ref": "reggy@1.0.0", "registryKey": "reggy", "tier": "listed", "version": "1.0.0"}), encoding="utf-8")
+        # the check: the plan names the candidate and its release notes; no audit row (read-only)
+        status, body = app.call("updates.check")
+        assert status == 200, body
+        plan = body["json"]["plan"]
+        assert plan == [{"id": "reggy", "key": "reggy", "installed": "1.0.0", "candidate": "1.1.0", "verdict": "expected", "why": "", "inRegistry": True, "update": True, "changelog": "https://forge.example/reggy/releases/1.1.0"}]
+        assert any("release notes: https://forge.example/reggy/releases/1.1.0" in line for line in body["transcript"])
+        assert app.audit() == []
+        # the one-click update: `update reggy` — staged by default (a gateway runs), the same rows as the CLI
+        status, body = app.call("mods.update", {"id": "reggy"})
+        assert status == 200 and body["ok"] is True, body
+        assert (app.paths.pending / "reggy").is_dir() and json.loads((app.paths.pending / "reggy" / "floofy.json").read_text(encoding="utf-8"))["version"] == "1.1.0"
+        assert body["reloaded"] is False, "staged: the Loader does not reload until apply now"
+        code, _, console = cli.cli("update", "reggy")
+        assert code == 0, console.err.getvalue()
+        app_rows, cli_rows = app.audit(), cli.audit()
+        assert [r["op"] for r in app_rows] == [r["op"] for r in cli_rows] == ["agent-install", "install", "update"]
+        for app_row, cli_row in zip(app_rows, cli_rows):
+            left = json.dumps(comparable(app_row), sort_keys=True).replace(str(app.root), "<home>")
+            right = json.dumps(comparable(cli_row), sort_keys=True).replace(str(cli.root), "<home>")
+            assert left == right, (left, right)
+        assert app_rows[-1]["actor"] == "app" and cli_rows[-1]["actor"] == "cli"
+        # apply now lands the update; `now: true` on a second home does it in one step
+        app.runtime.reload()
+        assert json.loads((app.paths.mods / "reggy" / "floofy.json").read_text(encoding="utf-8"))["version"] == "1.1.0"
+        status, body = app.call("updates.check")
+        assert status == 200 and body["json"]["plan"][0]["update"] is False
+    finally:
+        server.shutdown()
+        server.server_close()

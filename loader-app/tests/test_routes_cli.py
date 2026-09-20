@@ -61,9 +61,12 @@ def test_registry_route_reports_update_availability(tmp_path: Path, monkeypatch)
     empty = _body(registry_response(runtime))
     assert empty["ok"] is True and empty["updates"]["alpha"]["inRegistry"] is False and empty["updates"]["alpha"]["update"] is False
     assert empty["sources"] == [] and empty["compat"]["row"] is None
-    data.index_cache.write_text(json.dumps({"schema": 1, "source": "test", "mods": [{"id": "alpha", "name": "Alpha", "versions": [{"version": "1.1.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {"0.7.0.5": "expected"}, "files": [{"url": "https://example.invalid/a.zip", "sha256": "0" * 64}]}]}]}), encoding="utf-8")
+    data.index_cache.write_text(json.dumps({"schema": 1, "source": "test", "mods": [{"id": "alpha", "name": "Alpha", "repo": "https://forge.example/alpha", "versions": [{"version": "1.1.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {"0.7.0.5": "expected"}, "files": [{"url": "https://example.invalid/a.zip", "sha256": "0" * 64}], "changelog": "https://forge.example/alpha/releases/1.1.0"}]}]}), encoding="utf-8")
     document = _body(registry_response(runtime))
-    assert document["updates"]["alpha"] == {"installed": "1.0.0", "candidate": "1.1.0", "verdict": "expected", "update": True, "inRegistry": True, "why": "", "installedVerdict": None, "tier": "unlisted", "candidateTier": "listed"}
+    assert document["updates"]["alpha"] == {"installed": "1.0.0", "candidate": "1.1.0", "verdict": "expected", "update": True, "inRegistry": True, "why": "", "installedVerdict": None, "tier": "unlisted", "candidateTier": "listed", "changelog": "https://forge.example/alpha/releases/1.1.0", "repo": "https://forge.example/alpha", "key": "alpha"}
+    # without a changelog URL the record's repository is the link (Requirement 16.6)
+    data.index_cache.write_text(json.dumps({"schema": 1, "source": "test", "mods": [{"id": "alpha", "name": "Alpha", "repo": "https://forge.example/alpha", "versions": [{"version": "1.1.0", "kirocrew": ">=0.7.0 <0.9.0", "compat": {"0.7.0.5": "expected"}, "files": [{"url": "https://example.invalid/a.zip", "sha256": "0" * 64}]}]}]}), encoding="utf-8")
+    assert _body(registry_response(runtime))["updates"]["alpha"]["changelog"] == "https://forge.example/alpha"
     assert document["tiers"] == {"alpha": "unlisted"}, "a mod without an install record is unlisted (Requirement 8.11)"
     assert document["cache"]["mods"] == 1
     # the matrix row for this host grades the candidates (Requirement 9.2) and the sources carry their last verdict

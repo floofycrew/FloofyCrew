@@ -141,7 +141,10 @@ manifest's `dependsOn`), `channel` and `publishedAt` — and the optional
 `channels`, `strict`, `tag` (the release tag when it is not the bare version),
 `kinds` (the part kinds shipped), `app{name, subdirectory}` (present for a pure
 App Kit app, the facts the KiroCrew-compatible `app-registry.json` row needs —
-Requirement 8.6) and `yanked` (a withdrawal reason; never picked automatically).
+Requirement 8.6), `yanked` (a withdrawal reason; never picked automatically) and
+`changelog` (an https URL of the version's release notes — `release.json`
+`changelog`, else the manifest's `links.changelog`; the manager App shows it
+beside an available update and falls back to the mod's `repo`, Requirement 16.6).
 The index never embeds a signature: the detached `index.json.sig` beside it does
 that.
 

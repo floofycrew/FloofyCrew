@@ -149,6 +149,10 @@
           "description": "Set when the version was withdrawn; clients never pick a yanked version automatically.",
           "type": "string",
           "minLength": 1
+        },
+        "changelog": {
+          "description": "Optional https URL of this version's release notes (release.json `changelog`, else the manifest's links.changelog); the manager shows it beside an available update (Requirement 16.6) and falls back to the mod's repo.",
+          "$ref": "#/$defs/url"
         }
       },
       "patternProperties": { "^x-": {} },

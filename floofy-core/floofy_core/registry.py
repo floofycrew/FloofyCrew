@@ -81,6 +81,12 @@ class IndexVersion:
         return reason if isinstance(reason, str) and reason else None
 
     @property
+    def changelog(self) -> str | None:
+        """The version's release-notes URL when the record names one (Requirement 16.6)."""
+        url = self.raw.get("changelog")
+        return url if isinstance(url, str) and url.startswith("https://") else None
+
+    @property
     def link(self) -> dict[str, Any] | None:
         """The link record (``repo``, ``tag``, ``commit``, ``manifestSha256``[, ``path``]) when the version is link-based (Requirement 8.9), else ``None``."""
         link = self.raw.get("link")
@@ -97,7 +103,7 @@ class IndexVersion:
         return [dict(f) for f in self.files if isinstance(f.get("path"), str) and "url" not in f]
 
     def to_dict(self) -> dict[str, Any]:
-        return {"version": self.version, "kirocrew": self.kirocrew, "editions": list(self.editions), "compat": dict(self.compat), "files": [dict(f) for f in self.files], "dependencies": dict(self.dependencies), "channel": self.channel, "publishedAt": self.published_at, "yanked": self.yanked, "link": self.link}
+        return {"version": self.version, "kirocrew": self.kirocrew, "editions": list(self.editions), "compat": dict(self.compat), "files": [dict(f) for f in self.files], "dependencies": dict(self.dependencies), "channel": self.channel, "publishedAt": self.published_at, "yanked": self.yanked, "link": self.link, "changelog": self.changelog}
 
 
 @dataclass

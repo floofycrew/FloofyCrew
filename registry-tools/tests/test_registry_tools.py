@@ -104,6 +104,31 @@ def test_build_index_from_records_folds_the_matrix_and_passes_the_schema(registr
     assert main(["build", str(registry.root), "--check", "--floofycrew", "1.0.1"]) == 1
 
 
+def test_build_carries_the_release_notes_link_and_the_client_reads_it(registry: ScratchRegistry, tmp_path: Path):
+    """Requirement 16.6: a version's `changelog` (release.json, else the manifest's links.changelog) is indexed, https only."""
+    release_path = registry.root / "mods" / "example-theme" / "1.1.0" / "release.json"
+    release = json.loads(release_path.read_text(encoding="utf-8"))
+    release["changelog"] = "https://git.example/mods/example-theme/releases/1.1.0"
+    release_path.write_text(json.dumps(release, indent=2), encoding="utf-8")
+    plain_path = registry.root / "mods" / "example-theme" / "1.0.0" / "release.json"
+    plain = json.loads(plain_path.read_text(encoding="utf-8"))
+    plain["changelog"] = "http://plain.example/notes"  # plaintext: never indexed
+    plain_path.write_text(json.dumps(plain, indent=2), encoding="utf-8")
+    repo = RegistryRepo.load(registry.root)
+    result = build_index(repo)
+    assert result.ok, result.problems
+    assert validate_instance(result.index, load_schema("index")) == []
+    theme = next(m for m in result.index["mods"] if m["id"] == "example-theme")
+    v100, v110 = theme["versions"]
+    assert v110["changelog"] == "https://git.example/mods/example-theme/releases/1.1.0" and "changelog" not in v100
+    out = tmp_path / "index.json"
+    assert main(["build", str(registry.root), "--out", str(out)]) == 0
+    cache = IndexCache.load_path(out)
+    entry = cache.find("example-theme")
+    assert entry.version("1.1.0").changelog == "https://git.example/mods/example-theme/releases/1.1.0" and entry.version("1.0.0").changelog is None
+    assert entry.version("1.1.0").to_dict()["changelog"].startswith("https://")
+
+
 def test_build_reports_record_defects(registry: ScratchRegistry, tmp_path: Path):
     repo = RegistryRepo.load(registry.root)
     (registry.root / "mods" / "example-app" / "mod.json").unlink()

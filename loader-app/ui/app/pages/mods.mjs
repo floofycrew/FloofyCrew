@@ -133,7 +133,14 @@ export function ModsPage({ manager, navigate, openConsent }) {
             null,
             React.createElement("div", null, React.createElement("strong", null, row.name || row.id), " ", React.createElement("code", null, `${row.id} ${row.version}`)),
             React.createElement("div", { style: styles.muted, "data-testid": `floofycrew-enabled-${row.id}` }, row.enabled ? "enabled" : "disabled", row.link ? " · dev link" : ""),
-            update && update.update ? React.createElement("div", { style: styles.ok, "data-testid": `floofycrew-update-${row.id}` }, `update available: ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : ""}`) : null,
+            update && update.update
+              ? React.createElement(
+                  "div",
+                  { style: styles.ok, "data-testid": `floofycrew-update-${row.id}` },
+                  `update available: ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : ""} `,
+                  update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: styles.accent, "data-testid": `floofycrew-changelog-${row.id}` }, "release notes") : null,
+                )
+              : null,
           ),
           React.createElement("div", null, stateBadge(row), row.detail ? React.createElement("div", { style: styles.muted, title: row.detail }, row.detail.length > 90 ? `${row.detail.slice(0, 90)}…` : row.detail) : null),
           React.createElement("div", null, compatBadge(row), tierBadge(row), React.createElement("div", null, React.createElement(Warnings, { row }))),
@@ -142,7 +149,8 @@ export function ModsPage({ manager, navigate, openConsent }) {
             "div",
             null,
             React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-toggle-${row.id}`, onClick: () => act(`${mod(row.id)}/${row.enabled ? "disable" : "enable"}`) }, row.enabled ? "Disable" : "Enable"),
-            update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-update-button-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, { now: true }) }, `Update to ${update.candidate}`) : null,
+            update && update.update ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": `floofycrew-update-button-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, {}) }, `Update to ${update.candidate}`) : null,
+            update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-update-now-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, { now: true }) }, "Update now") : null,
             React.createElement("button", { style: styles.button, disabled: busy, onClick: () => (window.confirm(`Park ${row.id} in the quarantine for host ${host.version}?`) ? act(`${mod(row.id)}/yeet`, { reason: "manual yeet (app)" }) : null) }, "Yeet"),
             React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(`${mod(row.id)}/uninstall`, { now: true }) }, "Uninstall"),
             navigate ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => navigate("registry", row.id) }, "Registry entry") : null,

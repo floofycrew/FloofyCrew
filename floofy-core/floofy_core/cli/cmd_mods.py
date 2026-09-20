@@ -449,11 +449,13 @@ def update(ctx: CliContext, args: argparse.Namespace) -> int:
         except InvalidVersion:
             newer = False
         row["update"] = newer
+        # the release notes of the candidate (Requirement 16.6): the record's changelog URL, else the mod's repository
+        row["changelog"] = (picked.changelog if picked is not None else None) or (best.entry.repo if best.entry is not None else None)
         plan.append(row)
     ctx.set_result(plan=plan, applied=[])
     for row in plan:
         if row["update"]:
-            ctx.say(f"{row['id']}: {row['installed']} -> {row['candidate']}" + (f" ({row['verdict']} here)" if row["verdict"] else " (untested here)"))
+            ctx.say(f"{row['id']}: {row['installed']} -> {row['candidate']}" + (f" ({row['verdict']} here)" if row["verdict"] else " (untested here)") + (f" — release notes: {row['changelog']}" if row.get("changelog") else ""))
         else:
             ctx.say(f"{row['id']}: up to date at {row['installed']}" + (f" ({row['why']})" if row["why"] else ""))
     if args.check:

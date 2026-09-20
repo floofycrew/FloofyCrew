@@ -111,7 +111,21 @@ def _version_entry(record: VersionRecord, compat: CompatCache | None) -> dict[st
         entry["app"] = app
     if isinstance(release.get("yanked"), str) and release["yanked"]:
         entry["yanked"] = release["yanked"]
+    changelog = _changelog(release, manifest)
+    if changelog:
+        entry["changelog"] = changelog
     return entry
+
+
+def _changelog(release: dict[str, Any], manifest: dict[str, Any]) -> str | None:
+    """The version's release-notes URL (Requirement 16.6): ``release.json`` ``changelog``, else the manifest's ``links.changelog``; https only."""
+    candidates = [release.get("changelog")]
+    links = manifest.get("links") if isinstance(manifest.get("links"), dict) else {}
+    candidates.append(links.get("changelog"))
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.startswith("https://") and not any(c.isspace() for c in candidate):
+            return candidate
+    return None
 
 
 def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, generated_at: str | None = None, floofycrew_version: str | None = None, resolve_links: bool = False) -> BuildResult:
