@@ -1,17 +1,19 @@
 # FloofyCrew schemas
 
-Two JSON Schemas (draft 2020-12) ship inside `floofy_core.schema` as package data
-and are loaded with `floofy_core.schema.load_schema("floofy" | "patch")`
-(Requirement 1.9). `floofy validate` checks a mod against them with the
-stdlib-only checker in `floofy_core.schema.check`, then runs the semantic checks
-(SemVer ranges, file hashes, targets, network) that a schema cannot express.
+Five JSON Schemas (draft 2020-12) ship inside `floofy_core.schema` as package data
+and are loaded with `floofy_core.schema.load_schema("floofy" | "patch" | "index" |
+"compat" | "signature")` (Requirement 1.9, 8.1, 9.1). `floofy validate` checks a
+mod against the first two with the stdlib-only checker in
+`floofy_core.schema.check`, then runs the semantic checks (SemVer ranges, file
+hashes, targets, network) that a schema cannot express; `registry-tools` checks
+registry documents against the last three.
 
-Schema ids are `https://floofycrew.dev/schema/floofy-1.json` and
-`https://floofycrew.dev/schema/patch-1.json`. The `floofycrew.dev` name is the
-project's public documentation domain; the ids are identifiers, nothing fetches
-them, and the trailing `-1` is the manifest `schema` number so a future
-`floofy-2.json` can coexist. Keys beginning with `x-` are reserved for
-extensions at the top level of both documents and are ignored by the framework.
+Schema ids are `https://floofycrew.dev/schema/<name>-1.json`. The `floofycrew.dev`
+name is the project's public documentation domain; the ids are identifiers,
+nothing fetches them, and the trailing `-1` is the document's `schema` number so
+a future `floofy-2.json` can coexist. Keys beginning with `x-` are reserved for
+extensions at the top level of every document (and inside index/compat rows) and
+are ignored by the framework.
 
 Nine minimal, valid example mods — one per part kind — live in
 `floofy-core/examples/<kind>/`; `scripts/hash_example_files.py` keeps their
@@ -119,3 +121,55 @@ literal that must occur in the target text before any op applies (Vencord's
 module identification). The entry chunk loaded by `<script src>` is not
 reachable through the import map; the Patcher falls back to the in-place +
 alias-graph path for it.
+
+
+## Registry index (`index-1.json`, Requirement 8.1)
+
+`index.json` is the signed catalogue of one registry. Top level: `schema` (`1`),
+`source` (the registry's own label — informational; the manager namespaces
+colliding ids by the source name the *user* configured, never by this claim),
+`generatedAt` (UTC timestamp; a verified index older than the cached one is
+flagged as a rollback), optional `floofycrew` (the release that built it), and
+`mods[]`. Each mod carries `id` (the manifest id), `name`, `description`,
+`authors[]`, `tags[]`, `repo` (the source repository) and `versions[]`, plus the
+optional `license`, `links{}` and `icon`. Each version carries exactly the
+Requirement 8.1 list — `version`, `kirocrew` (the manifest's host range),
+`editions`, `compat{hostVersion: tested|expected|broken}` (the matrix cells for
+this `mod@version`, folded in from `compat.json` by the registry build so a client
+can grade versions before downloading anything), `files[]{url, sha256, size}`
+(HTTPS only; the manager checks both the hash and the size of every download),
+`dependencies` (the manifest's `dependsOn`), `channel` and `publishedAt` — and the
+optional `channels`, `strict`, `tag` (the release tag when it is not the bare
+version), `kinds` (the part kinds shipped), `app{name, subdirectory}` (present for
+a pure App Kit app, the facts the KiroCrew-compatible `app-registry.json` row
+needs — Requirement 8.6) and `yanked` (a withdrawal reason; never picked
+automatically). The index never embeds a signature: the detached
+`index.json.sig` beside it does that.
+
+## Compatibility matrix (`compat-1.json`, Requirement 9.1)
+
+`compat.json` holds `rows[]`, one per `edition × channel × hostVersion`
+(`hostVersion` as the host prints it: `0.7.0.5`, `0.7.0`, `0.7.0-insider.3`).
+`framework` records `loader` (`ok|degraded|broken`), `spaFingerprints` and
+`pythonAnchors` (`{matched, total, missed[]}`), `shimVersion` and optionally the
+`floofycrew` release that produced the row. `mods` maps `id@version` cells to a
+verdict — a bare `tested|expected|broken`, or `{verdict, run, detail}` with the
+link to the Forge run. `overrides[]` are human decisions `{cell, verdict, reason,
+by, at}` that win over the automated cell (the local cache reader applies them).
+`run` and `checkedAt` describe the row as a whole. A source's matrix is trusted
+under the same rule as its index: `compat.json.sig` must verify, or the user must
+have allowed the source unsigned.
+
+## Detached signature (`signature-1.json`, Requirement 8.3)
+
+`index.json.sig` and `compat.json.sig` are JSON: `{"schema": 1, "alg":
+"ed25519", "keyId": "<16 hex>", "signature": "<base64, 64 bytes>", "signedAt":
+"…Z", "canonical": "json-c14n-1"}`. The signature is Ed25519 (RFC 8032) over the
+canonical bytes of the *parsed* document (`floofy_core.canonical`: sorted keys,
+no whitespace, UTF-8, `ensure_ascii=False`), so the served file may be
+pretty-printed. `keyId` is `sha256(public key)[:16]`; the manager accepts the keys
+its edition adapter pins plus any key the user pinned for that source
+(`floofy registry add --public-key`), and `--key-id` restricts a source to one
+key. The design allowed Ed25519 or RSA-SHA256; only Ed25519 is implemented
+(stdlib Python has neither, and Ed25519 fits in ~120 lines the test vectors pin
+down), so `alg` is a constant.

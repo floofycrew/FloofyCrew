@@ -22,16 +22,29 @@ usable sources is namespaced ``<source>/<id>`` by :class:`floofy_core.registry.I
 (Requirement 8.4); the namespace is the source's **configured** label — its
 ``--name``, else its cache key — never a name the index claims for itself.
 
-Signature verification is the :data:`VERIFIER` hook. Until task 7.3 lands the
-canonical-JSON detached-signature format and the per-edition pinned keys, a present
-signature is ``unverified-pending-7.x`` and an absent one ``unsigned`` — neither is
-usable without ``allowUnsigned``, which is exactly the default-safe rule (an
-``invalid`` signature is admitted under the same override, warned about loudly and
-recorded — design "Testing Strategy → Registry": tampered index refused by
-default, admitted with override + audit).
+Signature verification is :func:`verify_index` (the :data:`VERIFIER` hook): the
+detached ``index.json.sig`` is an Ed25519 signature over the canonical JSON of the
+index (:mod:`floofy_core.sigverify`), checked against the keys the edition
+adapters pin (:func:`floofy_core.editions.registry_keys`) plus the key the user
+pinned for that source (``floofy registry add --public-key``); ``--key-id``
+restricts a source to one key. Verdicts: ``verified`` (usable), ``unsigned`` (no
+``.sig``) and ``invalid`` (tampered, wrong or unknown key, unreadable) — the
+last two are usable only under the user's explicit ``allowUnsigned``, which is
+exactly the default-safe rule (design "Testing Strategy → Registry": tampered
+index refused by default, admitted with override + audit). A verified index
+whose ``generatedAt`` is older than the one already cached from the same source
+is still verified but flagged (a replayed old index cannot hide newer versions
+unnoticed).
+
+Source URLs name a directory (``…/registry/``) or carry a ``{file}`` placeholder
+(``…/blobs/mainline/--/{file}?raw=1``) for hosts whose raw view needs a query
+string; :meth:`Source.file_url` fills in ``index.json`` and friends. An edition
+adapter may supply a ``urllib`` opener per URL for its network identity
+(:func:`floofy_core.editions.registry_opener`); the core itself is anonymous.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -45,12 +58,13 @@ from typing import Any, Callable
 
 from .datahome import DataHome
 from .installer import InstallError, _refuse_plaintext
+from .sigverify import STATUS_INVALID, STATUS_UNSIGNED, STATUS_VERIFIED, SignatureError, VerifyResult, key_id, verify_detached
 
 __all__ = [
+    "KEY_PROVIDER",
     "MAX_INDEX_BYTES",
     "RefreshOutcome",
     "STATUS_INVALID",
-    "STATUS_PENDING",
     "STATUS_UNSIGNED",
     "STATUS_VERIFIED",
     "Source",
@@ -63,6 +77,7 @@ __all__ = [
     "refresh",
     "source_key",
     "source_label",
+    "trusted_keys_for",
     "verify_index",
 ]
 
@@ -70,11 +85,7 @@ TRUST_LEVELS = ("index", "owner")
 MAX_INDEX_BYTES = 20 * 1024 * 1024
 
 #: The verdicts :data:`VERIFIER` may return.
-STATUS_VERIFIED = "verified"
-STATUS_UNSIGNED = "unsigned"
-STATUS_INVALID = "invalid"
-STATUS_PENDING = "unverified-pending-7.x"
-VERIFY_STATUSES = (STATUS_VERIFIED, STATUS_UNSIGNED, STATUS_INVALID, STATUS_PENDING)
+VERIFY_STATUSES = (STATUS_VERIFIED, STATUS_UNSIGNED, STATUS_INVALID)
 
 
 def _now() -> str:
@@ -88,6 +99,26 @@ def source_key(url: str) -> str:
     return f"{stem}-{hashlib.sha256(url.encode('utf-8')).hexdigest()[:8]}"
 
 
+FILE_PLACEHOLDER = "{file}"
+
+
+def decode_public_key(text: str | None) -> bytes | None:
+    """A pinned public key as the user gave it: base64 (44 chars) or 64 hex digits; ``None`` when absent."""
+    if not text:
+        return None
+    candidate = text.strip()
+    try:
+        if len(candidate) == 64 and all(c in "0123456789abcdefABCDEF" for c in candidate):
+            raw = bytes.fromhex(candidate)
+        else:
+            raw = base64.b64decode(candidate, validate=True)
+    except ValueError as exc:
+        raise InstallError(f"--public-key is neither base64 nor hex: {exc}") from exc
+    if len(raw) != 32:
+        raise InstallError(f"an Ed25519 public key is 32 bytes, got {len(raw)}")
+    return raw
+
+
 @dataclass
 class Source:
     """One row of ``registries.json``."""
@@ -98,6 +129,10 @@ class Source:
     key_id: str | None = None
     name: str | None = None
     added_at: str = field(default_factory=_now)
+    #: A public key the user pinned for this source (base64), verified alongside the edition's pinned keys.
+    public_key: str | None = None
+    #: The KiroCrew federated app-registry row the same source publishes (task 7.4): ``{"repo", "branch", "name"}``.
+    host_registry: dict[str, Any] | None = None
 
     @property
     def key(self) -> str:
@@ -111,13 +146,33 @@ class Source:
     @property
     def base(self) -> str:
         """The directory URL the files hang off (a URL naming ``index.json`` is accepted too)."""
+        if FILE_PLACEHOLDER in self.url:
+            return self.url.split(FILE_PLACEHOLDER, 1)[0]
         if self.url.endswith("/index.json"):
             return self.url[: -len("index.json")]
         return self.url if self.url.endswith("/") else self.url + "/"
 
+    def file_url(self, name: str) -> str:
+        """The URL of one registry file: ``{file}`` substituted, else ``base + name``."""
+        if FILE_PLACEHOLDER in self.url:
+            return self.url.replace(FILE_PLACEHOLDER, name)
+        return self.base + name
+
+    @property
+    def public_key_bytes(self) -> bytes | None:
+        try:
+            return decode_public_key(self.public_key)
+        except InstallError:
+            return None
+
     def to_record(self) -> dict[str, Any]:
         """The ``registries.json`` row (design "Consent, trust and audit")."""
-        return {"url": self.url, "name": self.name, "trust": self.trust, "allowUnsigned": self.allow_unsigned, "keyId": self.key_id, "addedAt": self.added_at}
+        record: dict[str, Any] = {"url": self.url, "name": self.name, "trust": self.trust, "allowUnsigned": self.allow_unsigned, "keyId": self.key_id, "addedAt": self.added_at}
+        if self.public_key:
+            record["publicKey"] = self.public_key
+        if self.host_registry:
+            record["hostRegistry"] = dict(self.host_registry)
+        return record
 
     def to_dict(self) -> dict[str, Any]:
         return {**self.to_record(), "key": self.key, "label": self.label}
@@ -131,7 +186,17 @@ class Source:
             raw.get("keyId") if isinstance(raw.get("keyId"), str) else None,
             raw.get("name") if isinstance(raw.get("name"), str) else None,
             str(raw.get("addedAt") or _now()),
+            raw.get("publicKey") if isinstance(raw.get("publicKey"), str) else None,
+            dict(raw["hostRegistry"]) if isinstance(raw.get("hostRegistry"), dict) else None,
         )
+
+    @classmethod
+    def from_default(cls, row: dict[str, Any]) -> "Source":
+        """A source from an edition adapter's ``default_sources()`` row (``repo``/``branch`` become the host-registry row)."""
+        source = cls.from_dict(row)
+        if source.host_registry is None and isinstance(row.get("repo"), str):
+            source.host_registry = {"repo": row["repo"], "branch": str(row.get("branch") or "main"), "name": str(row.get("hostRegistryName") or row.get("name") or "floofycrew")}
+        return source
 
 
 def source_label(source: Source) -> str:
@@ -178,6 +243,12 @@ class SourceStore:
         if source.trust not in TRUST_LEVELS:
             raise InstallError(f"trust must be one of {', '.join(TRUST_LEVELS)}")
         _refuse_plaintext(source.url)
+        if source.public_key:
+            pinned = decode_public_key(source.public_key)  # raises on a malformed key
+            if source.key_id and pinned is not None and key_id(pinned) != source.key_id:
+                raise InstallError(f"--key-id {source.key_id} does not match the given --public-key (its id is {key_id(pinned)})")
+            if pinned is not None and not source.key_id:
+                source.key_id = key_id(pinned)
         if source.name and any(s.name == source.name and s.url != source.url for s in self.sources):
             raise InstallError(f"a different source is already named {source.name!r}")
         existing = self.find(source.url)
@@ -185,6 +256,8 @@ class SourceStore:
         if existing is not None:
             existing.trust, existing.allow_unsigned = source.trust, source.allow_unsigned
             existing.key_id, existing.name = source.key_id or existing.key_id, source.name or existing.name
+            existing.public_key = source.public_key or existing.public_key
+            existing.host_registry = source.host_registry or existing.host_registry
             return existing, loosened
         self.sources.append(source)
         return source, loosened
@@ -199,40 +272,48 @@ class SourceStore:
 # --- verification hook --------------------------------------------------------------------------------
 
 
-@dataclass
-class VerifyResult:
-    """What :data:`VERIFIER` says about one index (``status`` is one of :data:`VERIFY_STATUSES`)."""
+def _edition_keys() -> dict[str, bytes]:
+    """The keys pinned by the installed edition adapters (empty under ``FLOOFY_NO_ADAPTERS=1``: tests pin their own)."""
+    import os  # noqa: PLC0415
 
-    status: str
-    detail: str = ""
-    key_id: str | None = None
+    if os.environ.get("FLOOFY_NO_ADAPTERS") == "1":
+        return {}
+    from .editions import registry_keys  # noqa: PLC0415
 
-    @property
-    def verified(self) -> bool:
-        return self.status == STATUS_VERIFIED
+    return registry_keys()
 
-    def to_dict(self) -> dict[str, Any]:
-        return {"status": self.status, "detail": self.detail, "keyId": self.key_id}
+
+def trusted_keys_for(source: Source) -> dict[str, bytes]:
+    """key id → public key a signature of ``source`` may be checked against: the edition pins plus the source's own pinned key."""
+    keys = dict(KEY_PROVIDER())
+    pinned = source.public_key_bytes
+    if pinned is not None:
+        keys[key_id(pinned)] = pinned
+    return keys
+
+
+#: Replaceable (tests, embedding): ``() -> {key id: public key}`` for the edition-pinned keys.
+KEY_PROVIDER: Callable[[], dict[str, bytes]] = _edition_keys
 
 
 def verify_index(index_bytes: bytes, signature: bytes | None, source: Source) -> VerifyResult:
-    """The detached-signature check (Requirement 8.3, 11.6) — the hook task 7.3 completes.
+    """The detached-signature check (Requirement 8.3, 11.6).
 
-    Contract for the 7.3 implementation (replace this body, or install a callable in
-    :data:`VERIFIER`): canonicalise ``index_bytes`` (JSON, sorted keys, no whitespace —
-    design "Registry index"), verify ``signature`` against the keys pinned per edition
-    by the adapters (a ``registry_keys()`` hook on ``floofy_edition_*``), honour
-    ``source.key_id`` when set (a signature by another key is ``invalid``), and return
-    ``verified`` / ``invalid`` with the key id used. ``signature is None`` stays
-    ``unsigned``. The caller decides usability from the status alone
-    (:func:`is_usable`), so the hook never needs to know about ``allowUnsigned``.
+    ``signature`` is the raw ``index.json.sig`` document (``None`` when the source
+    publishes none → ``unsigned``). The Ed25519 signature must verify over the
+    canonical JSON of ``index_bytes`` with a key from :func:`trusted_keys_for`;
+    ``source.key_id`` pins the source to one key (a signature by another key is
+    ``invalid`` even when that key is trusted). The caller decides usability from
+    the status alone (:func:`is_usable`), so this never looks at ``allowUnsigned``.
     """
-    if signature is None:
-        return VerifyResult(STATUS_UNSIGNED, "no detached signature (index.json.sig) published by the source")
-    return VerifyResult(STATUS_PENDING, "a signature is present but the verifier (canonical JSON, pinned per-edition keys) lands in task 7.3; refused until then unless the source allows unsigned", source.key_id)
+    try:
+        keys = trusted_keys_for(source)
+    except SignatureError as exc:
+        return VerifyResult(STATUS_INVALID, f"the pinned keys cannot be read: {exc}")
+    return verify_detached(index_bytes, signature, keys, expected_key_id=source.key_id)
 
 
-#: Replaceable by task 7.3 (and by tests): ``(index_bytes, signature_or_None, source) -> VerifyResult``.
+#: Replaceable by tests and embedders: ``(index_bytes, signature_or_None, source) -> VerifyResult``.
 VERIFIER: Callable[[bytes, bytes | None, Source], VerifyResult] = verify_index
 
 
@@ -257,7 +338,7 @@ def refusal_text(status: str, source: Source) -> str:
 
 def _fetch(url: str, *, opener: Callable[..., Any] | None = None, optional: bool = False) -> bytes | None:
     _refuse_plaintext(url)
-    open_url = opener or urllib.request.urlopen
+    open_url = opener.open if opener is not None and hasattr(opener, "open") else (opener or urllib.request.urlopen)
     try:
         with open_url(urllib.request.Request(url, headers={"User-Agent": "floofy (unofficial KiroCrew mod manager)"}), timeout=30) as response:
             data = response.read(MAX_INDEX_BYTES + 1)
@@ -297,8 +378,13 @@ def _write_meta(directory: Path, record: dict[str, Any]) -> None:
     (directory / "meta.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
-def refresh(home: DataHome, store: SourceStore, *, opener: Callable[..., Any] | None = None, only: str | None = None) -> RefreshOutcome:
-    """Fetch every source (or ``only`` one) into ``cache/sources/<key>/`` and rebuild the merged caches from the usable ones."""
+def refresh(home: DataHome, store: SourceStore, *, opener: Callable[..., Any] | None = None, only: str | None = None, opener_for: Callable[[str], Any] | None = None) -> RefreshOutcome:
+    """Fetch every source (or ``only`` one) into ``cache/sources/<key>/`` and rebuild the merged caches from the usable ones.
+
+    ``opener`` is used for every URL; ``opener_for(url)`` (an edition adapter's
+    network identity, see :func:`floofy_core.editions.registry_opener`) takes
+    precedence per URL when it returns one.
+    """
     outcome = RefreshOutcome()
     home.ensure()
     for source in store.sources:
@@ -306,12 +392,19 @@ def refresh(home: DataHome, store: SourceStore, *, opener: Callable[..., Any] | 
             continue
         directory = home.cache_sources / source.key
         directory.mkdir(parents=True, exist_ok=True)
-        record: dict[str, Any] = {"url": source.url, "key": source.key, "label": source.label, "fetchedAt": _now(), "trust": source.trust, "allowUnsigned": source.allow_unsigned, "keyId": source.key_id}
+        previous_meta = _read_meta(directory)
+        record: dict[str, Any] = {"url": source.url, "key": source.key, "label": source.label, "fetchedAt": _now(), "trust": source.trust, "allowUnsigned": source.allow_unsigned, "keyId": source.key_id, "pinnedPublicKey": bool(source.public_key)}
+
+        def fetch(name: str, *, optional: bool = False) -> bytes | None:
+            url = source.file_url(name)
+            chosen = (opener_for(url) if opener_for is not None else None) or opener
+            return _fetch(url, opener=chosen, optional=optional)
+
         try:
-            index_bytes = _fetch(source.base + "index.json", opener=opener)
-            signature = _fetch(source.base + "index.json.sig", opener=opener, optional=True)
-            compat_bytes = _fetch(source.base + "compat.json", opener=opener, optional=True)
-            compat_signature = _fetch(source.base + "compat.json.sig", opener=opener, optional=True) if compat_bytes is not None else None
+            index_bytes = fetch("index.json")
+            signature = fetch("index.json.sig", optional=True)
+            compat_bytes = fetch("compat.json", optional=True)
+            compat_signature = fetch("compat.json.sig", optional=True) if compat_bytes is not None else None
         except InstallError as exc:
             record.update({"error": str(exc), "usable": False})
             outcome.sources.append(record)
@@ -330,16 +423,21 @@ def refresh(home: DataHome, store: SourceStore, *, opener: Callable[..., Any] | 
             continue
         verdict = VERIFIER(index_bytes, signature, source)
         usable = is_usable(verdict.status, source)
-        record.update({"signature": verdict.to_dict(), "usable": usable, "mods": len(document["mods"]), "compat": compat_bytes is not None, "declaredSource": document.get("source") if isinstance(document.get("source"), str) else None})
+        generated_at = document.get("generatedAt") if isinstance(document.get("generatedAt"), str) else None
+        record.update({"signature": verdict.to_dict(), "usable": usable, "mods": len(document["mods"]), "compat": compat_bytes is not None, "declaredSource": document.get("source") if isinstance(document.get("source"), str) else None, "generatedAt": generated_at})
         if not usable:
             record["refusal"] = refusal_text(verdict.status, source)
         elif not verdict.verified:
             record["warning"] = (
-                f"the signature of {source.url} is INVALID; the index is used only because you set allowUnsigned — treat every file it lists as untrusted"
+                f"the signature of {source.url} is INVALID ({verdict.detail}); the index is used only because you set allowUnsigned — treat every file it lists as untrusted"
                 if verdict.status == STATUS_INVALID
                 else f"{source.url} is used without a verified signature ({verdict.status}) on your explicit allowUnsigned"
             )
-        if compat_bytes is not None and compat_signature is not None:
+        previous_generated = previous_meta.get("generatedAt") if isinstance(previous_meta.get("generatedAt"), str) else None
+        if usable and generated_at and previous_generated and generated_at < previous_generated and previous_meta.get("usable"):
+            record["rollback"] = f"the fetched index was generated {generated_at}, older than the cached one ({previous_generated}); a stale or replayed index"
+            record["warning"] = (record.get("warning") + "; " if record.get("warning") else "") + record["rollback"]
+        if compat_bytes is not None:
             record["compatSignature"] = VERIFIER(compat_bytes, compat_signature, source).to_dict()
         (directory / "index.json").write_bytes(index_bytes)
         if signature is not None:
@@ -359,6 +457,14 @@ def refresh(home: DataHome, store: SourceStore, *, opener: Callable[..., Any] | 
     return outcome
 
 
+def _read_meta(directory: Path) -> dict[str, Any]:
+    try:
+        meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
 def rebuild_merged(home: DataHome, store: SourceStore) -> tuple[int, int]:
     """``cache/index.json`` and ``cache/compat.json`` from the usable per-source caches.
 
@@ -367,6 +473,9 @@ def rebuild_merged(home: DataHome, store: SourceStore) -> tuple[int, int]:
     ``remove`` can rebuild without a refetch. Each usable source contributes one
     document under its configured label; :class:`floofy_core.registry.IndexCache`
     namespaces colliding ids as ``<label>/<id>`` when it reads the merged file.
+    A source's ``compat.json`` rows are merged under the same rule applied to
+    *its* signature (``compat.json.sig``): a verified index does not vouch for an
+    unsigned or tampered matrix beside it.
     """
     documents: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
@@ -383,6 +492,9 @@ def rebuild_merged(home: DataHome, store: SourceStore) -> tuple[int, int]:
             continue
         documents.append({"source": source.label, "key": source.key, "url": source.url, "trust": source.trust, "signature": status, "document": index})
         mods += len(index["mods"])
+        compat_status = (meta.get("compatSignature") or {}).get("status") if isinstance(meta, dict) else None
+        if not is_usable(compat_status, source):
+            continue
         try:
             compat = json.loads((directory / "compat.json").read_text(encoding="utf-8"))
             for row in (compat.get("rows") if isinstance(compat, dict) else None) or []:

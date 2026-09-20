@@ -162,10 +162,11 @@ def test_registry_add_records_trust_and_refuses_an_unsigned_index_by_default(env
     assert rows[-1]["result"] == "refused" and rows[-1]["sources"] == [{"label": "test", "url": env.base, "status": "unsigned", "usable": False, "allowUnsigned": False}], "the refresh row records the decision"
     listed = env.run("registry", "list")
     assert "refused: index not verified (unsigned)" in listed.stdout
-    # a present-but-unverifiable signature is refused too until 7.x lands the verifier
+    # a present-but-bogus signature is `invalid` and refused the same way
     env.publish(INDEX, signed=True)
     again = env.run("--json", "registry", "refresh")
-    assert again.exit == 1 and again.json["sources"][0]["signature"]["status"] == "unverified-pending-7.x"
+    assert again.exit == 1 and again.json["sources"][0]["signature"]["status"] == "invalid"
+    assert "unreadable signature" in again.json["sources"][0]["signature"]["detail"]
     assert env.run("registry", "refresh", "nope").exit == 1
 
 

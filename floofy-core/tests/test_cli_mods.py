@@ -283,17 +283,17 @@ def test_registry_install_search_and_update_from_the_cache(env, tmp_path: Path):
         env.paths.index_cache.write_text(json.dumps(index), encoding="utf-8")
         found = env.run("--json", "search", "registry")
         assert found.exit == 0 and [m["id"] for m in found.json["mods"]] == ["reggy"]
-        assert found.json["mods"][0]["worksHere"] == "1.0.0" and found.json["mods"][0]["verdict"] == "expected", "the newest known-to-work version wins; broken and out-of-range never"
+        assert found.json["mods"][0]["worksHere"] == "0.9.0" and found.json["mods"][0]["verdict"] == "tested", "tested beats a newer expected version; broken and out-of-range never (Requirement 9.2)"
         picked = env.run("--yes", "install", "reggy")
         assert picked.exit == 0, picked.stderr
-        assert picked.json["source"]["kind"] == "registry" and picked.json["source"]["ref"] == "reggy@1.0.0"
+        assert picked.json["source"]["kind"] == "registry" and picked.json["source"]["ref"] == "reggy@0.9.0"
         assert read_source(env.paths.mods / "reggy")["registryKey"] == "reggy"
-        exact = env.run("--yes", "install", "reggy@0.9.0")
-        assert exact.exit == 0 and exact.json["source"]["ref"] == "reggy@0.9.0", "an explicit version is honoured"
+        exact = env.run("--yes", "install", "reggy@1.0.0")
+        assert exact.exit == 0 and exact.json["source"]["ref"] == "reggy@1.0.0", "an explicit version is honoured"
         check = env.run("--json", "update", "--all", "--check")
-        assert check.exit == 0 and check.json["plan"][0]["update"] is False, "installed 1.0.0 (the archive's manifest) equals the best candidate"
-        # 2.0.0 becomes expected → it is the newest known-to-work version → update
-        index["mods"][0]["versions"][2]["compat"]["0.7.0.5"] = "expected"
+        assert check.exit == 0 and check.json["plan"][0]["update"] is False, "installed 1.0.0 (the archive's manifest) is newer than the best candidate 0.9.0"
+        # 2.0.0 becomes tested → it is the newest known-to-work version → update
+        index["mods"][0]["versions"][2]["compat"]["0.7.0.5"] = "tested"
         env.paths.index_cache.write_text(json.dumps(index), encoding="utf-8")
         plan = env.run("--json", "update", "--all", "--check")
         assert plan.json["plan"][0]["candidate"] == "2.0.0" and plan.json["plan"][0]["update"] is True

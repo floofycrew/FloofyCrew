@@ -163,6 +163,22 @@ class CliContext:
                     continue
         return env
 
+    def url_opener(self, url: str) -> Any:
+        """An adapter's ``urllib`` opener for ``url`` (its network identity), or ``None`` for anonymous HTTPS (design DR-3)."""
+        if self.isolated:
+            return None
+        from ..editions import registry_opener  # noqa: PLC0415
+
+        return registry_opener(url, self.adapters())
+
+    def default_registry_sources(self) -> list[dict[str, Any]]:
+        """The registry source rows the edition adapter of the current payload ships (Requirement 8.3)."""
+        if self.isolated:
+            return []
+        from ..editions import default_sources  # noqa: PLC0415
+
+        return default_sources(self.adapters(), edition=self.edition())
+
     def launcher(self) -> Path | None:
         return find_launcher(self.kirocrew, self.current_payload())
 

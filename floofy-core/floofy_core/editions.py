@@ -19,7 +19,7 @@ from typing import Callable
 from .governance import GovernanceLocations, default_locations
 from .payloads import EditionProbe, Payload, PayloadProvider, default_edition_probe
 
-__all__ = ["ADAPTER_PREFIX", "combined_edition_probe", "edition_providers", "governance_locations", "load_edition_adapters"]
+__all__ = ["ADAPTER_PREFIX", "combined_edition_probe", "default_sources", "edition_providers", "governance_locations", "load_edition_adapters", "pinned_registry_ids", "registry_keys", "registry_opener"]
 
 ADAPTER_PREFIX = "floofy_edition_"
 
@@ -78,3 +78,72 @@ def governance_locations(host_home: Path, payload: Payload | None = None, adapte
             except Exception:  # noqa: BLE001
                 continue
     return default_locations(host_home)
+
+
+
+# --- registry hooks (Requirement 8.3, 8.6; design DR-3 "Registry" and "Network identity" rows) --------------
+
+
+def _adapters_for(edition: str | None, adapters: list[ModuleType] | None) -> list[ModuleType]:
+    found = load_edition_adapters() if adapters is None else adapters
+    if edition in (None, "", "unknown"):
+        return found
+    matching = [a for a in found if getattr(a, "EDITION", None) == edition]
+    return matching or found
+
+
+def registry_keys(adapters: list[ModuleType] | None = None, *, edition: str | None = None) -> dict[str, bytes]:
+    """key id → public key pinned by the installed adapters (``registry_keys()`` hooks); ``edition`` narrows to one adapter when it is installed."""
+    keys: dict[str, bytes] = {}
+    for adapter in _adapters_for(edition, adapters):
+        factory = getattr(adapter, "registry_keys", None)
+        if callable(factory):
+            try:
+                for kid, public in (factory() or {}).items():
+                    if isinstance(kid, str) and isinstance(public, (bytes, bytearray)):
+                        keys[kid] = bytes(public)
+            except Exception:  # noqa: BLE001 - a broken adapter must not take verification down; it just pins nothing
+                continue
+    return keys
+
+
+def default_sources(adapters: list[ModuleType] | None = None, *, edition: str | None = None) -> list[dict]:
+    """The registry source rows the adapters ship (``default_sources()`` hooks), each tagged with its adapter's ``EDITION``."""
+    rows: list[dict] = []
+    for adapter in _adapters_for(edition, adapters):
+        factory = getattr(adapter, "default_sources", None)
+        if callable(factory):
+            try:
+                for row in factory() or []:
+                    if isinstance(row, dict) and isinstance(row.get("url"), str):
+                        rows.append({**row, "edition": getattr(adapter, "EDITION", None)})
+            except Exception:  # noqa: BLE001
+                continue
+    return rows
+
+
+def registry_opener(url: str, adapters: list[ModuleType] | None = None) -> Callable[..., object] | None:
+    """The first adapter-supplied ``urllib`` opener for ``url`` (network identity, e.g. an SSO cookie jar), or ``None`` for anonymous HTTPS."""
+    for adapter in load_edition_adapters() if adapters is None else adapters:
+        factory = getattr(adapter, "registry_opener", None)
+        if callable(factory):
+            try:
+                opener = factory(url)
+            except Exception:  # noqa: BLE001
+                opener = None
+            if opener is not None:
+                return opener
+    return None
+
+
+def pinned_registry_ids(adapters: list[ModuleType] | None = None, *, edition: str | None = None) -> list[str]:
+    """Host app-registry ids an edition pins (``pinned_registry_ids()`` hooks); the manager never reuses them (Requirement 8.6)."""
+    ids: list[str] = []
+    for adapter in _adapters_for(edition, adapters):
+        factory = getattr(adapter, "pinned_registry_ids", None)
+        if callable(factory):
+            try:
+                ids.extend(str(i) for i in factory() or [])
+            except Exception:  # noqa: BLE001
+                continue
+    return ids

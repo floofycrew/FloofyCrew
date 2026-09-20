@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .archive import ArchiveError, is_archive, open_archive_safely
+from .compat import CompatCache
 from .datahome import DataHome
 from .governance import GovernanceSnapshot, warnings_for
 from .kinds import SEAMS, KindContext, PartOutcome, handlers
@@ -110,12 +111,19 @@ def _refuse_plaintext(url: str) -> None:
     raise InstallError(f"refusing {url}: FloofyCrew's own traffic must use https (plaintext is allowed to loopback only — Requirement 11.6)")
 
 
-def download(url: str, destination: Path, *, expected_sha256: str | None = None, max_bytes: int = MAX_DOWNLOAD_BYTES, opener: Callable[..., Any] | None = None) -> str:
-    """Fetch ``url`` (HTTPS, or plaintext loopback) into ``destination``; returns the SHA-256, checked when expected."""
+def download(url: str, destination: Path, *, expected_sha256: str | None = None, max_bytes: int = MAX_DOWNLOAD_BYTES, opener: Callable[..., Any] | None = None, expected_size: int | None = None) -> str:
+    """Fetch ``url`` (HTTPS, or plaintext loopback) into ``destination``; returns the SHA-256, checked when expected.
+
+    ``opener`` is a ``urllib`` ``OpenerDirector`` (an edition adapter's network
+    identity) or a callable with ``urlopen``'s signature. ``expected_size`` (the
+    index's ``size``) is checked too: a mismatch is refused like a hash mismatch,
+    and the download is cut off as soon as it exceeds the expected size.
+    """
     _refuse_plaintext(url)
-    open_url = opener or urllib.request.urlopen
+    open_url = opener.open if opener is not None and hasattr(opener, "open") else (opener or urllib.request.urlopen)
     digest = hashlib.sha256()
     total = 0
+    limit = min(max_bytes, expected_size) if expected_size is not None else max_bytes
     try:
         with open_url(urllib.request.Request(url, headers={"User-Agent": "floofy (unofficial KiroCrew mod manager)"}), timeout=60) as response, Path(destination).open("wb") as out:
             while True:
@@ -123,13 +131,20 @@ def download(url: str, destination: Path, *, expected_sha256: str | None = None,
                 if not chunk:
                     break
                 total += len(chunk)
-                if total > max_bytes:
-                    raise InstallError(f"{url}: larger than {max_bytes} bytes; refusing")
+                if total > limit:
+                    raise InstallError(f"{url}: larger than {limit} bytes ({'the index says ' + str(expected_size) if expected_size is not None and limit == expected_size else 'the download cap'}); refusing")
                 digest.update(chunk)
                 out.write(chunk)
     except urllib.error.URLError as exc:
+        Path(destination).unlink(missing_ok=True)
         raise InstallError(f"download failed: {url}: {exc}") from exc
+    except InstallError:
+        Path(destination).unlink(missing_ok=True)
+        raise
     actual = digest.hexdigest()
+    if expected_size is not None and total != expected_size:
+        Path(destination).unlink(missing_ok=True)
+        raise InstallError(f"{url}: size mismatch (the index says {expected_size} bytes, got {total}); the download was discarded (Requirement 8.3)")
     if expected_sha256 and actual != expected_sha256.lower():
         Path(destination).unlink(missing_ok=True)
         raise InstallError(f"{url}: sha256 mismatch (expected {expected_sha256[:12]}…, got {actual[:12]}…); the download was discarded (Requirement 8.3)")
@@ -156,8 +171,18 @@ def resolve_source(
     requested_version: str | None = None,
     expected_sha256: str | None = None,
     opener: Callable[..., Any] | None = None,
+    opener_for: Callable[[str], Any] | None = None,
+    channel: str | None = None,
+    expected_size: int | None = None,
 ) -> ResolvedSource:
-    """Turn ``<id[@version]|path|url>`` into a local mod directory to validate."""
+    """Turn ``<id[@version]|path|url>`` into a local mod directory to validate.
+
+    ``opener_for(url)`` supplies an edition adapter's network identity per URL
+    (:func:`floofy_core.editions.registry_opener`); ``opener`` is the fallback for
+    every URL. A registry reference picks the newest version known to work on this
+    host (:meth:`floofy_core.registry.IndexCache.pick`, Requirement 9.2) and checks
+    the downloaded archive against the index's ``sha256`` **and** ``size``.
+    """
     candidate = Path(ref).expanduser()
     if candidate.exists():
         if candidate.is_dir():
@@ -173,7 +198,12 @@ def resolve_source(
         source._cleanup.append(scratch)
         name = Path(urllib.parse.urlsplit(ref).path).name or "mod.zip"
         target = scratch / name
-        source.sha256 = download(ref, target, expected_sha256=expected_sha256, opener=opener)
+        chosen = (opener_for(ref) if opener_for is not None else None) or opener
+        try:
+            source.sha256 = download(ref, target, expected_sha256=expected_sha256, opener=chosen, expected_size=expected_size)
+        except InstallError:
+            source.cleanup()
+            raise
         if not is_archive(target):
             source.cleanup()
             raise InstallError(f"{ref}: the download is not a .zip/.tar.gz archive")
@@ -182,7 +212,7 @@ def resolve_source(
     # a registry reference: id or id@version
     mod_ref, _, version = ref.partition("@")
     cache = IndexCache.load(home)
-    entry, picked, why = cache.pick(mod_ref, base_version=base_version, edition=edition, host_version=host_version, requested=requested_version or version or None)
+    entry, picked, why = cache.pick(mod_ref, base_version=base_version, edition=edition, host_version=host_version, requested=requested_version or version or None, channel=channel, compat=CompatCache.load(home.compat_cache))
     if entry is None or picked is None:
         hint = "; ".join(cache.notes) if cache.notes else "run `floofy search` to see what the cache knows"
         raise InstallError(f"{why} ({hint})")
@@ -190,7 +220,18 @@ def resolve_source(
     if not archive_files:
         raise InstallError(f"{entry.key}@{picked.version} lists no downloadable file in the index")
     file = archive_files[0]
-    source = resolve_source(str(file["url"]), home=home, base_version=base_version, edition=edition, host_version=host_version, expected_sha256=str(file.get("sha256") or "") or expected_sha256, opener=opener)
+    size = file.get("size")
+    source = resolve_source(
+        str(file["url"]),
+        home=home,
+        base_version=base_version,
+        edition=edition,
+        host_version=host_version,
+        expected_sha256=str(file.get("sha256") or "") or expected_sha256,
+        opener=opener,
+        opener_for=opener_for,
+        expected_size=int(size) if isinstance(size, int) and not isinstance(size, bool) and size >= 0 else None,
+    )
     source.kind = "registry"
     source.ref = f"{entry.key}@{picked.version}"
     source.version = picked.version

@@ -62,3 +62,22 @@ def update_hold(host_home: Path, *, duration: str | None, release: bool) -> dict
         ),
         "command": None,
     }
+
+
+def registry_keys() -> dict[str, bytes]:
+    """The Ed25519 public keys pinned for this edition's registry indexes (core ``floofy_core.editions.registry_keys``; Requirement 8.3)."""
+    from .registry import registry_keys as _keys
+
+    return _keys()
+
+
+def default_sources() -> list[dict]:
+    """The registry source rows this edition ships with (core ``floofy_core.editions.default_sources``)."""
+    from .registry import default_sources as _sources
+
+    return _sources()
+
+
+def registry_opener(url: str):  # noqa: ARG001 - the public registries need no identity
+    """No network identity on this edition: anonymous HTTPS (design DR-3 "Network identity: none")."""
+    return None

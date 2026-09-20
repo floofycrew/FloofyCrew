@@ -1,10 +1,14 @@
-"""The FloofyCrew JSON Schemas and their loader (Requirement 1.9).
+"""The FloofyCrew JSON Schemas and their loader (Requirement 1.9, 8.1, 9.1).
 
-Two schemas ship with the core, both JSON Schema draft 2020-12:
+Five schemas ship with the core, all JSON Schema draft 2020-12:
 
 * ``floofy`` — the mod manifest ``floofy.json`` (schema 1, Requirement 1).
 * ``patch`` — the patch descriptor referenced by ``kind: patch`` parts
   (design "Data Models → Patch descriptor", Requirement 5.5).
+* ``index`` — a registry's ``index.json`` (design "Registry index", Requirement 8.1).
+* ``compat`` — the compatibility matrix ``compat.json`` (Requirement 9.1).
+* ``signature`` — the detached ``*.sig`` document beside ``index.json`` /
+  ``compat.json`` (Requirement 8.3; :mod:`floofy_core.sigverify`).
 
 They are data files inside this package so the stdlib-only CLI, the Loader and
 the registry tools all read the same bytes. See ``README.md`` next to them for
@@ -24,12 +28,18 @@ SCHEMA_DIR: Path = Path(__file__).resolve().parent
 SCHEMA_FILES: dict[str, str] = {
     "floofy": "floofy.schema.json",
     "patch": "patch.schema.json",
+    "index": "index.schema.json",
+    "compat": "compat.schema.json",
+    "signature": "signature.schema.json",
 }
 
 #: ``$id`` values, useful for embedding in generated documents.
 SCHEMA_IDS: dict[str, str] = {
     "floofy": "https://floofycrew.dev/schema/floofy-1.json",
     "patch": "https://floofycrew.dev/schema/patch-1.json",
+    "index": "https://floofycrew.dev/schema/index-1.json",
+    "compat": "https://floofycrew.dev/schema/compat-1.json",
+    "signature": "https://floofycrew.dev/schema/signature-1.json",
 }
 
 

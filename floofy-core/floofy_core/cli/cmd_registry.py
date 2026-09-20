@@ -1,16 +1,21 @@
-"""``floofy registry {add,remove,list,refresh}``, ``floofy audit``, ``floofy which`` (Requirement 8.3, 8.4, 8.5, 11.3, 11.5).
+"""``floofy registry {add,remove,list,refresh,defaults}``, ``floofy audit``, ``floofy which`` (Requirement 8.3, 8.4, 8.5, 11.3, 11.5).
 
-* ``registry add <url> [--trust index|owner] [--allow-unsigned] [--key-id ID] [--name NAME] [--no-refresh]``
+* ``registry add <url> [--trust index|owner] [--allow-unsigned] [--key-id ID] [--public-key KEY] [--name NAME] [--no-refresh]``
   records a source in ``registries.json`` (plaintext ``http://`` refused unless
   loopback — Requirement 11.6) and fetches it right away. ``--allow-unsigned`` is
   the user's explicit loosening of the default signature requirement: it prints a
   prominent warning and writes an audit row ``registry-trust-loosened`` with the
-  flag ``UnsignedIndexAccepted`` (Requirement 8.3, 11.3).
+  flag ``UnsignedIndexAccepted`` (Requirement 8.3, 11.3). ``--public-key`` pins the
+  Ed25519 key (base64 or hex) a third-party source signs with — the user's own
+  trust decision, recorded in ``registries.json`` and audited; the edition's
+  pinned keys always apply as well. ``--key-id`` restricts the source to one key.
+* ``registry defaults`` records the edition adapter's default source(s) — the
+  registries FloofyCrew ships with, verified against the keys pinned per edition.
 * ``registry refresh [SOURCE]`` fetches ``index.json`` / ``compat.json`` (+ ``.sig``)
-  over HTTPS into ``cache/sources/<key>/``, asks the verification hook, refuses an
-  unverified index unless the source allows unsigned, and rebuilds the merged
-  cache from the usable sources; the ``registry-refresh`` audit row records the
-  per-source decision (``sources[] {label, url, status, usable, allowUnsigned}``).
+  over HTTPS into ``cache/sources/<key>/``, verifies the detached signatures,
+  refuses an unverified index unless the source allows unsigned, and rebuilds the
+  merged cache from the usable sources; the ``registry-refresh`` audit row records
+  the per-source decision (``sources[] {label, url, status, usable, allowUnsigned}``).
 * ``registry remove <url|key|name>`` drops the source and rebuilds the merged cache.
 * ``registry list`` shows every source with its trust settings and cache state.
 * ``audit [--tail N] [--op OP …] [--json]`` reads ``audit.jsonl`` (Requirement 11.5).
@@ -43,10 +48,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     r = sub.add_parser("registry", help="registry sources and their trust; refresh the local cache")
     actions = r.add_subparsers(dest="registry_action", required=True)
     add = actions.add_parser("add", help="add (or update) a source")
-    add.add_argument("url", help="https URL of the registry directory (index.json, compat.json and .sig files live there)")
+    add.add_argument("url", help="https URL of the registry directory (index.json, compat.json and .sig files live there), or a URL with a {file} placeholder")
     add.add_argument("--trust", choices=TRUST_LEVELS, default="index", help="what you trust the source for (default index)")
     add.add_argument("--allow-unsigned", action="store_true", help="accept this source's index without a verified signature (warned, audited)")
-    add.add_argument("--key-id", default=None, help="the signing key id you expect")
+    add.add_argument("--key-id", default=None, help="the signing key id you expect (a signature by any other key is invalid)")
+    add.add_argument("--public-key", default=None, help="pin the source's Ed25519 public key (base64 or hex) in addition to the edition's pinned keys")
     add.add_argument("--name", default=None, help="a short name for the source (also the namespace prefix when a mod id collides across sources)")
     add.add_argument("--no-refresh", action="store_true", help="do not fetch right away")
     rm = actions.add_parser("remove", help="remove a source (by url, key or name)")
@@ -54,6 +60,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     actions.add_parser("list", help="list the sources and their cache state")
     rf = actions.add_parser("refresh", help="fetch index.json/compat.json of every (or one) source into the cache")
     rf.add_argument("source", nargs="?", default=None)
+    df = actions.add_parser("defaults", help="record the edition's default registry source(s) (verified against the keys pinned per edition)")
+    df.add_argument("--no-refresh", action="store_true", help="do not fetch right away")
     r.set_defaults(handler=registry)
 
     a = sub.add_parser("audit", help="read the audit log (every mutating operation)")
@@ -88,7 +96,32 @@ def registry(ctx: CliContext, args: argparse.Namespace) -> int:
         return 0
     if action == "refresh":
         return _refresh(ctx, store, only=args.source)
+    if action == "defaults":
+        return _defaults(ctx, store, args)
     raise CliError(f"unknown registry action {action!r}", exit_code=2)
+
+
+def _defaults(ctx: CliContext, store: SourceStore, args: argparse.Namespace) -> int:
+    rows = ctx.default_registry_sources()
+    if not rows:
+        raise CliError("no edition adapter supplies default registry sources here (floofy registry add <url> to add one by hand)")
+    added: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            source, _loosened = store.add(Source.from_default(row))
+        except InstallError as exc:
+            raise CliError(f"{row.get('url')}: {exc}") from exc
+        added.append(source.to_dict())
+    store.save()
+    ctx.audit.record("registry-add", result="ok", detail="edition defaults: " + ", ".join(f"{s['url']} ({s['label']})" for s in added), files=[str(ctx.home.registries)])
+    for source in added:
+        ctx.say(f"registry source recorded: {source['url']} (label {source['label']}, trust={source['trust']}, keyId={source['keyId'] or '-'})")
+    ctx.set_result(sources=added)
+    if args.no_refresh:
+        mods, rows_count = rebuild_merged(ctx.home, store)
+        ctx.set_result(mergedMods=mods, mergedCompatRows=rows_count)
+        return 0
+    return _refresh(ctx, store, only=None)
 
 
 def _list(ctx: CliContext, store: SourceStore) -> int:
@@ -112,12 +145,12 @@ def _list(ctx: CliContext, store: SourceStore) -> int:
 
 def _add(ctx: CliContext, store: SourceStore, args: argparse.Namespace) -> int:
     try:
-        source, loosened = store.add(Source(args.url, args.trust, args.allow_unsigned, args.key_id, args.name))
+        source, loosened = store.add(Source(args.url, args.trust, args.allow_unsigned, args.key_id, args.name, public_key=(args.public_key or "").strip() or None))
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     store.save()
-    ctx.audit.record("registry-add", result="ok", detail=f"{source.url} ({source.label}) trust={source.trust} allowUnsigned={source.allow_unsigned} keyId={source.key_id or '-'}", files=[str(ctx.home.registries)])
-    ctx.say(f"registry source recorded: {source.url} (label {source.label}, trust={source.trust})")
+    ctx.audit.record("registry-add", result="ok", detail=f"{source.url} ({source.label}) trust={source.trust} allowUnsigned={source.allow_unsigned} keyId={source.key_id or '-'} pinnedPublicKey={bool(source.public_key)}", files=[str(ctx.home.registries)])
+    ctx.say(f"registry source recorded: {source.url} (label {source.label}, trust={source.trust}" + (f", pinned key {source.key_id}" if source.public_key else "") + ")")
     if source.allow_unsigned:
         ctx.warn(LOOSENING_WARNING.format(url=source.url))
         if loosened:
@@ -137,7 +170,7 @@ def _refresh(ctx: CliContext, store: SourceStore, *, only: str | None) -> int:
     if only and store.find(only) is None:
         raise CliError(f"no registry source matches {only!r}")
     try:
-        outcome = refresh(ctx.home, store, only=only)
+        outcome = refresh(ctx.home, store, only=only, opener_for=ctx.url_opener)
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     ctx.set_result(**outcome.to_dict())
@@ -147,11 +180,11 @@ def _refresh(ctx: CliContext, store: SourceStore, *, only: str | None) -> int:
             ctx.warn(f"{record['url']}: {record['error']}")
         elif record.get("usable"):
             accepted = "" if signature.get("status") == STATUS_VERIFIED else " (accepted on your allowUnsigned)"
-            ctx.say(f"{record['label']}: {record['mods']} mod(s), signature {signature.get('status')}{accepted}, compat {'yes' if record.get('compat') else 'no'}")
+            ctx.say(f"{record['label']}: {record['mods']} mod(s), signature {signature.get('status')}{(' by key ' + signature['keyId']) if signature.get('status') == STATUS_VERIFIED and signature.get('keyId') else ''}{accepted}, compat {'yes' if record.get('compat') else 'no'}")
             if record.get("warning"):
                 ctx.warn(record["warning"])
         else:
-            ctx.warn(f"{record['url']}: {record.get('refusal')}")
+            ctx.warn(f"{record['url']}: {record.get('refusal')}" + (f" — {signature['detail']}" if signature.get("detail") else ""))
     ctx.say(f"merged cache: {outcome.merged_mods} mod(s) from {len(outcome.usable)} usable source(s), {outcome.merged_rows} compat row(s); refused {len(outcome.refused)}")
     ctx.audit.record(
         "registry-refresh",
