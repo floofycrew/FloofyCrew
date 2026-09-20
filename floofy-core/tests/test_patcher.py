@@ -15,7 +15,7 @@ import pytest
 
 from floofy_core import cli_patch
 from floofy_core.deploy import BACKUP_SUFFIX, DeployManifest, DriftClass, is_floofy_added
-from floofy_core.gateway import GatewayEndpoint, find_endpoints, served_version
+from floofy_core.gateway import GatewayEndpoint, find_endpoints, port_from_socket_name, probe_version, served_version
 from floofy_core.patcher import Patcher, PlannedPatch, VerifyStatus, resolve_target, url_for
 from floofy_core.patches import PatchDescriptor
 from floofy_core.payloads import make_payload
@@ -238,6 +238,9 @@ def test_verify_over_tcp_and_unix_socket(two_payloads, tmp_path: Path) -> None:
     with FakeGateway(pa.dist_dir, "0.7.0") as tcp:
         endpoint = GatewayEndpoint(port=tcp.port)
         assert served_version(endpoint) == "0.7.0" and endpoint.reachable()
+        probe = probe_version(endpoint)
+        assert probe.version == "0.7.0" and probe.via == "loopback-tcp" and probe.reachable
+        assert tcp.probes("tcp")[0]["host"] == f"127.0.0.1:{tcp.port}", "a TCP probe sends the served Host with its port, like a browser"
         patcher = Patcher(home, [pa, pb], endpoints=[endpoint])
         report = patcher.apply([planned(BOOT), planned(CHUNK, part="1")])
         a, b = report.payloads
@@ -250,32 +253,85 @@ def test_verify_over_tcp_and_unix_socket(two_payloads, tmp_path: Path) -> None:
         pa.index_html.write_text("vanilla again", encoding="utf-8")
         failed = patcher.verify(pa, endpoint=endpoint)
         assert failed.status == VerifyStatus.FAILED and "differ" in failed.detail
-    socket_path = tmp_path / "hosthome" / "dashboard-0.sock"
-    with FakeGateway(pa.dist_dir, "0.7.0", socket_path=socket_path):
-        endpoints = find_endpoints(tmp_path / "hosthome")
-        assert [e.port for e in endpoints] == [0] and endpoints[0].socket_path == socket_path
-        patcher = Patcher(home, [pa], host_home=tmp_path / "hosthome")
+    host_home = tmp_path / "hosthome"
+    with FakeGateway(pa.dist_dir, "0.7.0", socket_dir=host_home) as gw:
+        # the real host names the socket after the loopback port it also listens on (dashboard/urls.py)
+        assert gw.socket_path == host_home / f"dashboard-{gw.port}.sock" and gw.port > 0
+        endpoints = find_endpoints(host_home)
+        assert [e.port for e in endpoints] == [gw.port] and endpoints[0].socket_path == gw.socket_path
+        # over the socket alone the host answers the bare liveness bit: no version (task 10.8)
+        bare = endpoints[0].get("/api/health").json()
+        assert bare == {"ok": True}, bare
+        # the probe learns the version only through the loopback retry with Host: 127.0.0.1:<port>
+        probe = probe_version(endpoints[0])
+        assert probe.version == "0.7.0" and probe.via == "loopback-tcp" and probe.reachable
+        assert [p["transport"] for p in gw.probes()][-2:] == ["unix", "tcp"], "socket first, then the loopback retry"
+        retry = gw.probes("tcp")[-1]
+        assert retry["host"] == f"127.0.0.1:{gw.port}" and retry["identity"] is True and not retry["forwarded"]
+        patcher = Patcher(home, [pa], host_home=host_home)
         patcher.restore()  # undo the tamper above (the backup goes back over it)
         patcher.apply([planned(BOOT), planned(CHUNK, part="1")], verify=False)
         report = patcher.verify(pa)
-        assert report.status == VerifyStatus.VERIFIED and report.endpoint == str(socket_path)
+        assert report.status == VerifyStatus.VERIFIED and report.endpoint == str(gw.socket_path) and report.served_version == "0.7.0"
+        assert all(e["transport"] == "unix" for e in gw.log if e["path"] != "/api/health"), "every other call stays on the socket"
         assert patcher.status().served_version == "0.7.0"
+        assert not patcher.status().payloads[0].dormant
     assert Patcher(home, [pa], endpoints=[]).verify(pa).status == VerifyStatus.NO_GATEWAY
     Patcher(home, [pa], endpoints=[]).restore()
     assert Patcher(home, [pa], endpoints=[]).verify(pa).status == VerifyStatus.NOTHING
 
 
-def test_verify_dormant_when_every_asset_is_404(two_payloads, tmp_path: Path) -> None:
+def test_bare_socket_answer_without_a_derivable_port_yields_no_version(two_payloads, tmp_path: Path) -> None:
+    """A socket not named ``dashboard-<port>.sock`` (or ``dashboard-0.sock`` in --test-mode) has nothing to retry on: reachable, version unknown."""
+    pa, _pb, home = two_payloads
+    host_home = tmp_path / "hosthome"
+    assert port_from_socket_name("dashboard-5476.sock") == 5476
+    assert port_from_socket_name("dashboard-0.sock") is None and port_from_socket_name("gateway.sock") is None and port_from_socket_name(None) is None
+    with FakeGateway(pa.dist_dir, "0.7.0", socket_path=host_home / "dashboard-0.sock") as gw:
+        endpoints = find_endpoints(host_home)
+        assert [e.port for e in endpoints] == [0]
+        probe = probe_version(endpoints[0])
+        assert probe.version is None and probe.via is None and probe.reachable and "no loopback port" in probe.detail
+        assert served_version(endpoints[0]) is None
+        assert gw.probes("tcp") == [], "no port to retry on: the TCP listener was never asked"
+        # the gateway still counts as running: the verdict falls back to `current`
+        patcher = Patcher(home, [pa], host_home=host_home)
+        status = patcher.status()
+        assert status.gateway == str(gw.socket_path) and status.served_version is None and status.payloads[0].dormant is (not pa.current)
+    with FakeGateway(pa.dist_dir, "0.7.0", socket_path=host_home / "gateway.sock") as gw:
+        odd = GatewayEndpoint(socket_path=gw.socket_path)
+        assert find_endpoints(host_home) == [], "an unrecognised name is not a dashboard socket"
+        assert probe_version(odd).reachable and served_version(odd) is None and gw.probes("tcp") == []
+    # a TCP probe carrying a forwarding header, or a foreign Host, gets the bare payload too — no version either
+    with FakeGateway(pa.dist_dir, "0.7.0") as gw:
+        endpoint = GatewayEndpoint(port=gw.port)
+        assert endpoint.get("/api/health", headers={"X-Forwarded-For": "10.0.0.9"}).json() == {"ok": True}
+        assert endpoint.get("/api/health", headers={"Forwarded": "for=10.0.0.9"}).json() == {"ok": True}
+        assert endpoint.get("/api/health", headers={"Host": f"evil.example:{gw.port}"}).json() == {"ok": True}
+        assert endpoint.get("/api/health", headers={"Host": "localhost"}).json()["version"] == "0.7.0", "check_host compares the hostname only"
+        assert probe_version(endpoint).version == "0.7.0"
+
+
+def test_verify_without_a_served_version_distinguishes_404_everywhere_from_mismatches(two_payloads, tmp_path: Path) -> None:
     pa, pb, home = two_payloads
     patcher = make_patcher(home, [pa, pb])
     patcher.apply([planned(CHUNK)], verify=False)
-    # a gateway serving B's dist but reporting no version: A's aliases are 404 everywhere
-    with FakeGateway(pb.dist_dir, "") as gw:
+    # a gateway serving a vanilla dist of another build and withholding its version (``""`` = the fake never
+    # discloses identity, like a host behind a forwarding proxy): A's aliases are 404, A's repointed shell differs
+    other = fake_payload(tmp_path / "other", "0.5.0")
+    (other / "static" / "dist" / "assets" / "chunk-a-AAAA1111.js").write_text("export const a = 2;\n", encoding="utf-8")
+    with FakeGateway(other / "static" / "dist", "") as gw:
         endpoint = GatewayEndpoint(port=gw.port)
+        assert probe_version(endpoint).reachable and served_version(endpoint) is None
         report = Patcher(home, [pa], endpoints=[endpoint]).verify(pa)
-        assert report.status in (VerifyStatus.DORMANT, VerifyStatus.FAILED)
-        if report.status == VerifyStatus.FAILED:
-            assert any(c["status"] == 404 for c in report.checks)
+        assert report.status == VerifyStatus.FAILED and report.served_version is None
+        assert all(c["status"] == 404 for c in report.checks if c["kind"] == "added") and any(c["kind"] == "patched" and c["status"] == 200 and not c["match"] for c in report.checks)
+        # a manifest of added files only (no shell): 404 for every one of them is the dormant verdict
+        manifest = DeployManifest(pa.id, pa.host_version.text, pa.edition, str(pa.root))
+        manifest.record_added(str(pa.assets_dir / "ghost-00000000-floofy.js"), "0" * 64, "m")
+        manifest.save(DeployManifest.path_for(home, pa.id))
+        report = Patcher(home, [pa], endpoints=[endpoint]).verify(pa)
+        assert report.status == VerifyStatus.DORMANT and "404" in report.detail
 
 
 def test_helpers(two_payloads) -> None:

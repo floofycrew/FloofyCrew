@@ -21,7 +21,7 @@ from floofy_core.cli.main import build_parser, execute, main, run
 from floofy_core.consent import ACCEPT_PHRASE, WARNING_TEXT, read_consent
 from floofy_core.datahome import DataHome
 
-from floofy_testing import REPO_ROOT, fake_payload
+from floofy_testing import REPO_ROOT, FakeGateway, fake_payload
 
 REQUIRED_COMMANDS = {
     "init", "deinit", "doctor", "status", "search", "install", "uninstall", "enable", "disable", "update", "apply", "restore",
@@ -221,6 +221,36 @@ def test_doctor_json_shape_and_problems(fake_host):
     # text mode prints the same facts
     text = fake_host.run("doctor")
     assert "floofy doctor" in text.stdout and "unofficial" in text.stdout and "consent: required" in text.stdout
+
+
+def test_doctor_reports_the_served_version_and_dormancy_through_the_socket_fallback(fake_host, tmp_path: Path):
+    """Task 10.8: against a real-shaped gateway (bare answer over the socket) doctor still says running, serving X, and grades dormancy per payload."""
+    older = tmp_path / "older"
+    fake_payload(older, "0.7.0", build="0.7.0.4")
+    dist = fake_host.root / "kiro_crew" / "static" / "dist"
+    with FakeGateway(dist, "0.7.0.5", socket_dir=fake_host.home_dir) as gw:
+        result = fake_host.run("--root", str(older), "--json", "doctor")
+        assert result.exit == 0, result.stderr
+        gateway = result.json["host"]["gateway"]
+        assert gateway == {"running": True, "servedVersion": "0.7.0.5", "endpoint": str(gw.socket_path), "via": "loopback-tcp", "detail": ""}
+        assert gw.probes("unix") and all(p["identity"] is False for p in gw.probes("unix")), "the socket never disclosed the version"
+        assert gw.probes("tcp") and gw.probes("tcp")[0]["host"] == f"127.0.0.1:{gw.port}" and gw.probes("tcp")[0]["identity"] is True
+        dormant = {p["version"]: p["dormant"] for p in result.json["host"]["payloads"]}
+        assert dormant == {"0.7.0.5": False, "0.7.0.4": True}, dormant
+        drift = {p["host_version"]: p["dormant"] for p in result.json["drift"]["payloads"]}
+        assert drift == {"0.7.0.5": False, "0.7.0.4": True} and result.json["drift"]["servedVersion"] == "0.7.0.5"
+        text = fake_host.run("--root", str(older), "doctor")
+        assert "gateway: running, serving 0.7.0.5 at" in text.stdout and "(version via loopback-tcp)" in text.stdout
+    # a --test-mode look-alike (dashboard-0.sock) is running but cannot be asked for its version: no false "not running", dormancy from `current`
+    with FakeGateway(dist, "0.7.0.5", socket_path=fake_host.home_dir / "dashboard-0.sock") as gw:
+        result = fake_host.run("--json", "doctor")
+        gateway = result.json["host"]["gateway"]
+        assert gateway["running"] is True and gateway["servedVersion"] is None and gateway["via"] is None and "no loopback port" in gateway["detail"]
+        assert result.json["host"]["payloads"][0]["dormant"] is True, "no launcher runs the fake payload, and the gateway did not say otherwise"
+        text = fake_host.run("doctor")
+        assert "gateway: running at" in text.stdout and "served version unknown" in text.stdout
+    offline = fake_host.run("--json", "doctor", "--no-live")
+    assert offline.json["host"]["gateway"]["running"] is False and offline.json["host"]["gateway"]["detail"] == "not probed (--no-live)"
 
 
 def test_doctor_reports_governance_warnings_and_crossing_mods(fake_host):

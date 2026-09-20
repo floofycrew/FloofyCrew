@@ -312,7 +312,15 @@ def test_registry_install_search_and_update_from_the_cache(env, tmp_path: Path):
 
 def test_install_stages_into_pending_while_a_gateway_runs_and_now_installs_directly(env, monkeypatch: pytest.MonkeyPatch):
     dist = env.root / "kiro_crew" / "static" / "dist"
-    with FakeGateway(dist, "0.7.0.5", socket_path=env.host_home / "dashboard-5476.sock"):
+    # socket mode as on the live host: the socket answers the bare liveness bit; the version comes only through the loopback retry (task 10.8)
+    with FakeGateway(dist, "0.7.0.5", socket_dir=env.host_home) as gw:
+        assert gw.socket_path == env.host_home / f"dashboard-{gw.port}.sock"
+        doc = env.run("--json", "doctor")
+        gateway = doc.json["host"]["gateway"]
+        assert gateway["running"] is True and gateway["servedVersion"] == "0.7.0.5" and gateway["via"] == "loopback-tcp" and gateway["endpoint"] == str(gw.socket_path)
+        assert [p["transport"] for p in gw.probes()][:2] == ["unix", "tcp"] and gw.probes("tcp")[0]["host"] == f"127.0.0.1:{gw.port}"
+        assert doc.json["host"]["payloads"][0]["dormant"] is False, "the served version names this payload"
+        assert doc.json["drift"]["servedVersion"] == "0.7.0.5" and doc.json["drift"]["payloads"][0]["dormant"] is False
         staged = env.run("--yes", "install", str(env.spa_mod("stagey")))
         assert staged.exit == 0, staged.stderr
         assert staged.json["placed"]["how"] == "staged" and (env.paths.pending / "stagey" / "floofy.json").is_file()

@@ -11,6 +11,27 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- `floofy doctor`, `status`, `verify` and the Patcher's dormant verdict against a
+  live gateway (task 10.8; Requirement 5.7, 6.4, 7.4). The host adds `version` to
+  `/api/health` only for a *direct-local* caller — a loopback TCP peer without
+  forwarding headers and with a served `Host`; a unix-socket peer has no remote
+  address, so over the dashboard socket the answer is always the bare
+  `{"ok": true}`. The probe (`floofy_core.gateway.probe_version`) now retries once
+  over `127.0.0.1:<port>` with `Host: 127.0.0.1:<port>` — the port taken from the
+  socket's own name `dashboard-<port>.sock` — and keeps the socket for every other
+  call. Before, `doctor` printed "gateway: not running" against a healthy gateway
+  and every payload's `dormant` flag was computed from a missing served version.
+  `doctor` now distinguishes *running, serving X* (with `via: socket |
+  loopback-tcp`) from *running, served version unknown* (a `--test-mode`
+  `dashboard-0.sock`, a forwarding proxy) and *not running*; the `--json`
+  `host.gateway` object gains `via` and `detail`. The test double `FakeGateway`
+  mimics the real host instead of an idealised one: in socket mode it binds both
+  the unix socket (named after the real loopback port) and the TCP listener,
+  answers the bare payload over the socket, and discloses identity over TCP only
+  without forwarding headers and with a served `Host`.
+
 ## 1.1.0 — 2026-09-20
 
 The second minor: the terminal experience (styled output, the banner, the

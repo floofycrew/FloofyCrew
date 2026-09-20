@@ -100,7 +100,12 @@ patched bytes) names the set, so re-runs are stable and `restore` sweeps
 - **Verify.** `floofy verify` compares the bytes the running gateway serves with
   the deployment manifest (over the dashboard socket or loopback) and tells a
   dormant payload ("not serving") from a failure; `--spa` adds the browser
-  reporter, `--bundle` the offline fingerprint check.
+  reporter, `--bundle` the offline fingerprint check. The served version is
+  learned from `/api/health`, which the host answers with `version` only to a
+  direct-local loopback TCP caller — never over the unix socket — so the probe
+  asks the socket, then retries once over `127.0.0.1:<port>` (the port in the
+  socket's name) and keeps the socket for everything else; a `--test-mode`
+  gateway (`dashboard-0.sock`) counts as running with an unknown version.
 - **Restore.** `floofy restore --all` returns every payload to vanilla by
   manifest and by glob sweep (`*.floofybak`, `*-floofy.*`, the Loader's
   `ui/patched/` and `ui/boot/`), and works when the manifest is lost.

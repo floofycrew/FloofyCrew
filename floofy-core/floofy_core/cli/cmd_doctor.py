@@ -137,21 +137,25 @@ def doctor(ctx: CliContext, args: argparse.Namespace) -> int:
     discovery = ctx.discovery()
     current = ctx.current_payload()
     served_version: str | None = None
-    endpoint_label: str | None = None
+    gateway: dict[str, Any] = {"running": False, "servedVersion": None, "endpoint": None, "via": None, "detail": "not probed (--no-live)" if not live else "no dashboard socket in the host home"}
     if live:
-        from ..gateway import find_endpoints, served_version as _served  # noqa: PLC0415
+        from ..gateway import find_endpoints, probe_version  # noqa: PLC0415
 
         for endpoint in find_endpoints(ctx.host_home):
-            version = _served(endpoint)
-            if version is not None:
-                served_version, endpoint_label = version, endpoint.label
-                break
+            # task 10.8: over the socket the host withholds its version; probe_version retries over loopback TCP
+            probe = probe_version(endpoint)
+            if not probe.reachable:
+                gateway["detail"] = probe.detail
+                continue
+            served_version = probe.version
+            gateway = {"running": True, "servedVersion": probe.version, "endpoint": endpoint.label, "via": probe.via, "detail": probe.detail}
+            break
     report["host"] = {
         "edition": ctx.edition(),
         "version": current.host_version.text if current else None,
         "channel": current.channel if current else None,
         "hostHome": str(ctx.host_home),
-        "gateway": {"running": served_version is not None, "servedVersion": served_version, "endpoint": endpoint_label},
+        "gateway": gateway,
         "payloads": [
             {"id": p.id, "version": p.host_version.text, "edition": p.edition, "channel": p.channel, "current": p.current, "dormant": (served_version != p.host_version.text) if served_version else not p.current, "root": str(p.root), "interpreter": str(p.interpreter) if p.interpreter else None, "source": p.source}
             for p in discovery.payloads
@@ -259,7 +263,13 @@ def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
     ctx.say(f"{ctx.paint('floofy doctor', 'heading')} — FloofyCrew {about['version']} (api {about['apiVersion']}, {ctx.paint('unofficial', 'italic')}) on Python {about['python']}")
     ctx.say(f"{ctx.paint('host:', 'accent')} edition={host['edition']} version={host['version']} channel={host['channel']} home={host['hostHome']}")
     gateway = host["gateway"]
-    ctx.say(f"{ctx.paint('gateway:', 'accent')} {ctx.paint('running', 'ok') + ', serving ' + str(gateway['servedVersion']) + ' at ' + str(gateway['endpoint']) if gateway['running'] else ctx.paint('not running (or not reachable from here)', 'muted')}")
+    if gateway["running"] and gateway["servedVersion"]:
+        via = f" (version via {gateway['via']})" if gateway.get("via") else ""
+        ctx.say(f"{ctx.paint('gateway:', 'accent')} {ctx.paint('running', 'ok')}, serving {gateway['servedVersion']} at {gateway['endpoint']}{via}")
+    elif gateway["running"]:
+        ctx.say(f"{ctx.paint('gateway:', 'accent')} {ctx.paint('running', 'ok')} at {gateway['endpoint']}, {ctx.paint('served version unknown', 'warn')} — {gateway.get('detail') or 'the host withheld it'}")
+    else:
+        ctx.say(f"{ctx.paint('gateway:', 'accent')} {ctx.paint('not running (or not reachable from here)', 'muted')}" + (f" — {gateway['detail']}" if gateway.get("detail") else ""))
     for payload in host["payloads"]:
         flags = ", ".join(f for f, on in (("current", payload["current"]), ("dormant", payload["dormant"])) if on) or "-"
         ctx.say(f"  payload {payload['id']} [{payload['edition']}, {payload['channel'] or '?'}; {flags}] {payload['root']}")

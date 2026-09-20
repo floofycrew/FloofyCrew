@@ -7,12 +7,24 @@ data home — ``<KIROCREW_HOME>/dashboard-<port>.sock`` (``dashboard/urls.py``
 traffic never leaves the machine (Requirement 11.6 applies to mods; this client
 enforces the same rule on itself by construction).
 
-``GET /api/health`` answers ``{"ok": true, "app": "kirocrew", "version": …}`` to a
-direct-local caller with a served ``Host`` header (``handlers/core.py``
-``_liveness_payload``), which is how :func:`served_version` learns which payload
-the gateway is actually serving — the basis of the "dormant payload" verdict.
-``GET /`` and ``/assets/*`` are served unauthenticated (the SPA cold-start path),
-so the shell and chunk bytes can be compared to disk without a token.
+``GET /api/health`` answers ``{"ok": true}`` to everyone and adds ``"app":
+"kirocrew", "version": …`` only for a **direct-local** caller with a served
+``Host`` header (``handlers/core.py`` ``_liveness_payload``: ``origin.py``
+``is_direct_local_request`` = a loopback TCP peer and none of ``Forwarded`` /
+``X-Forwarded-*`` / ``X-Real-IP``, plus ``check_host`` = the ``Host`` hostname is
+one the dashboard serves). A **unix-socket peer has no remote address**, so over
+the socket the answer is always the bare ``{"ok": true}`` — owner-verified on a
+live 0.7.0.5 install (task 10.8). :func:`probe_version` therefore asks over the
+socket first and, when the answer carries no ``version``, retries once over
+``127.0.0.1:<port>`` with ``Host: 127.0.0.1:<port>`` — the port read from the
+socket's own name ``dashboard-<port>.sock`` (``dashboard/urls.py``
+``dashboard_socket_name``). A socket whose name yields no usable port
+(``dashboard-0.sock`` in ``--test-mode``, an unrecognised name) stays a bare
+answer: reachable, version unknown. Every other call (the shell, the chunks, the
+Loader routes) keeps using the socket. The served version is the basis of the
+"dormant payload" verdict (Requirement 5.7, 6.4). ``GET /`` and ``/assets/*``
+are served unauthenticated (the SPA cold-start path), so the shell and chunk
+bytes can be compared to disk without a token.
 """
 from __future__ import annotations
 
@@ -30,7 +42,10 @@ __all__ = [
     "GatewayEndpoint",
     "GatewaySession",
     "Response",
+    "VersionProbe",
     "find_endpoints",
+    "port_from_socket_name",
+    "probe_version",
     "read_local_secret",
     "served_version",
     "session_for",
@@ -39,6 +54,9 @@ __all__ = [
 #: The host's default data home; ``KIROCREW_HOME`` overrides it.
 DEFAULT_HOST_HOME = Path.home() / ".kiro" / "crew"
 _SOCKET_RE = re.compile(r"^dashboard-(\d+)\.sock$")
+#: How :func:`probe_version` learned the version.
+VIA_SOCKET = "socket"
+VIA_LOOPBACK_TCP = "loopback-tcp"
 
 
 @dataclass(frozen=True)
@@ -119,6 +137,22 @@ class GatewayEndpoint:
             return False
 
 
+def port_from_socket_name(socket_path: Path | str | None) -> int | None:
+    """The loopback port a dashboard socket's name carries (``dashboard-<port>.sock``), or ``None``.
+
+    ``0`` (a ``--test-mode`` gateway bound to an ephemeral port, whose socket is
+    still ``dashboard-0.sock``) and an unrecognised name both yield ``None``:
+    nothing to retry against.
+    """
+    if socket_path is None:
+        return None
+    match = _SOCKET_RE.match(Path(socket_path).name)
+    if not match:
+        return None
+    port = int(match.group(1))
+    return port or None
+
+
 def find_endpoints(host_home: Path | None = None) -> list[GatewayEndpoint]:
     """Every ``dashboard-<port>.sock`` in the host's data home (default ``~/.kiro/crew``)."""
     home = Path(host_home) if host_home else DEFAULT_HOST_HOME
@@ -134,16 +168,82 @@ def find_endpoints(host_home: Path | None = None) -> list[GatewayEndpoint]:
     return endpoints
 
 
-def served_version(endpoint: GatewayEndpoint) -> str | None:
-    """The version the gateway reports on ``/api/health`` to a direct-local caller, or ``None``."""
+@dataclass(frozen=True)
+class VersionProbe:
+    """What ``/api/health`` said about the gateway behind an endpoint, and how it was learned.
+
+    ``reachable`` — the endpoint answered ``200`` (the gateway runs);
+    ``version`` — the served version, or ``None`` when the host withheld it;
+    ``via`` — :data:`VIA_SOCKET` / :data:`VIA_LOOPBACK_TCP` when a version was
+    learned, else ``None``; ``detail`` — why there is no version, for ``doctor``.
+    """
+
+    version: str | None
+    via: str | None
+    reachable: bool
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"version": self.version, "via": self.via, "reachable": self.reachable, "detail": self.detail}
+
+
+def _health(endpoint: GatewayEndpoint, headers: dict[str, str] | None = None) -> tuple[bool, dict[str, Any] | None, str]:
+    """``(answered 200, JSON object or None, detail)`` for one ``GET /api/health``."""
     try:
-        response = endpoint.get("/api/health")
-        payload = response.json() if response.status == 200 else None
-    except (OSError, http.client.HTTPException, ValueError):
-        return None
-    if isinstance(payload, dict) and isinstance(payload.get("version"), str):
-        return payload["version"]
-    return None
+        response = endpoint.get("/api/health", headers=headers)
+    except (OSError, http.client.HTTPException) as exc:
+        return False, None, f"{endpoint.label}: {exc}"
+    if response.status != 200:
+        return False, None, f"{endpoint.label}: /api/health answered HTTP {response.status}"
+    try:
+        payload = response.json()
+    except ValueError:
+        return True, None, f"{endpoint.label}: /api/health is not JSON"
+    return True, payload if isinstance(payload, dict) else None, ""
+
+
+def _version_in(payload: dict[str, Any] | None) -> str | None:
+    version = payload.get("version") if isinstance(payload, dict) else None
+    return version if isinstance(version, str) and version else None
+
+
+def probe_version(endpoint: GatewayEndpoint) -> VersionProbe:
+    """Ask the gateway behind ``endpoint`` which version it serves (see the module docstring for the tree).
+
+    1. ``GET /api/health`` over the endpoint as given. Unreachable → not running.
+    2. The answer names a ``version`` → done (``via: socket`` or ``loopback-tcp``).
+    3. A bare answer over a **unix socket** whose name carries a port → retry once
+       over ``127.0.0.1:<port>`` with ``Host: 127.0.0.1:<port>`` (the direct-local
+       shape the host discloses its identity to). A version there → ``via:
+       loopback-tcp``; the socket stays the endpoint for every other call.
+    4. Anything else (a bare TCP answer — a forwarding proxy or a foreign ``Host``
+       in between; a socket with no usable port; a failed retry) → reachable,
+       version unknown, with the reason in ``detail``.
+    """
+    reachable, payload, detail = _health(endpoint, headers=None if endpoint.socket_path is not None else {"Host": f"{endpoint.host}:{endpoint.port}"})
+    if not reachable:
+        return VersionProbe(None, None, False, detail)
+    version = _version_in(payload)
+    if version is not None:
+        return VersionProbe(version, VIA_SOCKET if endpoint.socket_path is not None else VIA_LOOPBACK_TCP, True)
+    if endpoint.socket_path is None:
+        return VersionProbe(None, None, True, f"{endpoint.label}: the host withheld its identity on /api/health (not a direct-local request: a forwarding header or an unserved Host in between?)")
+    port = endpoint.port or port_from_socket_name(endpoint.socket_path)
+    if not port:
+        return VersionProbe(None, None, True, f"{endpoint.label}: a unix-socket peer has no remote address, so the host withholds its version there, and the socket name carries no loopback port to retry on")
+    retry = GatewayEndpoint(port=port, host="127.0.0.1", timeout=endpoint.timeout)
+    tcp_reachable, tcp_payload, tcp_detail = _health(retry, headers={"Host": f"127.0.0.1:{port}"})
+    version = _version_in(tcp_payload)
+    if version is not None:
+        return VersionProbe(version, VIA_LOOPBACK_TCP, True)
+    if not tcp_reachable:
+        return VersionProbe(None, None, True, f"{endpoint.label}: bare answer over the socket and the loopback retry failed ({tcp_detail})")
+    return VersionProbe(None, None, True, f"{endpoint.label}: bare answer over the socket and over {retry.label} (the host withheld its identity)")
+
+
+def served_version(endpoint: GatewayEndpoint) -> str | None:
+    """The version the gateway behind ``endpoint`` serves, or ``None`` (:func:`probe_version` for the reason)."""
+    return probe_version(endpoint).version
 
 
 # --- an authenticated session for the manager -----------------------------------------------

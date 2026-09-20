@@ -53,7 +53,7 @@ from .deploy import (
     sha256_file,
     utc_now,
 )
-from .gateway import GatewayEndpoint, find_endpoints, served_version
+from .gateway import GatewayEndpoint, find_endpoints, probe_version, served_version
 from .governance import AlwaysConfirm, Confirmer, GovernanceSnapshot, GovernanceWarning, survival_check, survival_prompt
 from .patches import PatchDescriptor, PatchResult, Skip, apply_descriptor
 from .payloads import Payload
@@ -301,10 +301,11 @@ class Patcher:
         return self._endpoints
 
     def _served(self) -> tuple[GatewayEndpoint | None, str | None]:
+        """The first running gateway and the version it serves (``None`` when the host withheld it; task 10.8)."""
         for endpoint in self.endpoints():
-            version = served_version(endpoint)
-            if version is not None or endpoint.reachable():
-                return endpoint, version
+            probe = probe_version(endpoint)
+            if probe.reachable:
+                return endpoint, probe.version
         return None, None
 
     def _is_dormant(self, payload: Payload, served: str | None) -> bool:
