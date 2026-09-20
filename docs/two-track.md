@@ -25,7 +25,7 @@ Measured on the tree after 1.0.1 (main, with the git-reference, link-record and 
 | | identical | total | share |
 |---|---|---|---|
 | files | 199 | 225 | 88.4 % |
-| bytes | 2 259 935 | 2 345 365 | 96.4 % |
+| bytes | 2 260 366 | 2 345 796 | 96.4 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:
@@ -36,25 +36,31 @@ python scripts/artifact_identity_report.py --json   # the numbers
 python scripts/artifact_identity_report.py --keep /tmp/trees   # keep both trees to diff
 ```
 
-## The same mod archive on both editions
+## The same mod archives on both editions
 
-`scripts/install_both_editions.py` builds `mods/rimuru-branding` into one
-deterministic archive (`rimuru-branding-1.0.0.zip`, sha256
+`scripts/install_both_editions.py` builds each first-party mod into one
+deterministic archive — `rimuru-branding-1.0.0.zip` (sha256
 `27ea3f4957de93a6dd86f34b07dfce64bc9d7b18258aca086f8524d8a831fd77`, 60 430
-bytes) and installs those bytes on two scratch hosts — one that declares itself
+bytes: `theme` + `spa` boot + `patch` parts) and `settings-demo-1.0.0.zip`
+(sha256 `342f31df96d83864792994d506afc32c9570f650a8a0fb32ea16d34b17486402`,
+7 324 bytes: a `ui` settings page + a `python-hook` backend route, task 11.6) —
+and installs those bytes on two scratch hosts — one that declares itself
 the internal edition (a `BUILD_VERSION` stamp, `X.Y.Z.N`) and one that does not
 (the public edition) — each with its own scratch data home and a payload copied
 from a fixture, never a live install. On each: `floofy init` (the consent
-record), `floofy validate`, `floofy --yes install <archive> --now`, `floofy
-enable`, then the Loader's `boot()` in-process. Both must report the mod
-**active**, the Patcher run, and the first-frame boot script baked into the
-payload's `index.html`. The `patch` part applies where the fixture carries the
-real chunk and is skipped with a `FingerprintMiss` diagnostic where it holds a
-trimmed stub — a skip, never a partial rewrite.
+record), then per mod `floofy validate`, `floofy --yes install <archive> --now`,
+`floofy enable`, then the Loader's `boot()` in-process. Both must report every
+mod **active**; for `rimuru-branding` the Patcher run and the first-frame boot
+script baked into the payload's `index.html` (the `patch` part applies where the
+fixture carries the real chunk and is skipped with a `FingerprintMiss`
+diagnostic where it holds a trimmed stub — a skip, never a partial rewrite); for
+`settings-demo` the hook's `echo` route registered and answering `200` through
+the mod-route registry.
 
 ```bash
 python scripts/install_both_editions.py             # the report; exit 1 on any failed step
 python scripts/install_both_editions.py --work /tmp/two-track   # keep the scratch hosts
+python scripts/install_both_editions.py --mod mods/settings-demo   # one mod only (repeatable)
 ```
 
 Both scripts run in CI (`.github/workflows/ci.yml`, job `two-track`) and in the

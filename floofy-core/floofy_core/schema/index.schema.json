@@ -132,7 +132,7 @@
         "kinds": {
           "description": "The part kinds the mod ships (from the manifest), so clients can show what a mod does before downloading.",
           "type": "array",
-          "items": { "type": "string", "enum": ["theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch"] },
+          "items": { "type": "string", "enum": ["theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch", "ui"] },
           "uniqueItems": true
         },
         "app": {

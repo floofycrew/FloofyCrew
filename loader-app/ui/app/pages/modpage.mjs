@@ -111,6 +111,9 @@ export function ModPage({ manager, modId, navigate }) {
       React.createElement("strong", null, page.title),
       React.createElement("code", { style: styles.muted }, `${modId} ${page.version}`),
       React.createElement("span", { style: { ...styles.badge, ...(page.active ? styles.ok : styles.warn) } }, page.active ? "active" : page.reason || (page.enabled ? "inactive" : "disabled")),
+      page.active
+        ? React.createElement("button", { style: { ...styles.button, marginLeft: "auto" }, disabled: busy, title: `floofy disable ${modId} — the page stops being served; the mod's settings stay`, "data-testid": "floofycrew-modpage-disable-mod", onClick: async () => { const r = await act(`/mods/${encodeURIComponent(modId)}/disable`); if (r && r.ok) back(); } }, `Disable ${modId}`)
+        : null,
     ),
     !page.active
       ? React.createElement("div", { style: { ...styles.card, ...styles.warn }, "data-testid": "floofycrew-modpage-inactive" }, `${modId} is not active (${page.reason || "disabled"}); its page is not served. `, page.enabled ? null : React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act(`/mods/${encodeURIComponent(modId)}/enable`) }, "Enable"))

@@ -32,7 +32,7 @@ jobs:
           python-version: "3.12"
       - name: Byte-identity across editions
         run: python scripts/artifact_identity_report.py
-      - name: The same mod archive installs on both editions
+      - name: The same mod archives install on both editions
         run: python scripts/install_both_editions.py
       - name: The release trees build reproducibly
         run: |

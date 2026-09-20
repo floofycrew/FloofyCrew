@@ -54,20 +54,29 @@ def test_docs_quote_the_measured_numbers(identity: artifact_identity_report.Iden
     assert text.rstrip().endswith("Covers Requirements 10.1, 10.2, 10.3, 10.4.")
 
 
-def test_the_same_mod_archive_installs_and_activates_on_both_editions(tmp_path: Path):
+def test_the_same_mod_archives_install_and_activate_on_both_editions(tmp_path: Path):
     report = install_both_editions.run_both(tmp_path / "work", external_dist=install_both_editions.FIXTURE_DIST)
     assert report["ok"], install_both_editions.render(report)
+    assert [m["id"] for m in report["mods"]] == ["rimuru-branding", "settings-demo"], "both first-party mods travel as one archive each"
     for edition in ("internal", "external"):
         record = report["editions"][edition]
         assert record["detectedEdition"] == edition
         assert all(step["exit"] == 0 for step in record["steps"].values()), record["steps"]
-        boot = record["boot"]
-        assert boot["loader"] == "ok" and boot["active"] and boot["hostEdition"] == edition
-        assert boot["patcherRan"] and boot["patcherOk"] and boot["bootScriptInjected"]
-        assert ("spa", "active") in [tuple(p) for p in boot["parts"]]
-        assert all(s["code"] == "FingerprintMiss" for s in boot["skipped"]), "a stub chunk is skipped with a diagnostic, never half-patched"
-    archive = report["archive"]
-    again = install_both_editions.build_mod_archive(install_both_editions.DEFAULT_MOD, tmp_path / "again")
-    assert again[1] == archive["sha256"] and again[2] == archive["size"], "the archive is deterministic: the same bytes on both editions"
+        assert record["boot"]["loader"] == "ok" and record["boot"]["hostEdition"] == edition
+        rimuru = record["mods"]["rimuru-branding"]
+        assert rimuru["ok"] and rimuru["boot"]["active"]
+        assert rimuru["boot"]["patcherRan"] and rimuru["boot"]["patcherOk"] and rimuru["boot"]["bootScriptInjected"]
+        assert ("spa", "active") in [tuple(p) for p in rimuru["boot"]["parts"]]
+        assert all(s["code"] == "FingerprintMiss" for s in rimuru["boot"]["skipped"]), "a stub chunk is skipped with a diagnostic, never half-patched"
+        demo = record["mods"]["settings-demo"]
+        assert demo["ok"] and demo["boot"]["active"]
+        assert demo["steps"]["install"]["landedEnabled"] is False, "the python-hook part lands it disabled; `enable` follows"
+        assert [tuple(p) for p in demo["boot"]["parts"]] == [("ui", "active"), ("python-hook", "active")]
+        assert demo["boot"]["routes"] == [{"method": "GET", "path": "echo"}, {"method": "POST", "path": "echo"}]
+        assert demo["boot"]["routeCalls"] == [{"route": "GET echo", "status": 200, "ok": True}], "the hook's route answers on this edition"
     text = DOC.read_text(encoding="utf-8")
-    assert archive["sha256"] in text, "docs/two-track.md quotes the archive's sha256"
+    for mod in report["mods"]:
+        again = install_both_editions.build_mod_archive(install_both_editions.REPO_ROOT / "mods" / mod["id"], tmp_path / "again")
+        assert again[1] == mod["archive"]["sha256"] and again[2] == mod["archive"]["size"], f"{mod['id']}: the archive is deterministic: the same bytes on both editions"
+        assert mod["archive"]["sha256"] in text, f"docs/two-track.md quotes {mod['id']}'s archive sha256"
+    assert report["mod"] == "rimuru-branding" and report["archive"] == report["mods"][0]["archive"], "the single-mod report shape still reads"

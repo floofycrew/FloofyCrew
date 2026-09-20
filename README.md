@@ -86,7 +86,7 @@ uv sync                                          # dev tools (pytest, hypothesis
 uv run pytest                                    # the whole suite (~5 min; Playwright tests need Chromium)
 python scripts/check_no_internal_identifiers.py  # what CI's de-amazon job runs
 python scripts/artifact_identity_report.py       # byte-identity across editions
-python scripts/install_both_editions.py          # the same mod archive on both editions
+python scripts/install_both_editions.py          # the same mod archives (both first-party mods) on both editions
 packaging/public/build.sh --check                # the public release tree, twice, byte-identical
 packaging/internal/build.sh --check              # the internal package, twice, byte-identical
 python -m forge --help                           # the Forge (runs on the maintainer's build host)
