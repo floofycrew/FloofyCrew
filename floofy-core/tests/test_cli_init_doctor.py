@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -251,6 +252,39 @@ def test_doctor_reports_the_served_version_and_dormancy_through_the_socket_fallb
         assert "gateway: running at" in text.stdout and "served version unknown" in text.stdout
     offline = fake_host.run("--json", "doctor", "--no-live")
     assert offline.json["host"]["gateway"]["running"] is False and offline.json["host"]["gateway"]["detail"] == "not probed (--no-live)"
+
+
+def test_doctor_reports_the_early_shim_state_per_payload_from_the_installed_app(fake_host, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Task 10.9: with the Loader app installed, doctor loads its early_install.py (dataclasses and all) and grades every payload's shim."""
+    from floofy_core.loaderapp import EARLY_INSTALL_MODULE_NAME  # noqa: PLC0415
+    from test_loaderapp import install_fake_loader_app  # noqa: PLC0415
+
+    monkeypatch.setitem(sys.modules, "floofy_loader.early_install", None)  # the fallback import must not answer for the installed copy
+    monkeypatch.delitem(sys.modules, EARLY_INSTALL_MODULE_NAME, raising=False)
+    directory = install_fake_loader_app(fake_host.home_dir)
+    venv_root = tmp_path / "venvpayload"
+    fake_payload(venv_root, "0.7.0", layout="venv")
+    (venv_root / "bin" / "python").unlink()
+    (venv_root / "bin" / "python").symlink_to(sys.executable)  # a real interpreter: site_dirs() asks it (files only, nothing installed)
+    result = fake_host.run("--root", str(venv_root), "--json", "doctor")
+    assert result.exit == 0, result.stderr
+    shim = result.json["earlyShim"]
+    assert shim["available"] is True, shim
+    assert result.json["loader"]["installed"] is True and result.json["loader"]["enabled"] is True
+    by_root = {Path(p["root"]).name: p["id"] for p in result.json["host"]["payloads"]}
+    entries = {e["payload"]: e for e in shim["payloads"]}
+    flat = entries[by_root["payload"]]
+    assert flat["status"] is None and flat["note"] == "no interpreter", "a flat payload carries no interpreter to install into"
+    venv = entries[by_root["venvpayload"]]
+    assert venv["kind"] == "venv-site" and venv["status"]["installed"] is False and venv["status"]["pth_present"] is False
+    assert venv["status"]["interpreter"] == str(venv_root / "bin" / "python") and venv["status"]["site_dir"], venv
+    assert not any("Loader app not installed" in p for p in result.json["problems"])
+    text = fake_host.run("--root", str(venv_root), "doctor")
+    assert "early shim [venv-site]" in text.stdout and "not installed" in text.stdout and "early shim: Loader app not installed" not in text.stdout
+    # without the app the report says so — the message the live install wrongly showed before the fix
+    shutil.rmtree(directory)
+    gone = fake_host.run("--json", "doctor")
+    assert gone.json["earlyShim"] == {"available": False, "detail": "Loader app not installed (the shim ships inside it)", "payloads": []}
 
 
 def test_doctor_reports_governance_warnings_and_crossing_mods(fake_host):

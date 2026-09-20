@@ -13,6 +13,19 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Fixed
 
+- `floofy doctor` printed "early shim: Loader app not installed" on an install
+  where the app was present and enabled (task 10.9; Requirement 3.2, 7.4).
+  `floofy_core.loaderapp.early_install_module` executed the installed
+  `floofy_loader/early_install.py` through `module_from_spec` + `exec_module`
+  without registering it in `sys.modules`; the file's `@dataclass` classes (under
+  `from __future__ import annotations`) then raised `AttributeError` inside
+  `dataclasses._is_type`, the exception was swallowed and the fallback import
+  failed too. The module is now registered before it runs (`load_module_from_file`,
+  popped again on failure, a previous entry restored), so `doctor` grades the
+  early shim per payload from the shim the app actually ships. The same
+  `module_from_spec` pattern in the test-side module loaders (the packaging,
+  edition-package and Forge scheduler tests) registers its module too; the Loader
+  runtime and the early shim already did.
 - `floofy doctor`, `status`, `verify` and the Patcher's dormant verdict against a
   live gateway (task 10.8; Requirement 5.7, 6.4, 7.4). The host adds `version` to
   `/api/health` only for a *direct-local* caller — a loopback TCP peer without

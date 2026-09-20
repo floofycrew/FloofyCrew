@@ -125,7 +125,7 @@ def test_shim_records_a_failure_instead_of_raising(tmp_path: Path):
     code = f"""
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("hooks_under_test", {str(out / 'floofy_loader' / 'hooks.py')!r})
-module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module)  # registered first, as the host's module_loader does
 class Ctx: name = "floofycrew"; data_dir = "x"; logger = None
 assert module.on_startup(Ctx()) is None
 assert module.register_routes(Ctx()) == []

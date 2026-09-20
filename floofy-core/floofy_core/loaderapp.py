@@ -30,7 +30,7 @@ from typing import Any
 from .archive import ArchiveError, is_archive, open_archive_safely
 from .governance import LOADER_APP_NAME
 
-__all__ = ["APP_NAME", "app_dir", "checkout_root", "early_install_module", "installed_meta", "obtain_build"]
+__all__ = ["APP_NAME", "EARLY_INSTALL_MODULE_NAME", "app_dir", "checkout_root", "early_install_module", "installed_meta", "load_module_from_file", "obtain_build"]
 
 APP_NAME = LOADER_APP_NAME
 
@@ -95,19 +95,57 @@ def obtain_build(explicit: Path | str | None = None, *, editions: str = "both") 
     return built, f"built from the checkout at {root} (editions: {', '.join(wanted)})", scratch
 
 
+#: The ``sys.modules`` key the installed app's ``early_install.py`` is executed under (task 10.9).
+EARLY_INSTALL_MODULE_NAME = "_floofy_installed_early_install"
+
+
+def load_module_from_file(name: str, path: Path) -> ModuleType:
+    """Execute the Python file at ``path`` as module ``name``, registered in ``sys.modules`` first.
+
+    ``importlib.util.module_from_spec`` + ``exec_module`` alone leaves the module
+    out of ``sys.modules``, and ``dataclasses`` resolves string annotations
+    (``from __future__ import annotations``) through ``sys.modules[cls.__module__]``
+    — so a ``@dataclass`` in such a file raises ``AttributeError: 'NoneType'
+    object has no attribute '__dict__'`` inside ``dataclasses._is_type`` (task
+    10.9). The module is registered before it runs and popped again when it
+    fails; an existing module of the same name is replaced only on success.
+    """
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot build an import spec for {path}")
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.modules.get(name)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        if previous is not None:
+            sys.modules[name] = previous
+        else:
+            sys.modules.pop(name, None)
+        raise
+    return module
+
+
 def early_install_module(host_home: Path) -> ModuleType | None:
-    """``floofy_loader.early_install`` from the installed Loader app (fallback: the import path), or ``None``."""
+    """``floofy_loader.early_install`` from the installed Loader app (fallback: the import path), or ``None``.
+
+    The installed copy is preferred so the CLI never needs the Loader on its own
+    import path and always talks about the shim the app actually ships; it is
+    loaded through :func:`load_module_from_file` — registered in ``sys.modules``,
+    which its ``@dataclass`` declarations under ``from __future__ import
+    annotations`` require. Before task 10.9 the unregistered ``exec_module``
+    raised, the exception was swallowed, the fallback import failed as well
+    (the Loader is not on the CLI's path) and ``doctor`` printed "early shim:
+    Loader app not installed" on a machine where the app was present and enabled.
+    """
     directory = app_dir(host_home)
     candidate = directory / "floofy_loader" / "early_install.py"
     if candidate.is_file() and (directory / "floofy_early" / "__init__.py").is_file():
-        spec = importlib.util.spec_from_file_location("_floofy_installed_early_install", candidate)
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            try:
-                spec.loader.exec_module(module)
-                return module
-            except Exception:  # noqa: BLE001 - fall through to the import path
-                pass
+        try:
+            return load_module_from_file(EARLY_INSTALL_MODULE_NAME, candidate)
+        except Exception:  # noqa: BLE001 - fall through to the import path
+            pass
     try:
         import floofy_loader.early_install as module  # type: ignore[import-not-found]  # noqa: PLC0415
 
