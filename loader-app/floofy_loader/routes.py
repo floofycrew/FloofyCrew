@@ -191,6 +191,9 @@ def registry_response(runtime: Any) -> Responder:
     (signature status, usable, refusal). ``updates`` grades the candidates the
     way the CLI does — :meth:`floofy_core.registry.IndexCache.best_version`
     against the cached matrix row for this host's edition × channel × version.
+    ``selfUpdate`` is the FloofyCrew release notice (Requirement 7.7) from the
+    CLI's cached daily check — the App's Updates card shows it; the Loader never
+    contacts the release endpoint itself.
     """
     if runtime.paths is None or runtime.facts is None:
         return _json(503, {"ok": False, "error": "the Loader has not started"})
@@ -247,7 +250,7 @@ def registry_response(runtime: Any) -> Responder:
         except (OSError, ValueError):
             meta = None
         sources.append({**source.to_dict(), "cache": meta})
-    return _json(200, {"ok": True, "cache": cache.to_dict(), "compat": compat.to_dict(row), "sources": sources, "updates": updates, "tiers": tiers})
+    return _json(200, {"ok": True, "cache": cache.to_dict(), "compat": compat.to_dict(row), "sources": sources, "updates": updates, "tiers": tiers, "selfUpdate": runtime.self_update_summary()})
 
 
 def banner_response() -> Responder:

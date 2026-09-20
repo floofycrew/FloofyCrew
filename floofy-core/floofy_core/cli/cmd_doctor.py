@@ -196,8 +196,12 @@ def doctor(ctx: CliContext, args: argparse.Namespace) -> int:
     report["drift"] = _drift_report(ctx, live=live)
     report["compat"] = compat_row(ctx)
     report["playwright"] = {"available": importlib.util.find_spec("playwright") is not None, "note": "needed by `floofy verify --spa`; `pip install playwright && playwright install chromium`"}
+    # Requirement 7.7: the daily FloofyCrew release check (cached, never blocking; skipped --offline / updates.check false)
+    from .cmd_selfupdate import summary_for  # noqa: PLC0415
+
+    report["selfUpdate"] = summary_for(ctx)
     mods = ctx.mods()
-    report["mods"] = {"installed": len([m for m in mods if not m.problem]), "broken": [m.to_dict() for m in mods if m.problem], "pending": sorted(p.name for p in ctx.home.pending.iterdir()) if ctx.home.pending.is_dir() else [], "quarantine": _quarantine_summary(ctx)}
+    report["mods"] = {"installed": len([m for m in mods if not m.problem]), "broken": [m.to_dict() for m in mods if m.problem], "pending": ctx.home.staged_mods(), "quarantine": _quarantine_summary(ctx)}
     report["vanillaRequested"] = ctx.home.vanilla_marker.is_file()
     ctx.set_result(**report)
     _print_doctor(ctx, report)
@@ -317,6 +321,7 @@ def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
     else:
         ctx.say("compat verdict: none cached for this host version (floofy registry refresh fetches compat.json)" + (f" — {'; '.join(compat['notes'])}" if compat["notes"] else ""))
     ctx.say(f"playwright: {'available' if report['playwright']['available'] else 'missing'} ({report['playwright']['note']})")
+    _say_self_update(ctx, report["selfUpdate"])
     mods = report["mods"]
     ctx.say(f"mods: {mods['installed']} installed, {len(mods['broken'])} broken, pending {mods['pending'] or '-'}, quarantine {mods['quarantine'] or '-'}")
     if report["vanillaRequested"]:
@@ -330,6 +335,22 @@ def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
 
 
 # --- status -----------------------------------------------------------------------------------------
+
+
+def _say_self_update(ctx: CliContext, summary: dict[str, Any], *, always: bool = True) -> None:
+    """The one-line FloofyCrew update notice (Requirement 7.7); ``doctor`` also reports a quiet check, ``status`` only the notice."""
+    if summary.get("available") and summary.get("notice"):
+        ctx.say(f"{ctx.paint('update:', 'accent')} {ctx.paint(str(summary['notice']), 'warn')}")
+    elif always:
+        latest = summary.get("latest") or {}
+        if summary.get("status") == "ok" and latest:
+            why = "this is the newest release" if latest.get("version") == summary.get("running") else f"{latest.get('version')} does not list host {summary.get('hostVersion')} ({summary.get('edition')}/{summary.get('channel')}) as supported"
+            ctx.say(f"{ctx.paint('update:', 'accent')} FloofyCrew {summary.get('running')} is up to date for this host ({why}; checked {summary.get('checkedAt')})")
+        else:
+            ctx.say(f"{ctx.paint('update:', 'accent')} {ctx.paint('check ' + str(summary.get('status')), 'muted')} — {summary.get('detail')}")
+    stage = summary.get("staged") or {}
+    if stage and not stage.get("applied") and stage.get("present"):
+        ctx.say(f"{ctx.paint('update:', 'accent')} Loader app update to FloofyCrew {stage.get('version')} staged — installed by `floofy apply` the next time no gateway runs, or now with `floofy self-update --now`", tone="warn")
 
 
 def status(ctx: CliContext, args: argparse.Namespace) -> int:
@@ -369,9 +390,13 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
             "stateSource": "published" if published else "manifest",
         }
         rows.append(row)
-    pending = sorted(p.name for p in ctx.home.pending.iterdir()) if ctx.home.pending.is_dir() else []
-    ctx.set_result(loader={"source": source, "state": (state or {}).get("loader"), "bootedAt": (state or {}).get("bootedAt"), "vanilla": (state or {}).get("vanilla")}, mods=rows, pending=pending, quarantine=_quarantine_summary(ctx), host={"version": current.host_version.text if current else None, "edition": ctx.edition()})
+    pending = ctx.home.staged_mods()
+    from .cmd_selfupdate import summary_for  # noqa: PLC0415
+
+    self_update = summary_for(ctx)
+    ctx.set_result(loader={"source": source, "state": (state or {}).get("loader"), "bootedAt": (state or {}).get("bootedAt"), "vanilla": (state or {}).get("vanilla")}, mods=rows, pending=pending, quarantine=_quarantine_summary(ctx), host={"version": current.host_version.text if current else None, "edition": ctx.edition()}, selfUpdate=self_update)
     ctx.say(f"{ctx.paint('floofy status', 'heading')} — {len(rows)} mod(s); loader state from {source}" + (f" ({(state or {}).get('loader')}, booted {(state or {}).get('bootedAt')})" if state else ""))
+    _say_self_update(ctx, self_update, always=False)
     for row in rows:
         marker = "on " if row["active"] else ("--" if row["enabled"] is False else "off")
         glyph = ctx.paint(f"[{marker}]", "ok" if row["active"] else ("muted" if row["enabled"] is False else "warn"))

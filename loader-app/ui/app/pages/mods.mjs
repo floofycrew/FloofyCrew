@@ -89,6 +89,7 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
   const { state, rows, statusMeta, registry, busy, act, applyNow } = manager;
   if (rest) return React.createElement(ModPage, { manager, modId: rest, navigate });
   const host = (state && state.host) || {};
+  const selfUpdate = (state && state.selfUpdate) || null; // Requirement 7.7: the CLI's cached daily check, re-graded by the Loader
   const consent = (state && state.consent) || {};
   const pending = (statusMeta && statusMeta.pending) || [];
   const quarantine = (statusMeta && statusMeta.quarantine) || {};
@@ -103,6 +104,19 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
       { style: styles.card },
       React.createElement("div", null, React.createElement("strong", null, "Loader: "), state ? `${state.loader} (FloofyCrew ${state.loaderVersion || "?"}, API ${state.api_version || "?"}, booted ${state.bootedAt || "?"})` : "loading…", state && state.vanilla ? " — vanilla boot (every mod disabled once)" : ""),
       React.createElement("div", null, React.createElement("strong", null, "Host: "), `${host.edition || "?"} ${host.version || "?"} (${host.channel || "channel unknown"})`),
+      selfUpdate && selfUpdate.available
+        ? React.createElement(
+            "div",
+            { style: styles.warn, "data-testid": "floofycrew-self-update-notice" },
+            React.createElement("strong", null, "FloofyCrew: "),
+            `${selfUpdate.version} is available and supports this host (you run ${state.loaderVersion || "?"}) — at a terminal: `,
+            React.createElement("code", { style: styles.command }, "floofy self-update"),
+            selfUpdate.notes ? React.createElement(React.Fragment, null, " · ", React.createElement("a", { href: selfUpdate.notes, target: "_blank", rel: "noopener noreferrer", style: styles.accent }, "release notes")) : null,
+          )
+        : null,
+      selfUpdate && selfUpdate.staged && !selfUpdate.staged.applied && selfUpdate.staged.present
+        ? React.createElement("div", { style: styles.warn, "data-testid": "floofycrew-self-update-staged" }, `Loader app update to FloofyCrew ${selfUpdate.staged.version} staged — installed by floofy apply the next time no gateway runs (it needs the gateway stopped), or floofy self-update --now`)
+        : null,
       React.createElement(
         "div",
         { style: consent.required ? styles.danger : undefined, "data-testid": "floofycrew-consent" },

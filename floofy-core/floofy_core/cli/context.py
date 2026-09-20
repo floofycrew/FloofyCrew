@@ -32,7 +32,7 @@ __all__ = ["CliContext", "CliError", "ISOLATION_ENV"]
 ISOLATION_ENV = "FLOOFY_NO_ADAPTERS"
 
 #: Sub-commands that mutate the user's machine; a gateway-side caller may only run the allowlisted subset.
-MUTATING_COMMANDS = frozenset({"init", "deinit", "install", "uninstall", "enable", "disable", "update", "apply", "restore", "yeet", "hold", "dev", "profile", "registry", "vanilla"})
+MUTATING_COMMANDS = frozenset({"init", "deinit", "install", "uninstall", "enable", "disable", "update", "apply", "restore", "yeet", "hold", "dev", "profile", "registry", "vanilla", "self-update", "config"})
 
 
 class CliError(Exception):
@@ -63,6 +63,8 @@ class CliContext:
     on_mutation: Callable[[str], None] | None = None
     #: Gateway-side hook: the running Loader's live state document (``status`` inside the gateway reads it).
     live_state: Callable[[], dict[str, Any]] | None = None
+    #: ``--offline``: never contact a network endpoint (the daily FloofyCrew update check is skipped; Requirement 7.7).
+    offline: bool = False
     _adapters: list[ModuleType] | None = field(default=None, repr=False)
     _discovery: DiscoveryResult | None = field(default=None, repr=False)
     _governance: GovernanceSnapshot | None = field(default=None, repr=False)
@@ -182,6 +184,41 @@ class CliContext:
         from ..editions import default_sources  # noqa: PLC0415
 
         return default_sources(self.adapters(), edition=self.edition())
+
+    def release_feed(self) -> Any | None:
+        """Where this edition publishes FloofyCrew itself (:class:`floofy_core.selfupdate.ReleaseFeed`), or ``None``.
+
+        The test switch ``FLOOFY_RELEASE_FEED`` (a JSON feed document) wins, so a
+        suite can point the check at a loopback endpoint; otherwise the adapter of
+        the running edition answers, and an isolated run has no feed (Requirement 7.7).
+        """
+        from ..selfupdate import FeedError, ReleaseFeed, feed_from_env  # noqa: PLC0415
+
+        try:
+            override = feed_from_env()
+        except FeedError as exc:
+            self.warn(str(exc))
+            return None
+        if override is not None:
+            return override
+        if self.isolated:
+            return None
+        from ..editions import release_feed  # noqa: PLC0415
+
+        document = release_feed(self.adapters(), edition=self.edition())
+        if document is None:
+            return None
+        try:
+            return ReleaseFeed.from_dict(document)
+        except FeedError as exc:
+            self.warn(f"release feed of the edition adapter ignored: {exc}")
+            return None
+
+    def settings(self) -> Any:
+        """FloofyCrew's own user settings (``<data home>/config.json``; :class:`floofy_core.settings.Settings`)."""
+        from ..settings import Settings  # noqa: PLC0415
+
+        return Settings.for_data_home(self.data_home)
 
     def registry_target(self) -> dict[str, Any]:
         """The keyword arguments :meth:`floofy_core.registry.IndexCache.best_version` needs for *this* host (Requirement 9.2).
@@ -339,6 +376,7 @@ def build_context(args: Any, *, console: Console, actor: str = "cli", in_gateway
         in_gateway=in_gateway,
         on_mutation=on_mutation,
         live_state=live_state,
+        offline=bool(getattr(args, "offline", False)),
     )
 
 

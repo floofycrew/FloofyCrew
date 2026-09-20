@@ -32,3 +32,22 @@ def test_pinned_keys_and_default_source_are_consistent():
     assert registry_opener(sources[0]["url"], [floofy_edition_public]) is None, "no network identity on the public edition"
     assert floofy_edition_public.registry_opener("https://anything.example/") is None
     assert base64.b64decode(config["keys"][0]["publicKey"]) == keys[config["keys"][0]["keyId"]]
+
+
+
+def test_release_feed_is_the_github_releases_api_of_the_floofycrew_repository():
+    """Task 10.7 (Requirement 7.7): the self-update feed of this edition — HTTPS only, the same repository as ``floofycrewRepo``, every template placeholder present."""
+    from floofy_core.editions import release_feed
+    from floofy_core.selfupdate import ReleaseFeed
+
+    config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    document = floofy_edition_public.release_feed()
+    assert document == config["selfUpdate"] and document["kind"] == "github-releases"
+    feed = ReleaseFeed.from_dict(release_feed([floofy_edition_public], edition="external"))
+    assert feed.kind == "github-releases" and feed.label
+    repo = config["floofycrewRepo"].removeprefix("https://github.com/")
+    assert feed.url == f"https://api.github.com/repos/{repo}/releases/latest"
+    assert feed.download == f"https://github.com/{repo}/releases/download/{{tag}}/{{file}}" and feed.notes == f"https://github.com/{repo}/releases/tag/{{tag}}"
+    assert all(url.startswith("https://") for url in (feed.url, feed.download, feed.notes)), "FloofyCrew's own traffic is HTTPS (Requirement 11.6)"
+    assert feed.artifact_url("floofy.pyz", tag="v9.9.9", version="9.9.9") == f"https://github.com/{repo}/releases/download/v9.9.9/floofy.pyz"
+    assert release_feed([floofy_edition_public], edition="internal") is not None, "the only installed adapter answers for any edition"

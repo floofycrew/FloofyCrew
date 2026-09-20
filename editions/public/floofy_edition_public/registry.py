@@ -20,7 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-__all__ = ["archive_url_template", "default_sources", "registry_config", "registry_keys"]
+__all__ = ["archive_url_template", "default_sources", "registry_config", "registry_keys", "release_feed"]
 
 CONFIG_PATH = Path(__file__).resolve().with_name("registry.json")
 
@@ -56,3 +56,16 @@ def default_sources() -> list[dict[str, Any]]:
 def archive_url_template() -> str | None:
     template = registry_config().get("archiveUrlTemplate")
     return template if isinstance(template, str) else None
+
+
+def release_feed() -> dict[str, Any] | None:
+    """Where this edition publishes FloofyCrew itself (Requirement 7.7; core ``floofy_core.editions.release_feed``).
+
+    ``registry.json`` ``selfUpdate``: the GitHub releases API of the FloofyCrew
+    repository (``kind: github-releases`` — the tag names the version, the release
+    body is the build's ``RELEASE.md``) and the release assets ``floofy.pyz``,
+    ``SHA256SUMS`` and the Loader app archive. Anonymous HTTPS, a generic agent,
+    nothing identifying in the request.
+    """
+    feed = registry_config().get("selfUpdate")
+    return dict(feed) if isinstance(feed, dict) and isinstance(feed.get("url"), str) else None

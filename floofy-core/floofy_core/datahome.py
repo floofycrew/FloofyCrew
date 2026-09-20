@@ -10,12 +10,15 @@ Everything FloofyCrew reads or writes on the user's machine lives under
       mods/<id>/              unpacked mods; <id>/.floofy/ is runtime state (config, log, source)
       enabled.json            {"<id>": true|false}
       pending/<id>/ | <id>.remove   staged installs / removals applied at gateway start (Requirement 7.6)
+      pending/self-update/ + pending/self-update.json   a verified Loader app archive from `floofy self-update`, installed when no gateway runs (Requirement 7.7)
+      config.json             FloofyCrew's own settings (`floofy config`; today `updates.check`)
       spa/<id>/               spa part files of active mods (served by the Loader)
       quarantine/<hostver>/<id>/    yeeted mods + enabled.json with their flags (Requirement 6.2)
       quarantine/requests/<id>.json  the Loader asks the manager to yeet
       deploy/<payload>.json   deployment manifests (Requirement 5.2)
       registries.json         sources + per-source trust (Requirement 8.4)
       cache/{index,compat}.json      merged registry caches; cache/sources/<key>/ per source
+      cache/self-update.json  the daily FloofyCrew release check (Requirement 7.7)
       cache/sources/git/<key>/       shallow clones of git references and link records (Requirement 8.8, 8.9)
       profiles/<name>.lock.json      named mod sets (Requirement 7.5)
       audit.jsonl             every mutating operation (Requirement 11.5)
@@ -75,6 +78,37 @@ class DataHome:
     @property
     def pending(self) -> Path:
         return self.data_home / "pending"
+
+    def staged_mods(self) -> list[str]:
+        """The staged mod entries of ``pending/`` — ``<id>/`` (a ``floofy.json`` inside) and ``<id>.remove`` markers.
+
+        FloofyCrew's own staged self-update (``pending/self-update/`` and its
+        marker ``pending/self-update.json``, task 10.7) is not a mod and is left out.
+        """
+        if not self.pending.is_dir():
+            return []
+        names: list[str] = []
+        for entry in sorted(self.pending.iterdir()):
+            if entry.is_dir() and (entry / "floofy.json").is_file():
+                names.append(entry.name)
+            elif entry.is_file() and entry.name.endswith(".remove"):
+                names.append(entry.name)
+        return names
+
+    @property
+    def pending_self_update(self) -> Path:
+        """``pending/self-update.json``: the staged Loader app update of ``floofy self-update`` (task 10.7)."""
+        return self.pending / "self-update.json"
+
+    @property
+    def settings_file(self) -> Path:
+        """``config.json``: FloofyCrew's own settings (``floofy config``; :mod:`floofy_core.settings`)."""
+        return self.data_home / "config.json"
+
+    @property
+    def self_update_cache(self) -> Path:
+        """``cache/self-update.json``: the daily FloofyCrew release check (:mod:`floofy_core.selfupdate`)."""
+        return self.cache / "self-update.json"
 
     @property
     def quarantine(self) -> Path:

@@ -258,7 +258,7 @@ def test_a_dumb_terminal_gets_the_usage_and_the_hint(host):
 
 def test_init_through_the_interface_uses_the_consent_frame_and_records_screen(host, tmp_path: Path):
     # `--kirocrew` names a file that does not exist so no host launcher is ever run: init warns and prints the manual steps
-    steps = [("Set up FloofyCrew (floofy init)", "jjjjj\r"), ("[ I AGREE ]", "\r"), ("floofy init — ok", "\r"), ("Re-run floofy init", "q")]
+    steps = [("Set up FloofyCrew (floofy init)", "jjjjjj\r"), ("[ I AGREE ]", "\r"), ("floofy init — ok", "\r"), ("Re-run floofy init", "q")]
     code, out = drive(host.argv("--kirocrew", str(tmp_path / "no-such-kirocrew")), _env(host), steps, timeout=150)
     assert code == 0, screen_text(out)[-3000:]
     status = read_consent(host.paths.consent)

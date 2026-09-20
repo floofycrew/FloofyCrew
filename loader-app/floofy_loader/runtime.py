@@ -315,7 +315,27 @@ class LoaderRuntime:
         payload["network"] = {mod_id: client.to_dict() for mod_id, client in sorted(self.http_clients.items())}
         payload["events"] = self.events.to_dict()
         payload["hostChange"] = self.host_change
+        payload["selfUpdate"] = self.self_update_summary()
         return payload
+
+    def self_update_summary(self) -> dict[str, Any]:
+        """The FloofyCrew release notice for the App (Requirement 7.7), from the CLI's cached daily check — no network inside the gateway.
+
+        ``cache/self-update.json`` is written by ``floofy doctor``/``status``/
+        ``self-update`` (also when the App runs ``doctor`` in-process); this
+        re-grades it for the Loader's own version and the host facts and adds the
+        staged Loader app update, if any. Nothing cached yet is ``not-checked``.
+        """
+        from floofy_core.selfupdate import UpdateCheck, read_stage  # noqa: PLC0415
+
+        if self.paths is None or self.facts is None:
+            return {"available": False, "status": "not-checked", "detail": "the Loader has not started"}
+        staged = read_stage(self.paths.pending)
+        record = UpdateCheck.load(self.paths.self_update_cache)
+        if record is None:
+            return {"available": False, "status": "not-checked", "detail": "no check cached yet (floofy doctor or status runs it, at most once a day)", "staged": staged, "running": __version__}
+        record.regrade(running=__version__, edition=self.facts.edition, channel=self.facts.channel, host_version=self.facts.version)
+        return {**record.summary(), "staged": staged}
 
     def write_state(self) -> None:
         if self.paths is None:

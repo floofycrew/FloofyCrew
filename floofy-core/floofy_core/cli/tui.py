@@ -46,7 +46,7 @@ from typing import Any, Callable
 
 from ..consent import ACCEPT_PHRASE, read_consent
 from ..loaderapp import installed_meta
-from . import cmd_doctor, cmd_init, cmd_mods, cmd_profile, cmd_registry, cmd_yeet
+from . import cmd_doctor, cmd_init, cmd_mods, cmd_profile, cmd_registry, cmd_selfupdate, cmd_yeet
 from .cmd_doctor import loader_state
 from .console import Console
 from .context import CliContext, build_context
@@ -127,6 +127,8 @@ ACTIONS: tuple[Action, ...] = (
     Action("profiles.import", "Import from a file", cmd_profile.profile, ("profile", "import", "{file}")),
     Action("updates.check", "Check for updates", cmd_mods.update, ("update", "--all", "--check")),
     Action("updates.apply", "Update every registry mod", cmd_mods.update, ("update", "--all"), needs_consent=True),
+    Action("selfupdate.check", "Check for a FloofyCrew release", cmd_selfupdate.self_update, ("self-update", "--check")),
+    Action("selfupdate.install", "Update FloofyCrew itself (floofy self-update)", cmd_selfupdate.self_update, ("self-update",)),
 )
 
 _BY_KEY = {a.key: a for a in ACTIONS}
@@ -153,6 +155,8 @@ def global_argv(args: argparse.Namespace) -> list[str]:
         out += ["--token", str(args.token)]
     if getattr(args, "yes", False):
         out.append("--yes")
+    if getattr(args, "offline", False):
+        out.append("--offline")
     return out
 
 
@@ -198,6 +202,16 @@ def host_summary(ctx: CliContext) -> list[tuple[str, str]]:
     consent = read_consent(ctx.home.consent)
     rows.append(("consent", f"recorded ({consent.how or 'unknown'}, v{consent.warning_version})" if consent.ok else consent.status + " — " + consent.detail))
     rows.append(("data home", str(ctx.data_home)))
+    try:
+        # Requirement 7.7: the one-line notice, from the same cached daily check doctor/status use
+        summary = cmd_selfupdate.summary_for(ctx)
+        if summary.get("available") and summary.get("notice"):
+            rows.append(("update", str(summary["notice"])))
+        stage = summary.get("staged") or {}
+        if stage and not stage.get("applied") and stage.get("present"):
+            rows.append(("update", f"Loader app update to FloofyCrew {stage.get('version')} staged (floofy apply installs it when no gateway runs)"))
+    except Exception as exc:  # noqa: BLE001 - the home screen must always draw
+        rows.append(("update", f"check unavailable ({type(exc).__name__}: {exc})"))
     return rows
 
 
@@ -581,10 +595,10 @@ class TuiApp:
     def run(self) -> int:
         while True:
             consent = read_consent(self.ctx.home.consent)
-            items = ["Mods", "Registries", "Profiles", "Doctor", "Check for updates", "Set up FloofyCrew (floofy init)" if not consent.ok else "Re-run floofy init (Loader app, trigger)", "Quit"]
+            items = ["Mods", "Registries", "Profiles", "Doctor", "Check for updates", "Update FloofyCrew itself", "Set up FloofyCrew (floofy init)" if not consent.ok else "Re-run floofy init (Loader app, trigger)", "Quit"]
             header = [(f"{label:>10}  {value}", 0) for label, value in host_summary(self.ctx)]
             choice = self.menu("floofy — interactive", items, header=header, banner=True, footer="↑/↓ or j/k move · Enter open · q quit", allow_filter=False)
-            if choice is None or choice == 6:
+            if choice is None or choice == 7:
                 return 0
             if choice == 0:
                 self.mods_screen()
@@ -597,6 +611,8 @@ class TuiApp:
             elif choice == 4:
                 self.updates_screen()
             elif choice == 5:
+                self.self_update_screen()
+            elif choice == 6:
                 self.act("setup.init")
 
     def mods_screen(self) -> None:
@@ -769,6 +785,18 @@ class TuiApp:
                 self.act("profiles.export", name=name, file=file.strip())
             return
         self.act(keys[choice], name=name)
+
+    def self_update_screen(self) -> None:
+        """Requirement 7.7: a fresh check, then the explicit `floofy self-update` behind its own yes/no."""
+        outcome = self.act("selfupdate.check")
+        if outcome is None or outcome.exit != 0:
+            return
+        summary = outcome.result.get("selfUpdate") or {}
+        if not summary.get("available"):
+            return
+        choice = self.menu("A FloofyCrew release for this host", [f"Update FloofyCrew to {summary.get('version')} now (floofy self-update)", "Not now"], header=[(str(summary.get("notice") or ""), 0)], allow_filter=False)
+        if choice == 0:
+            self.act("selfupdate.install")
 
     def updates_screen(self) -> None:
         outcome = self.act("updates.check")

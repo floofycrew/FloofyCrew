@@ -81,3 +81,10 @@ def default_sources() -> list[dict]:
 def registry_opener(url: str):  # noqa: ARG001 - the public registries need no identity
     """No network identity on this edition: anonymous HTTPS (design DR-3 "Network identity: none")."""
     return None
+
+
+def release_feed() -> dict | None:
+    """The FloofyCrew release feed of this edition — the GitHub releases API (core ``floofy_core.editions.release_feed``; Requirement 7.7)."""
+    from .registry import release_feed as _feed
+
+    return _feed()

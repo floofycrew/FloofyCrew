@@ -6,6 +6,7 @@ Command inventory (Requirement 7.1)::
     update [--all]  apply  restore  verify  validate  new  dev  yeet  hold
     profile {list,save,use,export,import}  registry {add,remove,list,refresh}
     audit  which  vanilla   (also: floofy --vanilla)
+    self-update [--check]  config {get,set}   (task 10.7, Requirement 7.7)
 
 Global flags: ``--home`` (host home; default ``KIROCREW_HOME`` or ``~/.kiro/crew``),
 ``--json``, ``--yes`` (ordinary confirmations only — never the one-time consent
@@ -13,7 +14,8 @@ or a governance-altering per-file confirmation), ``--root`` (extra payload
 root, repeatable), ``--no-adapters``, ``--kirocrew`` (the host launcher),
 ``--port``/``--token`` (a running gateway), ``--no-color`` (plain output;
 styling is also off on a non-terminal, under ``NO_COLOR`` and with ``--json`` —
-Requirement 15.1), ``--version``.
+Requirement 15.1), ``--offline`` (skip the daily FloofyCrew update check;
+Requirement 7.7), ``--version``.
 
 :func:`run` executes one command in-process and returns ``RunResult(exit,
 stdout, json)``; the Loader's ``POST /api/apps/floofycrew/cli`` route calls it
@@ -91,6 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token", default=None, help="a dashboard session token to use instead of minting one")
     parser.add_argument("--quiet", "-q", action="store_true", help="less prose")
     parser.add_argument("--no-color", action="store_true", help="plain output: no ANSI styling (also off on a non-terminal, under NO_COLOR, and with --json)")
+    parser.add_argument("--offline", action="store_true", help="never contact a network endpoint: skips the daily FloofyCrew update check (a cached notice may still show)")
     parser.add_argument("--vanilla", action="store_true", help="same as `floofy vanilla`: the next gateway boot runs with every mod disabled, once")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
@@ -98,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     cmd_init.register(sub)
     cmd_doctor.register(sub)
-    for module_name in ("cmd_mods", "cmd_patch", "cmd_scaffold", "cmd_yeet", "cmd_profile", "cmd_registry"):
+    for module_name in ("cmd_mods", "cmd_patch", "cmd_scaffold", "cmd_yeet", "cmd_profile", "cmd_registry", "cmd_selfupdate"):
         try:
             module = __import__(f"{__package__}.{module_name}", fromlist=["register"])
         except ImportError:

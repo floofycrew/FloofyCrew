@@ -60,6 +60,13 @@ def register(sub: argparse._SubParsersAction) -> None:
 
 def apply(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.require_consent("apply patches")
+    # task 10.7: a Loader app update staged by `floofy self-update` is installed here — the re-apply trigger's entry
+    # point runs before a gateway starts (the PATH wrapper) and hourly — whenever no gateway is running
+    from .cmd_selfupdate import apply_staged  # noqa: PLC0415
+
+    staged = apply_staged(ctx)
+    if staged is not None:
+        ctx.set_result(selfUpdateLoaderApp=staged)
     if args.if_changed:
         from ..hostchange import apply_if_changed  # noqa: PLC0415
 

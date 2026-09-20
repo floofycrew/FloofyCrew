@@ -1,0 +1,253 @@
+"""``floofy self-update`` and ``floofy config`` (task 10.7; Requirement 7.7, 11.6).
+
+* :func:`update_check` — the daily check every surface shares (``doctor``,
+  ``status``, the interactive ``floofy``, ``self-update``): the edition adapter's
+  release feed, the cache under ``cache/self-update.json``, the 24 h rule,
+  ``updates.check`` and ``--offline`` (:mod:`floofy_core.selfupdate`). It never
+  raises and never blocks a command for more than the feed's short timeout.
+* ``self-update [--check] [--now] [--force] [--target PYZ]`` — a fresh check;
+  when a newer release supports the running host: the disclosure (version,
+  release notes, what is replaced, what is staged), one confirmation (``--yes``),
+  the downloads verified against ``SHA256SUMS`` (and the notes' table), the
+  atomic swap of the installed ``floofy.pyz`` (the file the ``floofy`` wrapper
+  runs), the Loader app archive staged under ``pending/self-update/`` and
+  installed through the host App Kit when no gateway runs (or with ``--now``),
+  ``op: self-update`` audit rows. The CLI is not the gateway, so the zipapp
+  swap is safe at any time; the Loader app waits for an idle gateway.
+* ``config get [KEY]`` / ``config set KEY VALUE`` — FloofyCrew's own settings
+  (:mod:`floofy_core.settings`): today ``updates.check``.
+* :func:`apply_staged` — the trigger path (``floofy apply``) installs a staged
+  Loader app the next time it runs without a gateway.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+from pathlib import Path
+from typing import Any
+
+from .. import __version__ as FRAMEWORK_VERSION
+from ..deploy import utc_now
+from ..loaderapp import installed_meta
+from ..selfupdate import CACHE_NAME, Release, ReleaseFeed, SelfUpdateError, StagePlan, UpdateCheck, check, download_release, read_stage, supports_host, swap, write_stage
+from ..settings import KNOWN_SETTINGS, SettingsError
+from . import cmd_init
+from .context import CliContext, CliError, _running_from_zipapp
+
+__all__ = ["apply_staged", "config_cmd", "default_target", "register", "self_update", "update_check"]
+
+#: The installed zipapp on both editions when this process is not the zipapp itself (the install scripts' layout).
+INSTALLED_PYZ = Path.home() / ".local" / "lib" / "floofycrew" / "floofy.pyz"
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    su = sub.add_parser("self-update", help="update FloofyCrew itself to the newest release that supports this host (verified download, atomic swap, Loader app staged)")
+    su.add_argument("--check", action="store_true", help="only check (a fresh check, ignoring the daily cache) and report")
+    su.add_argument("--now", action="store_true", help="also install the Loader app update right away, even while a gateway runs (default: staged until no gateway runs)")
+    su.add_argument("--force", action="store_true", help="install the newest release even when it is not newer or does not list this host version as supported")
+    su.add_argument("--target", metavar="PYZ", default=None, help="the installed floofy.pyz to replace (default: the zipapp this floofy runs from, else ~/.local/lib/floofycrew/floofy.pyz)")
+    su.set_defaults(handler=self_update)
+    cfg = sub.add_parser("config", help="FloofyCrew's own settings (config.json in the data home): updates.check")
+    actions = cfg.add_subparsers(dest="config_action", metavar="ACTION")
+    get = actions.add_parser("get", help="print one setting, or every setting with its effective value")
+    get.add_argument("key", nargs="?", default=None)
+    setter = actions.add_parser("set", help="store a setting (e.g. `updates.check false`)")
+    setter.add_argument("key")
+    setter.add_argument("value")
+    cfg.set_defaults(handler=config_cmd)
+
+
+# --- the shared check -----------------------------------------------------------------------------------------------
+
+
+def update_check(ctx: CliContext, *, force: bool = False, explicit: bool = False) -> UpdateCheck:
+    """The daily FloofyCrew release check for this host (never raises; see :func:`floofy_core.selfupdate.check`).
+
+    ``explicit`` (``floofy self-update``) bypasses ``updates.check`` — the user is
+    asking right now — but still honours ``--offline``.
+    """
+    current = ctx.current_payload()
+    feed: ReleaseFeed | None = ctx.release_feed()
+    try:
+        enabled = bool(ctx.settings().get("updates.check"))
+    except SettingsError:
+        enabled = True
+    opener = None
+    if feed is not None and not ctx.offline:
+        try:
+            opener = ctx.url_opener(feed.url)
+        except Exception:  # noqa: BLE001 - a broken identity means anonymous HTTPS, never a failed command
+            opener = None
+    return check(
+        feed,
+        ctx.home.cache / CACHE_NAME,
+        running=FRAMEWORK_VERSION,
+        edition=ctx.edition(),
+        channel=current.channel if current else None,
+        host_version=current.host_version.text if current else None,
+        opener=opener,
+        enabled=enabled or explicit,
+        offline=ctx.offline,
+        force=force,
+    )
+
+
+def summary_for(ctx: CliContext, *, force: bool = False, explicit: bool = False) -> dict[str, Any]:
+    """The check plus the staged Loader app update, for ``--json`` documents and the Loader's ``/state``."""
+    outcome = update_check(ctx, force=force, explicit=explicit)
+    return {**outcome.summary(), "staged": read_stage(ctx.home.pending)}
+
+
+def describe(ctx: CliContext, outcome: UpdateCheck) -> str:
+    """One line for ``doctor`` (always) and ``status``/the home screen (when there is something to say)."""
+    if outcome.notice:
+        return outcome.notice
+    if outcome.status == "ok" and outcome.latest is not None:
+        if outcome.latest.version == FRAMEWORK_VERSION or not supports_host(outcome.latest, outcome.edition, outcome.channel, outcome.host_version):
+            newer = outcome.latest.version != FRAMEWORK_VERSION
+            why = f"{outcome.latest.version} does not list host {outcome.host_version} ({outcome.edition}/{outcome.channel}) as supported" if newer else "this is the newest release"
+            return f"FloofyCrew {FRAMEWORK_VERSION}: up to date for this host ({why}; checked {outcome.checked_at})"
+        return f"FloofyCrew {FRAMEWORK_VERSION}: newest release {outcome.latest.version} (checked {outcome.checked_at})"
+    return f"FloofyCrew {FRAMEWORK_VERSION}: update check {outcome.status} — {outcome.detail}"
+
+
+def say_stage(ctx: CliContext) -> None:
+    stage = read_stage(ctx.home.pending)
+    if stage and not stage.get("applied") and stage.get("present"):
+        ctx.say(f"Loader app update to FloofyCrew {stage.get('version')} staged ({Path(str(stage.get('archive'))).name}): installed by `floofy apply` the next time no gateway runs, or now with `floofy self-update --now`", tone="warn")
+
+
+# --- the swap -------------------------------------------------------------------------------------------------------
+
+
+def default_target() -> Path | None:
+    """The zipapp this process runs from, else the install scripts' path when it exists, else ``None`` (a checkout / package install)."""
+    running = _running_from_zipapp()
+    if running:
+        return Path(running)
+    return INSTALLED_PYZ if INSTALLED_PYZ.is_file() else None
+
+
+def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
+    if ctx.offline:
+        raise CliError("self-update needs the network; drop --offline")
+    outcome = update_check(ctx, force=True, explicit=True)
+    document = {**outcome.summary(), "staged": read_stage(ctx.home.pending)}
+    ctx.set_result(selfUpdate=document, checked=True)
+    ctx.say(f"{ctx.paint('floofy self-update', 'heading')} — {describe(ctx, outcome)}")
+    if outcome.status in ("unreachable", "no-feed", "offline"):
+        raise CliError(f"cannot check for a FloofyCrew release: {outcome.detail}")
+    release = outcome.latest
+    if release is None:
+        raise CliError("the release feed named no release")
+    if args.check:
+        say_stage(ctx)
+        return 0
+    if not outcome.available and not args.force:
+        if release.version == FRAMEWORK_VERSION:
+            say_stage(ctx)
+            return 0
+        raise CliError(f"FloofyCrew {release.version} does not list your host {outcome.host_version} ({outcome.edition}/{outcome.channel}) as supported; `floofy self-update --force` installs it anyway, at your own risk")
+    target = Path(args.target).expanduser() if args.target else default_target()
+    if target is None:
+        raise CliError("this floofy does not run from an installed zipapp (a checkout or a package install): update it the way you installed it, or name the zipapp to replace with --target")
+    plan = StagePlan(target, ctx.home.pending)
+    meta = installed_meta(ctx.host_home)
+    ctx.say(f"  release      {release.version} ({release.tag}){' — ' + release.url if release.url else ''}")
+    ctx.say(f"  supports     {json.dumps(release.supports.get(str(outcome.edition), {}), sort_keys=True)}")
+    ctx.say(f"  zipapp       {plan.target}  ← {release.assets.get('floofy.pyz')}  (verified against SHA256SUMS{'; notes say ' + release.sha256[:12] + '…' if release.sha256 else ''}, swapped atomically)")
+    ctx.say(f"  loader app   {'staged under ' + str(plan.stage_dir) + (' and installed now' if args.now or not ctx.gateway_running() else ' — installed by `floofy apply` when no gateway runs (or --now)') if meta['installed'] else 'not installed here (floofy init installs it); the archive is staged only'}")
+    if not ctx.console.confirm(f"Install FloofyCrew {release.version} over {plan.target}?", default=False):
+        ctx.audit.record("self-update", result="declined", version=release.version, detail="user declined")
+        ctx.say("declined: nothing changed")
+        return 1
+    opener = None
+    try:
+        opener = ctx.url_opener(release.assets.get("floofy.pyz") or "")
+    except Exception:  # noqa: BLE001
+        opener = None
+    try:
+        downloaded = download_release(release, plan, opener=opener)
+    except SelfUpdateError as exc:
+        ctx.audit.record("self-update", result="refused", version=release.version, detail=str(exc))
+        raise CliError(f"self-update refused: {exc}") from exc
+    # everything below runs on modules imported before the swap: after os.replace the zipapp on disk is the new release
+    swapped = swap(plan)
+    stage = write_stage(plan, version=release.version, archive=Path(downloaded["loaderApp"]["path"]), sha256=downloaded["loaderApp"]["sha256"], by=ctx.actor)
+    ctx.audit.record("self-update", result="ok", version=release.version, phase="swap", files=[str(swapped), downloaded["loaderApp"]["path"]], sha256=downloaded["pyz"]["sha256"], detail=f"{release.assets.get('floofy.pyz')} -> {swapped}; loader app staged")
+    ctx.say(f"swapped {swapped} to FloofyCrew {release.version} (sha256 {downloaded['pyz']['sha256'][:12]}…); the next `floofy` runs it", tone="ok")
+    result: dict[str, Any] = {"version": release.version, "target": str(swapped), "pyzSha256": downloaded["pyz"]["sha256"], "loaderApp": {**downloaded["loaderApp"], "stage": stage}}
+    if meta["installed"] and (args.now or not ctx.gateway_running()):
+        result["loaderApp"]["install"] = apply_staged(ctx, force=True)
+    else:
+        say_stage(ctx)
+    ctx.set_result(selfUpdate={**document, "installed": result})
+    return 0
+
+
+def apply_staged(ctx: CliContext, *, force: bool = False) -> dict[str, Any] | None:
+    """Install a staged Loader app update through the host App Kit — when no gateway runs, or ``force``.
+
+    The same reinstall path as ``floofy init --reinstall-loader --loader-app
+    <archive>`` (``kirocrew app uninstall`` / ``install`` / ``enable`` through the
+    launcher); the marker is flipped to ``applied`` and the archive removed. A
+    running gateway (and the in-gateway surface) leaves the stage untouched:
+    ``None``.
+    """
+    stage = read_stage(ctx.home.pending)
+    if stage is None or stage.get("applied") or not stage.get("present"):
+        return None
+    if not force and (ctx.in_gateway or ctx.gateway_running()):
+        return None
+    archive = Path(str(stage["archive"]))
+    namespace = argparse.Namespace(no_loader_app=False, reinstall_loader=True, loader_app=str(archive), no_grant=True)
+    outcome = cmd_init._loader_app_step(ctx, namespace)  # noqa: SLF001 - the edition's installer path, shared with init
+    install = outcome.get("install")
+    ok = (install.get("returncode") == 0) if isinstance(install, dict) else (not outcome.get("manual") and bool(outcome.get("after", {}).get("installed")))
+    marker = ctx.home.pending / "self-update.json"
+    record = {**{k: v for k, v in stage.items() if k != "present"}, "applied": ok, "appliedAt": utc_now() if ok else None, "outcome": "ok" if ok else "manual"}
+    try:
+        marker.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        if ok:
+            archive.unlink(missing_ok=True)
+            stage_dir = archive.parent
+            if stage_dir.is_dir() and not any(stage_dir.iterdir()):
+                shutil.rmtree(stage_dir, ignore_errors=True)
+    except OSError:
+        pass
+    ctx.audit.record("self-update", result="ok" if ok else "manual", version=stage.get("version"), phase="loader-app", files=[str(archive)], detail="Loader app installed through the host App Kit" if ok else "Loader app install needs the manual steps (see above)")
+    ctx.say(f"Loader app updated to FloofyCrew {stage.get('version')} through the host App Kit; it runs at the next gateway start" if ok else "Loader app update: the host App Kit install did not complete; the archive stays staged", tone="ok" if ok else "warn")
+    return {"ok": ok, "version": stage.get("version"), "archive": str(archive), "outcome": outcome}
+
+
+# --- config ----------------------------------------------------------------------------------------------------------
+
+
+def config_cmd(ctx: CliContext, args: argparse.Namespace) -> int:
+    settings = ctx.settings()
+    action = getattr(args, "config_action", None)
+    if action == "set":
+        try:
+            value = settings.set(args.key, args.value)
+        except SettingsError as exc:
+            raise CliError(str(exc), exit_code=2) from exc
+        settings.save()
+        ctx.audit.record("config-set", result="ok", key=args.key, value=value, files=[str(settings.path)])
+        ctx.set_result(key=args.key, value=value, path=str(settings.path))
+        ctx.say(f"{args.key} = {json.dumps(value)} ({settings.path})")
+        return 0
+    if action == "get" and args.key:
+        try:
+            value = settings.get(args.key)
+        except SettingsError as exc:
+            raise CliError(str(exc), exit_code=2) from exc
+        ctx.set_result(key=args.key, value=value, default=KNOWN_SETTINGS[args.key][1], path=str(settings.path))
+        ctx.say(json.dumps(value))
+        return 0
+    effective = settings.effective()
+    ctx.set_result(settings=effective, path=str(settings.path), known={k: {"type": t.__name__, "default": d, "help": h} for k, (t, d, h) in KNOWN_SETTINGS.items()})
+    for key, value in effective.items():
+        kind, default, text = KNOWN_SETTINGS[key]
+        ctx.say(f"{key} = {json.dumps(value)}" + (f"  {ctx.paint('(default)', 'muted')}" if value == default else "") + f"  — {text}")
+    return 0

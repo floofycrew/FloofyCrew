@@ -110,7 +110,9 @@ that, by design (Requirement 11.4).
 Run `floofy` with no subcommand on a terminal and it opens:
 
 - **Home** — the banner, a host summary (edition, version, channel, Loader
-  state, consent record, data home) and the menu.
+  state, consent record, data home, and the one-line FloofyCrew update notice
+  when a newer release supports this host — the same daily cached check
+  `doctor` and `status` use, [updating.md](updating.md)) and the menu.
 - **Mods** — every installed mod with its state (`[on ]`/`[off]`), version and
   source tier (`unlisted` / `listed` / `tested`); Enter on a mod for Info,
   Enable/Disable, Update, Uninstall, Yeet; plus *Install from the registry*
@@ -124,6 +126,8 @@ Run `floofy` with no subcommand on a terminal and it opens:
 - **Profiles** — Enter on a profile for the plan, Switch (staged), Switch now,
   Export; plus *Save the installed set*, *Import from a file*.
 - **Doctor** and **Check for updates** (then an explicit "update all now").
+- **Update FloofyCrew itself** — a fresh `floofy self-update --check`, then an
+  explicit "update now" that runs `floofy self-update` (its own yes/no).
 
 Keys: `↑`/`↓` or `j`/`k` move, PgUp/PgDn and Home/End jump, **Enter** selects,
 **Esc** (or `q`) goes back, `/` filters a list, `q` on the home screen quits.

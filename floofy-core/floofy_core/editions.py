@@ -19,7 +19,7 @@ from typing import Callable
 from .governance import GovernanceLocations, default_locations
 from .payloads import EditionProbe, Payload, PayloadProvider, default_edition_probe
 
-__all__ = ["ADAPTER_PREFIX", "combined_edition_probe", "default_sources", "edition_providers", "governance_locations", "load_edition_adapters", "pinned_registry_ids", "registry_keys", "registry_opener"]
+__all__ = ["ADAPTER_PREFIX", "combined_edition_probe", "default_sources", "edition_providers", "governance_locations", "load_edition_adapters", "pinned_registry_ids", "registry_keys", "registry_opener", "release_feed"]
 
 ADAPTER_PREFIX = "floofy_edition_"
 
@@ -147,3 +147,22 @@ def pinned_registry_ids(adapters: list[ModuleType] | None = None, *, edition: st
             except Exception:  # noqa: BLE001
                 continue
     return ids
+
+
+def release_feed(adapters: list[ModuleType] | None = None, *, edition: str | None = None) -> dict | None:
+    """The edition's FloofyCrew release feed (``release_feed()`` hook; :class:`floofy_core.selfupdate.ReleaseFeed` document), or ``None``.
+
+    Requirement 7.7: where FloofyCrew's own releases are published is an
+    edition concern (GitHub releases vs the internal package), so the core asks
+    the adapter matching the running edition and names no endpoint itself.
+    """
+    for adapter in _adapters_for(edition, adapters):
+        factory = getattr(adapter, "release_feed", None)
+        if callable(factory):
+            try:
+                document = factory()
+            except Exception:  # noqa: BLE001 - a broken adapter means "no feed", never a failed command
+                continue
+            if isinstance(document, dict) and document.get("url"):
+                return {**document, "label": str(document.get("label") or f"{getattr(adapter, 'EDITION', 'edition')} release feed")}
+    return None

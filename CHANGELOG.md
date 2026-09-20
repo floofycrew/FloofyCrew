@@ -11,6 +11,35 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- **FloofyCrew updates itself** (task 10.7; Requirement 7.7, 11.6). At most once a
+  day the manager compares `floofy_core.__version__` with the newest release for
+  the running edition and channel — the public edition reads the GitHub releases
+  of the FloofyCrew repository, the internal edition the `FloofyCrew` package's
+  `RELEASE.md` on `mainline` (both through the edition adapter's new
+  `release_feed()` hook) — and shows one line in `floofy doctor`, `floofy status`,
+  the interactive `floofy` (home screen and a menu item) and the App (host summary
+  and Updates card; the Loader's `/state` and `/registry` gain `selfUpdate`) when
+  the newer release's `supports` list names the running host version. The check is
+  one HTTPS `GET` with nothing identifying in it, cached under
+  `cache/self-update.json` (`{checkedAt, edition, channel, latest{version,
+  supports, url, sha256}, notice}`), never blocks a command (a short timeout;
+  failures cached as `unreachable` and silent for a day), is skipped with the new
+  global `--offline` and switched off with `floofy config set updates.check false`
+  (`floofy config get|set`, FloofyCrew's own `config.json`). `floofy self-update
+  [--check] [--now] [--force] [--target PYZ]` installs the release through the
+  edition's installer path with the same hash verification as a fresh install —
+  `SHA256SUMS`, `floofy.pyz` and the Loader app archive (release assets, or the
+  package's `dist/` blobs at the tag `v<version>`), every digest checked and the
+  release notes' table held to `SHA256SUMS` — then swaps the installed
+  `floofy.pyz` atomically (`floofy.pyz.new` renamed over it; the wrapper runs the
+  new release from the next invocation) and stages the Loader app archive under
+  `pending/self-update/`, installed through the host App Kit by `floofy apply`
+  the next time no gateway runs (or with `--now`) — a running gateway is never
+  disturbed. Every step writes an `op: self-update` audit row. Tests run against a
+  fake release endpoint on loopback in both shapes.
+
 ### Fixed
 
 - `floofy doctor` printed "early shim: Loader app not installed" on an install

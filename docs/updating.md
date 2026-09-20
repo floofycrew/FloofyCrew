@@ -76,6 +76,52 @@ staged into `pending/` and applied at the next gateway start — the manager pag
 says "restart to apply" — unless you pass `--now`, which installs immediately
 and reloads the running Loader.
 
+## Updating FloofyCrew itself
+
+FloofyCrew checks for its own updates **at most once a day**: `floofy doctor`,
+`floofy status`, the interactive `floofy` and the App compare the running
+`floofy_core.__version__` with the newest release for your edition and channel —
+the public edition reads the GitHub releases of the FloofyCrew repository, the
+internal edition the `FloofyCrew` package's `RELEASE.md` on `mainline` — and show
+one line only when that release's *supports* list names your running host
+version:
+
+```
+update: FloofyCrew 1.2.0 is available and supports your host 0.7.0.5 (internal/beta); you run 1.1.0: `floofy self-update` — release notes: …
+```
+
+The check is a single HTTPS `GET` that sends nothing identifying beyond itself
+(no query parameters, no host facts, a generic `User-Agent`; an edition adapter
+with a network identity adds the same session cookie its registry uses). Its
+result is cached under
+`floofy/cache/self-update.json` — `{checkedAt, edition, channel, latest{version,
+supports, url, sha256}, notice}` — so no command waits for it twice a day; an
+unreachable endpoint is cached as `unreachable` and stays silent until the next
+day, and the check never blocks a command for more than a few seconds. It is
+skipped with `--offline` (a cached notice may still show) and switched off with
+`floofy config set updates.check false` (`floofy config get` shows the setting;
+`self-update --check` asks anyway, because then you are asking).
+
+`floofy self-update` installs that release through the edition's installer path
+with the same verification as a fresh install: it downloads the release's
+`SHA256SUMS`, then `floofy.pyz` and the Loader app archive (the GitHub release
+assets; the package's `dist/` blobs at the tag `v<version>` on the internal
+edition), refuses anything whose digest does not match — the release notes'
+own table must agree with `SHA256SUMS` too — and then **swaps the installed
+zipapp atomically**: the new file is written beside the old one as
+`floofy.pyz.new` and renamed over it, so the `~/.local/bin/floofy` wrapper runs
+the new release from its next invocation. The CLI is not the gateway, so this
+never disturbs a running one. The Loader app archive is **staged** under
+`floofy/pending/self-update/` (with a marker `pending/self-update.json`) and
+installed through the host App Kit — the same `kirocrew app install` path
+`floofy init` uses — the next time `floofy apply` runs without a gateway (the
+re-apply trigger runs it before a gateway starts and hourly), or right away with
+`floofy self-update --now`. `doctor` and `status` say when a Loader app update is
+staged; every step writes an `op: self-update` audit row. A release that does
+not list your host is refused unless you pass `--force`; a `floofy` running from a
+checkout or a package install is told to update the way it was installed
+(`--target PYZ` names an installed zipapp explicitly).
+
 ## Holding the host back — explicitly
 
 FloofyCrew never pauses host updates on its own. `floofy hold [--duration 7d]`
@@ -93,4 +139,4 @@ payload to vanilla by manifest and by sweep, even when a manifest is lost.
 restores every payload; `--purge` also deletes the data home.
 
 ---
-Covers Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.6, 9.2.
+Covers Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.6, 7.7, 9.2, 11.6.
