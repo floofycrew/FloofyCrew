@@ -4,8 +4,9 @@
 program that runs on the KiroCrew host's own interpreter, shipped as a single
 file (`floofy.pyz`), a wheel, or the host-specific installer of each edition.
 `floofy --version` prints the FloofyCrew release and the API version;
-`floofy --help` and `floofy <command> --help` print what is below. FloofyCrew is
-unofficial and says so in every banner.
+`floofy --help` and `floofy <command> --help` print what is below; bare `floofy`
+on a terminal opens the interactive mode of [terminal.md](terminal.md) (without a
+terminal it prints the usage). FloofyCrew is unofficial and says so in every banner.
 
 ## Global options
 
@@ -19,7 +20,7 @@ unofficial and says so in every banner.
 | `--kirocrew PATH` | the host's `kirocrew` launcher (default: `PATH`, then the payload's own) |
 | `--port PORT`, `--token TOKEN` | a running gateway's loopback port and a dashboard session token (default: the dashboard socket in the host home, a minted token) |
 | `--quiet`, `-q` | less prose |
-| `--no-color` | plain output: no ANSI styling and no banner — styling is also off when stdout is not a terminal, when `NO_COLOR` is set (any value) and with `--json`; `--json` output is byte-identical with and without styling |
+| `--no-color` | plain output: no ANSI styling and no banner — styling is also off when stdout is not a terminal, when `NO_COLOR` is set (any value) and with `--json`; `--json` output is byte-identical with and without styling ([terminal.md](terminal.md)) |
 | `--vanilla` | the next gateway boot runs with every mod disabled, once |
 
 ## Commands

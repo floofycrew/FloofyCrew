@@ -61,6 +61,12 @@ KiroCrew; it never ships a rebuilt host.
   Enter, Esc/`q`, `/` to filter; no mouse. Without a terminal bare `floofy`
   prints the usage as before; when curses cannot start (`TERM=dumb`, no terminfo)
   it prints the usage plus a one-line hint.
+- Docs: `docs/terminal.md` — using `floofy` at the terminal: the styling
+  switches, the banner, the install scripts' steps and menus, the full-screen
+  consent, the interactive mode's keys and the guarantees automation can rely on
+  (Requirement 14.3, task 10.6); tests for the whole terminal package
+  (`test_cli_style.py`, `test_banner.py`, `test_consent_screen.py`, `test_tui.py`,
+  `packaging/tests/test_install_scripts.py`; Requirement 13.3).
 - `floofy install <git reference>` — `ssh://<host>/<path>@<tag>` or
   `https://<host>/<owner>/<repo>[.git]@<tag>` (optional `#<subdirectory>`): a
   shallow clone at the tag with your own git credentials, the commit recorded,

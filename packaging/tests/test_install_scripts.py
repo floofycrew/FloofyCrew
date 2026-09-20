@@ -25,7 +25,6 @@ import re
 import select
 import struct
 import subprocess
-import sys
 import termios
 import time
 from pathlib import Path

@@ -50,7 +50,7 @@ from . import cmd_doctor, cmd_init, cmd_mods, cmd_profile, cmd_registry, cmd_yee
 from .cmd_doctor import loader_state
 from .console import Console
 from .context import CliContext, build_context
-from .style import Depth, Style, cube_index, strip_ansi
+from .style import Style, cube_index, strip_ansi
 
 __all__ = ["ACTIONS", "Action", "TuiApp", "action", "global_argv", "host_summary", "launch", "run_action"]
 

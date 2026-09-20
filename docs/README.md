@@ -16,6 +16,7 @@ that way.
 | Page | What it answers |
 |---|---|
 | [cli.md](cli.md) | every `floofy` command and option; where FloofyCrew keeps its files |
+| [terminal.md](terminal.md) | using `floofy` at the terminal: colours and the switches that turn them off, the banner, the install scripts' steps and menus, the full-screen consent, the interactive mode's keys, and what automation can rely on |
 | [consent-and-trust.md](consent-and-trust.md) | the one-time warning, why governance is a warning and not a gate, the audit log, the network rule, the registry trust controls, what FloofyCrew never does |
 | [installing-from-a-link.md](installing-from-a-link.md) | installing from a git reference vs. from the registry: the three source tiers (`unlisted` / `listed` / `tested`), what each verifies, the extra consent line, how a mod moves up a tier |
 | [updating.md](updating.md) | how mods survive host updates: the re-apply triggers, the per-version quarantine ("yeet"), rollback, `hold`, getting back to vanilla |
