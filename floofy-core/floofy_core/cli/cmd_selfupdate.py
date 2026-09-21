@@ -235,9 +235,16 @@ def apply_staged(ctx: CliContext, *, force: bool = False) -> dict[str, Any] | No
     namespace = argparse.Namespace(no_loader_app=False, reinstall_loader=True, loader_app=str(archive), no_grant=True)
     outcome = cmd_init._loader_app_step(ctx, namespace)  # noqa: SLF001 - the edition's installer path, shared with init
     install = outcome.get("install")
-    ok = (install.get("returncode") == 0) if isinstance(install, dict) else (not outcome.get("manual") and bool(outcome.get("after", {}).get("installed")))
+    installed_ok = (install.get("returncode") == 0) if isinstance(install, dict) else (not outcome.get("manual") and bool(outcome.get("after", {}).get("installed")))
+    # Installed is not enough: `kirocrew app enable` can be refused (the host drops the apps_trusted grant on
+    # uninstall; a self-update from a release before the grant-restore fix runs the OLD code for this step, so
+    # the first 1.1.3 → 1.1.4 update on the test box ended "installed but disabled" while this line still said
+    # "updated"). The stage is consumed either way — the files are in place — but the message and the marker
+    # say what is true and what to run.
+    enabled_ok = bool(outcome.get("after", {}).get("enabled")) if installed_ok else False
+    ok = installed_ok
     marker = ctx.home.pending / "self-update.json"
-    record = {**{k: v for k, v in stage.items() if k != "present"}, "applied": ok, "appliedAt": utc_now() if ok else None, "outcome": "ok" if ok else "manual"}
+    record = {**{k: v for k, v in stage.items() if k != "present"}, "applied": ok, "appliedAt": utc_now() if ok else None, "outcome": "ok" if ok and enabled_ok else ("disabled" if ok else "manual"), "enabled": enabled_ok}
     try:
         marker.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         if ok:
@@ -247,9 +254,15 @@ def apply_staged(ctx: CliContext, *, force: bool = False) -> dict[str, Any] | No
                 shutil.rmtree(stage_dir, ignore_errors=True)
     except OSError:
         pass
-    ctx.audit.record("self-update", result="ok" if ok else "manual", version=stage.get("version"), phase="loader-app", files=[str(archive)], detail="Loader app installed through the host App Kit" if ok else "Loader app install needs the manual steps (see above)")
-    ctx.say(f"Loader app updated to FloofyCrew {stage.get('version')} through the host App Kit; it runs at the next gateway start" if ok else "Loader app update: the host App Kit install did not complete; the archive stays staged", tone="ok" if ok else "warn")
-    return {"ok": ok, "version": stage.get("version"), "archive": str(archive), "outcome": outcome}
+    if ok and enabled_ok:
+        detail, line, tone, result = "Loader app installed and enabled through the host App Kit", f"Loader app updated to FloofyCrew {stage.get('version')} through the host App Kit; it runs at the next gateway start", "ok", "ok"
+    elif ok:
+        detail, line, tone, result = "Loader app installed through the host App Kit but `kirocrew app enable` was refused (agent.apps_trusted grant missing)", f"Loader app {stage.get('version')} is installed but DISABLED: the host refused to enable it (the grant is missing). Run `floofy init` to record the grant and enable it, then restart the gateway", "warn", "disabled"
+    else:
+        detail, line, tone, result = "Loader app install needs the manual steps (see above)", "Loader app update: the host App Kit install did not complete; the archive stays staged", "warn", "manual"
+    ctx.audit.record("self-update", result=result, version=stage.get("version"), phase="loader-app", files=[str(archive)], detail=detail)
+    ctx.say(line, tone=tone)
+    return {"ok": ok, "enabled": enabled_ok, "version": stage.get("version"), "archive": str(archive), "outcome": outcome}
 
 
 # --- config ----------------------------------------------------------------------------------------------------------

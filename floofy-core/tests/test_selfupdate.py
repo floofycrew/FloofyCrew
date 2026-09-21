@@ -745,6 +745,35 @@ def test_self_update_now_installs_a_stage_left_by_an_earlier_run_when_the_zipapp
         assert quiet.exit == 0 and "Loader app updated to FloofyCrew" in quiet.stdout and read_stage(cli.paths.pending)["applied"] is True
 
 
+def test_a_refused_enable_after_the_stage_install_is_reported_as_disabled_not_updated(cli, tmp_path: Path) -> None:
+    """The first 1.1.3 → 1.1.4 update on the test box: the Loader files were installed, `kirocrew app enable` was
+    refused, and the last line still said "Loader app updated … runs at the next gateway start". The stage is
+    consumed (the files are in place) but the outcome is `disabled`, the line says what to run, and the audit says so."""
+    release = FakeRelease(FRAMEWORK_VERSION)
+    install_fake_loader_app(cli.host_home)
+    launcher = tmp_path / "bin" / "kirocrew"
+    launcher.parent.mkdir()
+    launcher.write_text("#!/bin/sh\ncase \"$1 $2\" in\n  \"app install\") mkdir -p \"$KIROCREW_HOME/apps/floofycrew\"; cp -r \"$3\"/. \"$KIROCREW_HOME/apps/floofycrew/\"; printf '{\"name\": \"floofycrew\", \"version\": \"staged\", \"enabled\": false}\\n' > \"$KIROCREW_HOME/apps/floofycrew/installed.json\" ;;\n  \"app enable\") echo 'blocked by execution policy: third-party app execution is disabled' >&2; exit 1 ;;\n  \"app uninstall\") rm -rf \"$KIROCREW_HOME/apps/floofycrew\" ;;\nesac\n", encoding="utf-8")
+    launcher.chmod(0o755)
+    plan = StagePlan(tmp_path / "unused.pyz", cli.paths.pending)
+    archive = plan.stage_dir / release.loader_name
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(release.files[release.loader_name])
+    write_stage(plan, version=release.version, archive=archive, sha256=release.sums[release.loader_name], by="tui")
+    with FakeReleaseServer(release) as server:
+        cli.feed(server)
+        result = cli.run("--kirocrew", str(launcher), "self-update", "--now")
+        assert result.exit == 0, result.stderr + result.stdout
+        assert "Loader app updated" not in result.stdout
+        assert "installed but DISABLED" in result.stdout and "floofy init" in result.stdout
+        install = result.json["selfUpdate"]["installed"]["loaderApp"]["install"]
+        assert install["ok"] is True and install["enabled"] is False
+    stage = read_stage(cli.paths.pending)
+    assert stage["applied"] is True and stage["present"] is False and stage.get("outcome") == "disabled" and stage.get("enabled") is False
+    rows = [r for r in read_audit(cli.paths.audit) if r["op"] == "self-update"]
+    assert rows[-1]["phase"] == "loader-app" and rows[-1]["result"] == "disabled" and "enable" in rows[-1]["detail"]
+
+
 def test_tui_home_summary_and_actions_carry_the_notice(cli, monkeypatch: pytest.MonkeyPatch) -> None:
     from floofy_core.cli.console import Console
     from floofy_core.cli.context import build_context

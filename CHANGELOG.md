@@ -13,6 +13,15 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Fixed
 
+- After installing a staged Loader app, `self-update` reported "Loader app updated
+  … runs at the next gateway start" even when the host had just refused
+  `kirocrew app enable` (the 1.1.3 → 1.1.4 update on the test box: the Loader
+  install step runs on the code of the release being replaced, which predates the
+  grant-restore fix, so the grant was lost and the enable refused, while the last
+  line still said "updated"). The outcome is now judged on *enabled*, not
+  *installed*: the stage is consumed either way, but the line says the Loader is
+  installed but disabled and to run `floofy init`, the marker records
+  `outcome: disabled`, and the audit row says `disabled` with the reason.
 - `floofy self-update` died with a traceback when the feed named a release whose
   assets could not be fetched (seen for 1.1.4 on the internal edition: `RELEASE.md`
   on `mainline` already said 1.1.4, but the assets are raw blobs at the tag
