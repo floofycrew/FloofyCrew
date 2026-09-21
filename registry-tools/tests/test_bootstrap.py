@@ -137,3 +137,29 @@ def test_signing_and_the_shell_wrapper(tmp_path: Path):
     assert produced["edition"] == edition and produced["seeded"] == [] and (tmp_path / "r3" / "index.json").is_file()
     assert subprocess.run(["bash", str(script), str(tmp_path / "r4")], capture_output=True, text=True).returncode == 2, "--edition is required"
     assert main([str(tmp_path / "r5"), "--edition-config", str(custom_path), "--floofycrew-root", str(REPO_ROOT), "--no-seed"]) == 0
+
+
+
+def test_byte_code_caches_next_to_templates_and_adapter_files_are_never_rendered(tmp_path: Path):
+    """A ``__pycache__/*.pyc`` beside ``setup.py`` (left by any tool that imported it in place) is
+    neither UTF-8 nor part of the package; before, the internal edition's gated-package render
+    read it as text and failed with ``UnicodeDecodeError``."""
+    from registry_tools.bootstrap import source_files
+
+    config_path = EDITION_CONFIGS["internal"]
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    extras = (config_path.parent / config["registryPackage"]["files"]).resolve()
+    cache = extras / "__pycache__"
+    planted = not cache.is_dir()
+    cache.mkdir(exist_ok=True)
+    pyc = cache / "setup.cpython-312.pyc"
+    pyc.write_bytes(b"\xcb\x0d\x0d\x0a" + b"\x00" * 12)
+    try:
+        assert pyc not in source_files(extras) and all("__pycache__" not in p.parts for p in source_files(extras))
+        target = tmp_path / "registry-internal"
+        init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[], host_version="0.7.0.5", channel="beta")
+        assert not list(target.rglob("*.pyc")) and not list(target.rglob("__pycache__"))
+    finally:
+        pyc.unlink(missing_ok=True)
+        if planted:
+            cache.rmdir()

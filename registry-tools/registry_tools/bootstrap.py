@@ -73,11 +73,21 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def source_files(directory: Path) -> list[Path]:
+    """Every regular file under ``directory``, sorted, minus Python byte-code caches.
+
+    A ``__pycache__/*.pyc`` appears next to any ``setup.py`` or module that some tool
+    imported in place (a test, an editor, ``pip``); it is not part of a template or a
+    mod and is not UTF-8, so every tree walk that renders or archives files uses this.
+    """
+    return sorted(p for p in directory.rglob("*") if p.is_file() and "__pycache__" not in p.parts and not p.name.endswith(".pyc"))
+
+
 def deterministic_zip(mod_dir: Path, out: Path, *, top: str) -> tuple[str, int]:
     """Zip ``mod_dir`` under ``top/`` with fixed timestamps and sorted entries; returns ``(sha256, size)``."""
     out.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(p for p in mod_dir.rglob("*") if p.is_file() and "__pycache__" not in p.parts and not p.name.endswith(".pyc")):
+        for path in source_files(mod_dir):
             info = zipfile.ZipInfo(f"{top}/{path.relative_to(mod_dir).as_posix()}", date_time=ZIP_EPOCH)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
@@ -150,7 +160,7 @@ def _render(text: str, values: dict[str, str], *, json_strings: bool = False) ->
 def _copy_template(target: Path, values: dict[str, str], *, github: bool) -> list[Path]:
     written: list[Path] = []
     source_dir = TEMPLATE_DIR / "registry-repo"
-    for path in sorted(p for p in source_dir.rglob("*") if p.is_file()):
+    for path in source_files(source_dir):
         relative = path.relative_to(source_dir)
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -197,7 +207,7 @@ def _gate_values(config: dict[str, Any], values: dict[str, str]) -> dict[str, st
 def _render_tree(source_dir: Path, target: Path, values: dict[str, str], *, rename: dict[str, str] | None = None) -> list[Path]:
     """Render every file under ``source_dir`` into ``target`` (placeholders substituted; ``rename`` maps template directory names)."""
     written: list[Path] = []
-    for path in sorted(p for p in source_dir.rglob("*") if p.is_file()):
+    for path in source_files(source_dir):
         parts = [(rename or {}).get(part, part) for part in path.relative_to(source_dir).parts]
         destination = target.joinpath(*parts)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -216,9 +226,9 @@ def _vendor(target: Path, floofycrew_root: Path) -> list[tuple[str, str]]:
         source = Path(floofycrew_root) / directory / package
         if not source.is_dir():
             raise BootstrapError(f"{source}: the FloofyCrew checkout has no {package} package to vendor")
-        for path in sorted(p for p in source.rglob("*") if p.is_file()):
+        for path in source_files(source):
             relative = path.relative_to(source)
-            if any(part in _VENDOR_SKIP for part in relative.parts) or path.suffix == ".pyc":
+            if any(part in _VENDOR_SKIP for part in relative.parts):
                 continue
             destination = vendor / package / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -279,7 +289,7 @@ def _render_gate(target: Path, config: dict[str, Any], values: dict[str, str], *
     if extras is not None:
         if not extras.is_dir():
             raise BootstrapError(f"registryPackage.files {extras} is not a directory")
-        for path in sorted(p for p in extras.rglob("*") if p.is_file()):
+        for path in source_files(extras):
             relative = path.relative_to(extras)
             text = _render(path.read_text(encoding="utf-8"), gate_values, json_strings=path.suffix == ".json")
             if relative.name.endswith(".append.md") or relative.name.endswith(".append"):
