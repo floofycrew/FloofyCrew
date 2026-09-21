@@ -184,3 +184,38 @@ def test_installer_source_is_the_shipped_package():
 def test_the_real_user_site_was_never_created():
     assert REAL_USER_SITE.exists() == _real_user_site_existed
     assert not REAL_USER_SITE.exists(), f"{REAL_USER_SITE} must not exist on this desk (fake HOME/PYTHONUSERBASE only)"
+
+
+
+
+def test_loader_reuses_the_shim_module_across_a_symlinked_home(tmp_path: Path):
+    """The shim records the path early.json spells; the Loader resolves symlinks — same file, one module object (owner-verified gap)."""
+    import importlib.util
+
+    from floofy_loader.activation import load_part_module, module_key
+
+    real = tmp_path / "real"
+    (real / "mods" / "earlybird" / "hook").mkdir(parents=True)
+    (real / "mods" / "earlybird" / "hook" / "__init__.py").write_text("COUNTER = []\n\ndef early(ctx):\n    COUNTER.append('early')\n\ndef activate(ctx):\n    COUNTER.append('activate')\n\ndef deactivate(ctx):\n    pass\n", encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    # what floofy_early does with an early.json path spelled through the symlink
+    mod_dir_as_written = link / "mods" / "earlybird"
+    key = module_key("earlybird", "hook")
+    for name in ("floofy_mods", "floofy_mods.earlybird"):
+        sys.modules.setdefault(name, importlib.util.module_from_spec(importlib.machinery.ModuleSpec(name, None, is_package=True)))
+    file = mod_dir_as_written / "hook" / "__init__.py"
+    spec = importlib.util.spec_from_file_location(key, str(file), submodule_search_locations=[str(file.parent)])
+    shim_module = importlib.util.module_from_spec(spec)
+    sys.modules[key] = shim_module
+    spec.loader.exec_module(shim_module)
+    shim_module.early(None)
+    try:
+        # the Loader, handed the same mod through the resolved (real) path
+        handle = load_part_module("earlybird", real / "mods" / "earlybird", {"kind": "python-hook", "path": "hook/", "module": "hook"}, 0)
+        assert handle.module is shim_module, "a fresh import would lose everything early() recorded"
+        assert shim_module.COUNTER == ["early"]
+    finally:
+        for name in [k for k in sys.modules if k.startswith("floofy_mods")]:
+            sys.modules.pop(name, None)

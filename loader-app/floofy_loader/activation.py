@@ -20,6 +20,7 @@ import asyncio
 import importlib.machinery
 import importlib.util
 import logging
+import os
 import sys
 import traceback
 from dataclasses import dataclass, field
@@ -143,6 +144,25 @@ def _module_file(mod_dir: Path, part: dict[str, Any]) -> tuple[Path, str, bool]:
     raise ActivationError(f"python-hook part path {raw_path!r} is neither a package directory nor a module file")
 
 
+def _same_file(recorded: Any, file: Path) -> bool:
+    """Whether a module's ``__file__`` names ``file`` — compared as real paths.
+
+    The early shim records the path ``early.json`` gave it (the data home as the
+    user spells it); the Loader resolves the part path (``_module_file``). On a
+    host where the home is reached through a symlink (``/home/me`` →
+    ``/local/home/me``) the two spellings differ for the same file, and a plain
+    string comparison re-imported the module — a second object with fresh globals,
+    so ``activate()`` never saw what ``early()`` recorded (owner-verified on the
+    test box, 2026-09-21).
+    """
+    if not isinstance(recorded, str) or not recorded:
+        return False
+    try:
+        return os.path.realpath(recorded) == os.path.realpath(file)
+    except OSError:
+        return False
+
+
 def load_part_module(mod_id: str, mod_dir: Path, part: dict[str, Any], part_index: int) -> PartHandle:
     """Import the part under ``floofy_mods.<id>.<module>`` and return its handle (never touches ``sys.path``)."""
     file, module, is_package = _module_file(mod_dir, part)
@@ -151,7 +171,7 @@ def load_part_module(mod_id: str, mod_dir: Path, part: dict[str, Any], part_inde
     name = module_key(mod_id, module)
     _ensure_namespace(mod_id, mod_dir)
     existing = sys.modules.get(name)
-    if existing is not None and getattr(existing, "__file__", None) == str(file):
+    if existing is not None and _same_file(getattr(existing, "__file__", None), file):
         # The early shim (floofy_early) imported this very file before platform
         # bootstrap; reuse it so early() and activate() share one module object.
         loaded = existing

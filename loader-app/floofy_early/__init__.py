@@ -120,7 +120,7 @@ def _install() -> None:  # pragma: no cover - exercised through subprocess tests
                 key = f"floofy_mods.{mod_id}.{module_name}"
                 _namespace(mod_id, mod_dir)
                 module = sys.modules.get(key)
-                if module is None or getattr(module, "__file__", None) != file:
+                if module is None or os.path.realpath(getattr(module, "__file__", None) or "") != os.path.realpath(file):
                     spec = importlib.util.spec_from_file_location(key, file, submodule_search_locations=[os.path.dirname(file)] if is_package else None)
                     if spec is None or spec.loader is None:
                         log(f"[{mod_id}] cannot build a spec for {file}")

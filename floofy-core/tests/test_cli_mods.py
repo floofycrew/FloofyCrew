@@ -409,3 +409,35 @@ def test_apply_restore_verify_and_apply_if_changed(env):
     assert not shell.with_name("index.html.floofybak").exists()
     ops = [r["op"] for r in read_audit(env.paths.audit)]
     assert "apply-if-changed" in ops and ops[-1] == "restore-all"
+
+
+
+# --- the early-activation list (Requirement 3.2) ---------------------------------------------------------
+
+
+def test_early_list_follows_install_enable_disable_uninstall(env):
+    """``early.json`` lists exactly the ENABLED mods' ``early: true`` python-hook parts, and is absent otherwise."""
+    early = write_mod(
+        env.work / "earlybird",
+        "earlybird",
+        parts=[{"kind": "python-hook", "side": "gateway", "path": "hook/", "module": "hook", "early": True}],
+        files={"hook/__init__.py": "def early(ctx):\n    pass\n\ndef activate(ctx):\n    pass\n"},
+    )
+    plain = env.hook_mod()  # no early part
+    assert env.run("--yes", "install", str(early)).exit == 0
+    assert env.run("--yes", "install", str(plain)).exit == 0
+    assert not env.paths.early.exists(), "code parts land disabled: nothing is early yet"
+
+    assert env.run("enable", "earlybird").exit == 0
+    document = json.loads(env.paths.early.read_text(encoding="utf-8"))
+    assert document == {"mods": [{"id": "earlybird", "path": str(env.paths.mods / "earlybird"), "module": "hook", "part": 0}]}
+
+    assert env.run("enable", "hooky").exit == 0
+    assert json.loads(env.paths.early.read_text(encoding="utf-8"))["mods"] == document["mods"], "a mod without an early part never appears"
+
+    assert env.run("disable", "earlybird").exit == 0
+    assert not env.paths.early.exists(), "no early part enabled: the file is removed, the shim stays a no-op"
+
+    assert env.run("enable", "earlybird").exit == 0 and env.paths.early.exists()
+    assert env.run("--yes", "uninstall", "earlybird").exit == 0
+    assert not env.paths.early.exists()

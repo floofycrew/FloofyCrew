@@ -31,6 +31,8 @@ __all__ = [
     "installed_mods",
     "parts_of",
     "read_enabled",
+    "early_entries",
+    "sync_early_list",
     "read_source",
     "write_enabled",
     "write_source",
@@ -126,6 +128,48 @@ def write_enabled(path: Path, enabled: dict[str, bool]) -> None:
     tmp = Path(path).with_suffix(".json.tmp")
     tmp.write_text(json.dumps(dict(sorted(enabled.items())), indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def early_entries(home: DataHome) -> list[dict[str, Any]]:
+    """The early-activation list (Requirement 3.2): every ENABLED mod's ``python-hook`` parts with ``early: true``.
+
+    One entry per part — ``{"id", "path", "module", "part"}`` — in mod-id order,
+    the shape ``floofy_early`` reads. Broken mods and disabled mods contribute
+    nothing; a mod with no early part contributes nothing.
+    """
+    flags = read_enabled(home.enabled)
+    entries: list[dict[str, Any]] = []
+    for mod in installed_mods(home, include_broken=False):
+        if not flags.get(mod.id):
+            continue
+        for index, part in enumerate(mod.parts):
+            if part.get("kind") == "python-hook" and part.get("early") is True:
+                entries.append({"id": mod.id, "path": str(mod.dir), "module": str(part.get("module") or "hook"), "part": index})
+    return entries
+
+
+def sync_early_list(home: DataHome) -> list[dict[str, Any]]:
+    """Rewrite ``<data home>/early.json`` from the enabled set; remove it when no early part is enabled.
+
+    The early shim is a no-op without the file, so an empty list is expressed by
+    its absence rather than by ``{"mods": []}``. Called after every change to the
+    installed or enabled set (install, enable, disable, uninstall, dev link,
+    host-change parking, the Loader's pending apply and boot) so the list never
+    lags the state it describes; the shim reads it at the next host start.
+    """
+    entries = early_entries(home)
+    path = home.early
+    if not entries:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return entries
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"mods": entries}, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return entries
 
 
 def read_source(mod_dir: Path) -> dict[str, Any]:

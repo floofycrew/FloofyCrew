@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from floofy_core.modstore import read_enabled, write_enabled
+from floofy_core.modstore import read_enabled, sync_early_list, write_enabled
 
 from .paths import FloofyPaths
 
@@ -99,6 +99,11 @@ def apply_pending(paths: FloofyPaths, *, log: Callable[[str], None] | None = Non
                 shutil.rmtree(entry, ignore_errors=True)
         except (OSError, ValueError) as exc:
             report.errors.append(f"{entry.name}: {type(exc).__name__}: {exc}")
+    if report.installed or report.removed:
+        try:
+            sync_early_list(paths)
+        except OSError as exc:
+            report.errors.append(f"early.json: {exc}")
     return report
 
 

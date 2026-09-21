@@ -348,3 +348,23 @@ def test_boot_invariants(tmp_path_factory, flags, consented, raising):
     assert set(state.active) == {m for m in ids if state.mods[m].active}
     deactivate_all(result, deps)
     assert not any(k.startswith(MOD_NAMESPACE + ".") for k in sys.modules if k.split(".")[1:2] and k.split(".")[1] in ids)
+
+
+
+def test_boot_keeps_the_early_list_in_step_with_the_enabled_set(env):
+    """Requirement 3.2: ``early.json`` is regenerated at boot (and after a pending apply) from the enabled ``early: true`` parts."""
+    consent(env)
+    early_code = "def early(ctx):\n    pass\n\ndef activate(ctx):\n    pass\n"
+    make_mod(env.paths, "early", code=None, parts=[{"kind": "python-hook", "side": "gateway", "path": "hook/", "module": "hook", "early": True}], files={"hook/__init__.py": early_code})
+    make_mod(env.paths, "plain")
+    make_mod(env.paths, "staged", code=None, parts=[{"kind": "python-hook", "side": "gateway", "path": "hook/", "module": "hook", "early": True}], files={"hook/__init__.py": early_code}, staged=True)
+    enable(env, early=True, plain=True, staged=True)
+    assert not env.paths.early.exists()
+    state = boot(env.deps).state
+    assert state.mods["early"].active and state.mods["staged"].active
+    document = json.loads(env.paths.early.read_text(encoding="utf-8"))
+    assert [(m["id"], m["module"], m["part"]) for m in document["mods"]] == [("early", "hook", 0), ("staged", "hook", 0)]
+    assert document["mods"][1]["path"] == str(env.paths.mods / "staged"), "the staged mod is listed at its landed path, not pending/"
+    enable(env, early=False, plain=True, staged=False)
+    boot(env.deps)
+    assert not env.paths.early.exists(), "nothing early is enabled: the file goes away"

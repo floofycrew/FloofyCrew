@@ -11,6 +11,22 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- **The early-activation list was never written.** `early.json`, the file the
+  early shim reads, was documented as "written by the manager" but no code path
+  wrote it, so `"early": true` python-hook parts never ran before platform
+  bootstrap. `floofy_core.modstore.sync_early_list` now regenerates it (or
+  removes it when nothing early is enabled) after every install, enable, disable,
+  uninstall and dev link, on host-change parking/unparking, after the Loader's
+  pending apply, and at every Loader boot. Found installing the first mod with an
+  early part on the test box.
+- **`early()` and `activate()` did not share one module on a symlinked home.** The
+  Loader compared the shim's recorded `__file__` with its own resolved path as
+  strings; where `/home/me` is a symlink to `/local/home/me` they differ, the
+  module was imported a second time and `activate()` never saw what `early()`
+  recorded. Both sides now compare real paths.
+
 ### Added
 
 - **`custom-themes`**, a new first-party mod: a theme editor for KiroCrew inside

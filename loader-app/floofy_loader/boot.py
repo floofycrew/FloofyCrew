@@ -40,7 +40,7 @@ from typing import Any, Callable
 from floofy_core import __version__ as FRAMEWORK_VERSION
 from floofy_core.governance import LOADER_APP_NAME, GovernanceSnapshot, GovernanceWarning, warnings_for
 from floofy_core.resolver import HostFacts as ResolverHost
-from floofy_core.modstore import read_source
+from floofy_core.modstore import read_source, sync_early_list
 from floofy_core.resolver import ModRecord, Reason, resolve
 from floofy_core.tier import tier_of
 from floofy_core.validator import validate_mod
@@ -374,6 +374,13 @@ def boot(deps: BootDeps) -> BootResult:
         state.pending = pending.to_dict()
         state.errors.extend(f"pending: {e}" for e in pending.errors)
     enabled = read_enabled(paths.enabled)
+    # Keep the early-activation list (Requirement 3.2) in step with the enabled set, so the
+    # shim reads the right list at the NEXT host start even when the last writer was not us.
+    if not inert:
+        try:
+            sync_early_list(paths)
+        except OSError as exc:
+            state.errors.append(f"early.json: {exc}")
     # floofy --vanilla: one boot with every mod disabled (Requirement 7.1); the marker is consumed here
     vanilla = not inert and paths.vanilla_marker.is_file()
     if vanilla:

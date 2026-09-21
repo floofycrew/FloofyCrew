@@ -44,7 +44,7 @@ from typing import Any
 from .anchors import check_anchors
 from .compat import CompatCache
 from .datahome import DataHome
-from .modstore import InstalledMod, read_enabled, write_enabled
+from .modstore import InstalledMod, read_enabled, sync_early_list, write_enabled
 from .payloads import Payload
 from .semver import InvalidRange, Range
 
@@ -209,6 +209,7 @@ def yeet(ctx: Any, mod: InstalledMod, host_version: str, *, reasons: list[str], 
     flags = read_enabled(home.enabled)
     was_enabled = flags.pop(mod.id, not mod.has_code)
     write_enabled(home.enabled, flags)
+    sync_early_list(home)
     parked_flags_path = target_dir / "enabled.json"
     parked = read_enabled(parked_flags_path)
     parked[mod.id] = was_enabled
@@ -273,6 +274,7 @@ def restore_quarantine(ctx: Any, host_version: str, *, only: list[str] | None = 
         flags = read_enabled(home.enabled)
         flags[mod_id] = parked_flags.get(mod_id, True)
         write_enabled(home.enabled, flags)
+        sync_early_list(home)
         parked_flags.pop(mod_id, None)
         entry: dict[str, Any] = {"id": mod_id, "version": str(manifest.get("version") or ""), "enabled": flags[mod_id]}
         if run_handlers and not ctx.in_gateway and isinstance(manifest, dict):

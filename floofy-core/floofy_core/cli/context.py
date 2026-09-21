@@ -22,7 +22,7 @@ from ..datahome import DataHome, default_host_home
 from ..gateway import GatewaySession, session_for
 from ..governance import GovernanceSnapshot
 from ..hostcli import find_launcher
-from ..modstore import InstalledMod, installed_mods, read_enabled, write_enabled
+from ..modstore import InstalledMod, installed_mods, read_enabled, sync_early_list, write_enabled
 from ..payloads import DiscoveryResult, Payload, discover_payloads
 from .console import Console
 
@@ -316,12 +316,14 @@ class CliContext:
         flags = self.enabled()
         flags[mod_id] = value
         write_enabled(self.home.enabled, flags)
+        sync_early_list(self.home)
 
     def drop_enabled(self, mod_id: str) -> None:
         flags = self.enabled()
         if mod_id in flags:
             del flags[mod_id]
             write_enabled(self.home.enabled, flags)
+        sync_early_list(self.home)
 
     def mutated(self, what: str) -> None:
         """Tell a gateway-side caller that the mod set changed (the Loader route reloads)."""
