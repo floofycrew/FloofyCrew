@@ -681,6 +681,48 @@ def test_apply_installs_a_staged_loader_app_only_when_no_gateway_runs(cli, tmp_p
     assert "selfUpdateLoaderApp" not in third.json, "an applied stage is not applied twice"
 
 
+def test_self_update_now_installs_a_stage_left_by_an_earlier_run_when_the_zipapp_is_already_current(cli, tmp_path: Path) -> None:
+    """What happened on the test box: the TUI swapped the zipapp to the new release while a gateway ran, so the
+    Loader app stayed staged; a later ``floofy self-update --now`` found the zipapp current and only *described*
+    the stage again. The up-to-date branch now installs it with ``--now`` (or when no gateway runs)."""
+    release = FakeRelease(FRAMEWORK_VERSION)  # the feed's newest release is the running one: nothing to swap
+    install_fake_loader_app(cli.host_home)
+    launcher = tmp_path / "bin" / "kirocrew"
+    launcher.parent.mkdir()
+    launcher.write_text("#!/bin/sh\ncase \"$1 $2\" in\n  \"app install\") mkdir -p \"$KIROCREW_HOME/apps/floofycrew\"; cp -r \"$3\"/. \"$KIROCREW_HOME/apps/floofycrew/\"; printf '{\"name\": \"floofycrew\", \"version\": \"staged\", \"enabled\": true}\\n' > \"$KIROCREW_HOME/apps/floofycrew/installed.json\" ;;\n  \"app uninstall\") rm -rf \"$KIROCREW_HOME/apps/floofycrew\" ;;\nesac\n", encoding="utf-8")
+    launcher.chmod(0o755)
+    plan = StagePlan(tmp_path / "unused.pyz", cli.paths.pending)
+    archive = plan.stage_dir / release.loader_name
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(release.files[release.loader_name])
+    write_stage(plan, version=release.version, archive=archive, sha256=release.sums[release.loader_name], by="tui")
+    dist = cli.root / "kiro_crew" / "static" / "dist"
+    with FakeReleaseServer(release) as server:
+        cli.feed(server)
+        with FakeGateway(dist, HOST, socket_dir=cli.host_home):
+            held = cli.run("--kirocrew", str(launcher), "self-update")
+            assert held.exit == 0, held.stderr + held.stdout
+            assert "up to date" in held.stdout and f"Loader app update to FloofyCrew {release.version} staged" in held.stdout
+            assert read_stage(cli.paths.pending)["applied"] is False, "without --now a running gateway is never disturbed"
+            now = cli.run("--kirocrew", str(launcher), "self-update", "--now")
+            assert now.exit == 0, now.stderr + now.stdout
+            assert "up to date" in now.stdout and "Loader app updated to FloofyCrew" in now.stdout and "next gateway start" in now.stdout
+            assert now.json["selfUpdate"]["installed"]["loaderApp"]["install"]["ok"] is True
+        stage = read_stage(cli.paths.pending)
+        assert stage["applied"] is True and stage["present"] is False
+        assert json.loads((cli.host_home / "apps" / "floofycrew" / "installed.json").read_text())["version"] == "staged"
+        rows = [r for r in read_audit(cli.paths.audit) if r["op"] == "self-update"]
+        assert rows[-1]["phase"] == "loader-app" and rows[-1]["result"] == "ok"
+        third = cli.run("--kirocrew", str(launcher), "self-update", "--now")
+        assert third.exit == 0 and "Loader app updated" not in third.stdout, "an applied stage is not installed twice"
+        # the same stage with no gateway running installs without --now
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_bytes(release.files[release.loader_name])
+        write_stage(plan, version=release.version, archive=archive, sha256=release.sums[release.loader_name], by="tui")
+        quiet = cli.run("--kirocrew", str(launcher), "self-update")
+        assert quiet.exit == 0 and "Loader app updated to FloofyCrew" in quiet.stdout and read_stage(cli.paths.pending)["applied"] is True
+
+
 def test_tui_home_summary_and_actions_carry_the_notice(cli, monkeypatch: pytest.MonkeyPatch) -> None:
     from floofy_core.cli.console import Console
     from floofy_core.cli.context import build_context

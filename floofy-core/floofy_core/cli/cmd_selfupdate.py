@@ -142,8 +142,15 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
         return 0
     if not outcome.available and not args.force:
         if not is_newer(release.version, FRAMEWORK_VERSION):
-            # the running version is the newest release, or ahead of the feed: nothing to install (describe said which)
-            say_stage(ctx)
+            # The running zipapp is the newest release, or ahead of the feed: nothing to swap
+            # (describe said which). A Loader app archive staged by an earlier run is still
+            # pending, though — the swap happens in the first run, the stage waits for a quiet
+            # gateway — so `--now` (or no gateway) installs it here too, exactly as it would
+            # have right after the swap. Before, this branch only *described* the stage and
+            # `floofy self-update --now` after the swap did nothing (found on the test box).
+            installed = install_stage_now(ctx, args)
+            if installed is not None:
+                ctx.set_result(selfUpdate={**document, "installed": {"loaderApp": {"install": installed}}})
             return 0
         raise CliError(f"FloofyCrew {release.version} does not list your host {outcome.host_version} ({outcome.edition}/{outcome.channel}) as supported; `floofy self-update --force` installs it anyway, at your own risk")
     target = Path(args.target).expanduser() if args.target else default_target()
@@ -175,12 +182,29 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.audit.record("self-update", result="ok", version=release.version, phase="swap", files=[str(swapped), downloaded["loaderApp"]["path"]], sha256=downloaded["pyz"]["sha256"], detail=f"{release.assets.get('floofy.pyz')} -> {swapped}; loader app staged")
     ctx.say(f"swapped {swapped} to FloofyCrew {release.version} (sha256 {downloaded['pyz']['sha256'][:12]}…); the next `floofy` runs it", tone="ok")
     result: dict[str, Any] = {"version": release.version, "target": str(swapped), "pyzSha256": downloaded["pyz"]["sha256"], "loaderApp": {**downloaded["loaderApp"], "stage": stage}}
-    if meta["installed"] and (args.now or not ctx.gateway_running()):
-        result["loaderApp"]["install"] = apply_staged(ctx, force=True)
+    if meta["installed"]:
+        result["loaderApp"]["install"] = install_stage_now(ctx, args)
     else:
         say_stage(ctx)
     ctx.set_result(selfUpdate={**document, "installed": result})
     return 0
+
+
+def install_stage_now(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any] | None:
+    """Install the staged Loader app when ``--now`` asks for it or no gateway runs; otherwise say it is staged.
+
+    Shared by both ends of ``self-update``: right after the swap and on a later run that
+    finds the zipapp already current. ``--now`` overrides the running-gateway hold (the
+    App Kit reinstall while a gateway runs takes effect at the next gateway start, which
+    the message says); without it a running gateway leaves the stage for ``floofy apply``.
+    """
+    stage = read_stage(ctx.home.pending)
+    if not stage or stage.get("applied") or not stage.get("present"):
+        return None
+    if args.now or not ctx.gateway_running():
+        return apply_staged(ctx, force=True)
+    say_stage(ctx)
+    return None
 
 
 def apply_staged(ctx: CliContext, *, force: bool = False) -> dict[str, Any] | None:
