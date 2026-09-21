@@ -211,14 +211,26 @@ def test_1_no_first_frame_flash(harness: Harness):
 
 
 def test_2_boundary_isolation(harness: Harness):
-    # an earlier page load may already have faulted the two mods (the Loader remembers); re-run the boot
-    # so this page load is the one that hits the faults
     client = harness.gw.client()
-    assert client.post(f"{API}/reload").status == 200
-    faults_before = len([f for f in client.get(f"{API}/state").json()["faults"] if f["source"] == "spa"])
     context, page = harness.page()
     try:
+        # A fresh browser profile is not the same as a fresh page: on its first load the host's entry chunk
+        # fetches /api/ui-prefs and, when the server holds prefs this profile lacks (test_1 left the Rimuru
+        # theme set), writes them and does one location.reload(). That first load hits the two faults and
+        # reports them, the self-reload then reads /state with the mods already disabled and never attempts
+        # them — `faulted()` is empty and the assertions below see nothing. So: open once and let the
+        # profile settle (the host marks it synced in localStorage), THEN reset the Loader and reload the
+        # page; the second load is the one that hits the faults, on a profile the host will not reload again.
         harness.open(page)
+        page.wait_for_function("() => localStorage.getItem('mc-ui-prefs-synced') !== null", timeout=30000)
+        # an earlier page load (or this settling load) already faulted the two mods and the Loader remembers:
+        # re-run the boot so the load below is the one that hits the faults
+        assert client.post(f"{API}/reload").status == 200
+        faults_before = len([f for f in client.get(f"{API}/state").json()["faults"] if f["source"] == "spa"])
+        page.reload(wait_until="load", timeout=60000)
+        page.wait_for_selector('[data-testid="dashboard-shell"]', timeout=60000)
+        page.wait_for_function("() => window.floofy && typeof window.floofy.report === 'function'", timeout=30000)
+        page.wait_for_function("() => window.floofy.events.inspect().history.some((h) => h.name === 'host.ready')", timeout=30000)
         try:
             page.wait_for_function("() => window.__spaHealthy === 'spa-healthy' && window.floofy.faulted().length === 2", timeout=30000)
         except Exception as exc:  # noqa: BLE001 - show what the host saw before failing
