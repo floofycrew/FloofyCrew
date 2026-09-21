@@ -39,10 +39,12 @@ you stand, and `floofy restore --all` takes everything back out.
 > every mod you install is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md)
 > before `floofy init`.
 
-Status: **1.1.2** (patch on 1.1.1: the interactive `floofy` without curses, the App
-in the dashboard sidebar and the fox banner; 1.1.1 brought FloofyCrew self-update
-and two `doctor` probe fixes; 1.1.0 the terminal experience, the FloofyCrew App with
-mods' own settings pages, git-reference installs, link records and the source tier).
+Status: **1.1.3** (patch on 1.1.2: the mark reframed for the circular sidebar mask,
+the "FloofyCrew" wordmark beside the fox banner, a `doctor` update-notice fix; 1.1.2
+brought the interactive `floofy` without curses, the App in the dashboard sidebar and
+the fox banner; 1.1.1 FloofyCrew self-update and two `doctor` probe fixes; 1.1.0 the
+terminal experience, the FloofyCrew App with mods' own settings pages, git-reference
+installs, link records and the source tier).
 Every package of the plan is implemented; the internal package and the public release
 tree are built reproducibly by `packaging/`; the compatibility matrix rows come from
 the Forge. What the release supports is in [CHANGELOG.md](CHANGELOG.md), in

@@ -9,7 +9,23 @@ reports `loader: ok` per edition and channel — repeated here, in
 `supports.json`. FloofyCrew is unofficial and not affiliated with Kiro or
 KiroCrew; it never ships a rebuilt host.
 
-## Unreleased
+## 1.1.3 — 2026-09-21
+
+A patch on 1.1.2: the mark is reframed for the dashboard's circular sidebar mask (the
+App Store icon updates with it), the terminal banner gains the "FloofyCrew" wordmark
+beside the fox — in the interactive `floofy`, over the `doctor`/`--version` header and
+in both installers from 110 columns — and `doctor`/`self-update` explain the quiet
+"up to date" line correctly when running ahead of the feed. No API change
+(`floofy.api_version` stays 1.1.0); same `supports` list as 1.1.2.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
 
 ### Fixed
 
