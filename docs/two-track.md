@@ -24,8 +24,8 @@ Measured at 1.1.5 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` p
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 211 | 237 | 89.0 % |
-| bytes | 2 483 948 | 2 576 222 | 96.4 % |
+| files | 213 | 239 | 89.1 % |
+| bytes | 2 517 418 | 2 609 692 | 96.5 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:
@@ -39,10 +39,13 @@ python scripts/artifact_identity_report.py --keep /tmp/trees   # keep both trees
 ## The same mod archives on both editions
 
 `scripts/install_both_editions.py` builds each first-party mod into one
-deterministic archive — `rimuru-branding-1.0.0.zip` (sha256
-`27ea3f4957de93a6dd86f34b07dfce64bc9d7b18258aca086f8524d8a831fd77`, 60 430
-bytes: `theme` + `spa` boot + `patch` parts) and `settings-demo-1.0.0.zip`
-(sha256 `342f31df96d83864792994d506afc32c9570f650a8a0fb32ea16d34b17486402`,
+deterministic archive — `custom-themes-1.0.0.zip` (sha256
+`6ead6eff86601e2dac0613bd90b62a8f3aee40a6265fd576bfe10ae57b145b3b`, 41 207
+bytes: a `ui` editor, a `python-hook` backend, `spa` runtime + boot parts and the
+theme-reset `patch`), `rimuru-branding-2.0.0.zip` (sha256
+`935153d0e1b5192cba8d5b2262525388b729d71baacf3ee06f0c30c586cfc2b8`, 57 587
+bytes: a pure `theme` part depending on it) and `settings-demo-1.0.0.zip` (sha256
+`342f31df96d83864792994d506afc32c9570f650a8a0fb32ea16d34b17486402`,
 7 324 bytes: a `ui` settings page + a `python-hook` backend route, task 11.6) —
 and installs those bytes on two scratch hosts — one that declares itself
 the internal edition (a `BUILD_VERSION` stamp, `X.Y.Z.N`) and one that does not
@@ -50,7 +53,7 @@ the internal edition (a `BUILD_VERSION` stamp, `X.Y.Z.N`) and one that does not
 from a fixture, never a live install. On each: `floofy init` (the consent
 record), then per mod `floofy validate`, `floofy --yes install <archive> --now`,
 `floofy enable`, then the Loader's `boot()` in-process. Both must report every
-mod **active**; for `rimuru-branding` the Patcher run and the first-frame boot
+mod **active**; for `custom-themes` the Patcher run and the first-frame boot
 script baked into the payload's `index.html` (the `patch` part applies where the
 fixture carries the real chunk and is skipped with a `FingerprintMiss`
 diagnostic where it holds a trimmed stub — a skip, never a partial rewrite); for

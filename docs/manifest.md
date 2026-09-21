@@ -108,6 +108,13 @@ artifact and the manager installs it through the host's own seam.
           "when": {"theme": "custom-rimuru"}}}
 ```
 
+A theme mod rarely needs one of these any more: `mods/custom-themes` paints every
+installed custom theme on the first frame (and carries the theme-reset guard), so a
+theme mod is a `theme` part plus `dependsOn: {"custom-themes": ">=1.0.0"}`
+(`mods/rimuru-branding` 2.0.0). The `boot` object stays for mods that bake their
+own first frame — `custom-themes` itself declares one with an empty `boot: {}`,
+its hook being the whole part.
+
 `css` is appended before `</head>` after the host's own stylesheet (scope it,
 e.g. to `[data-theme="custom-<slug>-dark"]`); `favicon` and `logo` are served
 from the Loader app's `ui/boot/<id>/` and asserted before the host hydrates;

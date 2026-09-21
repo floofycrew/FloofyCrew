@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "target": "kiro_crew/static/dist/assets/useTheme-*.js",
+  "mode": "import-map",
+  "find": "mc-custom-theme-",
+  "description": "Neutralise the dashboard's persisting theme reset: when the per-pack detail fetch fails once (e.g. a client connecting during a gateway restart), useTheme resets the colour theme to the default and writes that to the workspace config, downgrading every client. The reset call after `<installed packs>.has(slug)||` becomes a no-op; the theme heals on the next successful fetch. Structural fingerprint (identifiers vary per build); surface theme.reset-site tracks the same site.",
+  "appliesTo": ">=0.7.0 <0.9.0",
+  "ops": [
+    {
+      "op": "replace",
+      "fingerprint": "(?<=\\.has\\([a-z]\\)\\|\\|)[A-Za-z_$][\\w$]*\\([A-Za-z_$][\\w$]*\\)(?=\\}\\},\\[)",
+      "regex": true,
+      "content": "void 0",
+      "marker": "||void 0}},[",
+      "description": "theme reset guard"
+    }
+  ]
+}

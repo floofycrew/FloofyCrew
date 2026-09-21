@@ -13,6 +13,38 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Added
 
+- **`custom-themes`**, a new first-party mod: a theme editor for KiroCrew inside
+  the FloofyCrew App, and the layer theme mods build on. A theme is a host theme
+  pack (palette, name, emoji, bot name, logo, favicon, fonts, `overrides.css` —
+  installed through the ported host validator, listed in Settings → Display,
+  working without FloofyCrew) plus a FloofyCrew layer of **extra CSS** with any
+  selector, scoped to `html[data-theme="custom-<slug>-dark|light"]` by the mod's
+  compiler and applied by the mod itself — the rules the host's runtime allowlist
+  would drop. The editor page (Palette with the 56 host tokens per mode, Look,
+  Pack, Branding tabs; live preview re-scoped to `html[data-theme]`; Save,
+  Install to host, Use this theme, Export, Import, Duplicate, Uninstall, Delete)
+  starts a theme from **the running host's own built-in themes**: the hook reads
+  every `[data-theme=<slug>-dark|light]` palette in the payload's stylesheets, the
+  theme's decorative rules and their `@keyframes`, and the sidebar label/emoji —
+  edition-neutral and current on any host build, with no theme data copied into
+  the repository. The first frame comes from the mod's boot hook: a warm client
+  inlines the sheet the runtime part cached, a cold client gets a render-blocking
+  link to the sheet the hook regenerates for every installed custom theme
+  (`<Loader app>/ui/boot/custom-themes/themes.css`), measured in a real browser
+  (`test_playwright.py::test_1`, cold and warm). The theme-reset import-map patch
+  moved here from `rimuru-branding`, since every custom theme needs it. Routes
+  under the mod's api root: `themes` CRUD, `install`/`uninstall`, `export`/`import`
+  (one JSON file, `format: floofy-theme/1`, assets base64), `assets` uploads within
+  the host's caps, `presets`, `css`, `preview`, `refresh`, `status`.
+
+### Changed
+
+- **`rimuru-branding` 2.0.0** is a pure theme pack: the `theme` part and
+  `dependsOn: {"custom-themes": ">=1.0.0 <2.0.0"}`; its boot part, baked CSS and
+  reset-guard patch are gone. The first-frame parity it carried is now proven on
+  the `custom-themes` path. `scripts/install_both_editions.py` builds and installs
+  all three first-party mods (`custom-themes` first).
+
 - **Restart KiroCrew** from the manager App. A red button in the App's header,
   on the Mods page's "staged" line and in Settings asks once (the App's `yes-no`
   modal through the 409 protocol; nothing is answered for the user) and then

@@ -29,6 +29,9 @@ from registry_tools.submission import validate_submission
 
 from registry_testing import REPO_ROOT
 
+#: The first-party theme's version, from its manifest (the seeded record is ``<id>@<version>``).
+RIMURU_VERSION = json.loads((REPO_ROOT / "mods" / "rimuru-branding" / "floofy.json").read_text(encoding="utf-8"))["version"]
+
 pytestmark = pytest.mark.registry
 
 EDITION_CONFIGS = {json.loads(p.read_text(encoding="utf-8"))["edition"]: p for p in REPO_ROOT.glob("editions/*/floofy_edition_*/registry.json")}
@@ -86,7 +89,7 @@ def test_init_registry_repo_for_each_edition(edition: str, tmp_path: Path):
     compat = json.loads(repo.compat_path.read_text(encoding="utf-8"))
     assert validate_instance(compat, load_schema("compat")) == []
     row = compat["rows"][0]
-    assert (row["edition"], row["channel"], row["hostVersion"]) == (edition, "beta", "0.7.0.5") and row["mods"]["rimuru-branding@1.0.0"] == {"verdict": "expected", "run": "https://forge.example/run/1"}
+    assert (row["edition"], row["channel"], row["hostVersion"]) == (edition, "beta", "0.7.0.5") and row["mods"][f"rimuru-branding@{RIMURU_VERSION}"] == {"verdict": "expected", "run": "https://forge.example/run/1"}
     if payload is not None:
         spa = row["framework"]["spaFingerprints"]
         assert spa["total"] > 0 and spa["matched"] == 0 and len(spa["missed"]) == spa["total"], "the trimmed fixture stubs the App chunk, so the offline reporter measured every fingerprint as missed"
@@ -95,7 +98,7 @@ def test_init_registry_repo_for_each_edition(edition: str, tmp_path: Path):
     # the client consumes the result
     cache = IndexCache.load_path(repo.index_path)
     best = cache.best_version("rimuru-branding", base_version="0.7.0", edition=edition, host_version="0.7.0.5", channel="beta", compat=CompatCache.load(repo.compat_path))
-    assert best.version.version == "1.0.0" and best.verdict == "expected"
+    assert best.version.version == RIMURU_VERSION and best.verdict == "expected"
     # a non-empty target is refused; a fresh clone holding only .git/ is fine
     with pytest.raises(BootstrapError, match="not empty"):
         init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[], host_version=None, channel=None)

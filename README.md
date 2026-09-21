@@ -68,7 +68,7 @@ two-track measurements.
 One repository, one shared core, two thin edition adapters (design decision
 DR-3). The shared core and the docs are edition-neutral by construction; CI
 enforces it, and CI measures that ≥ 80 % of the shipped files are byte-identical
-across the two editions (88.8 % of files, 96.4 % of bytes on the current tree; the per-release figures are in `docs/two-track.md`).
+across the two editions (89.1 % of files, 96.5 % of bytes on the current tree; the per-release figures are in `docs/two-track.md`).
 
 | Path | What |
 |---|---|
@@ -77,7 +77,7 @@ across the two editions (88.8 % of files, 96.4 % of bytes on the current tree; t
 | `editions/toolbox/` | the internal edition adapter (`floofy_edition_toolbox`): the internal bundle's payloads and build stamp, user-site shim, the internal registry endpoint, pinned key and identity; `docs/publishing-internal.md` |
 | `loader-app/` | the Loader packaged as a KiroCrew App (`app.json`, `floofy_loader/`, the optional early shim `floofy_early/`, the manager page in `ui/`) |
 | `spa-host/` | the dashboard-side runtime: `window.floofy`, surfaces, patch inspection, the reporter, the first-frame boot script |
-| `mods/` | first-party mods (`rimuru-branding`: theme + first-frame boot + import-map patch) |
+| `mods/` | first-party mods (`custom-themes`: the theme editor in the App and the first-frame + reset-guard layer every custom theme uses; `rimuru-branding`: a theme pack on top of it; `settings-demo`: a mod with its own settings page) |
 | `registry-tools/` | build, sign and validate registry indexes; emit the KiroCrew-compatible `app-registry.json`; bootstrap a registry repository |
 | `packaging/` | the two release tracks: `internal/` (the `FloofyCrew` data package) and `public/` (release assets, wheel, `install.sh`, the `loader-app` tree) |
 | `forge/` | the release-tracking system: lanes, ledger, provision/check/repair/matrix/release/notify stages, the agent runner; `docs/` holds the build-desk notes (internal-only) |

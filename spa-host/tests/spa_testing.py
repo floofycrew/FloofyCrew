@@ -23,6 +23,7 @@ from loader_testing import REPO_ROOT, ScratchGateway, build_loader_app  # noqa: 
 
 MODS_DIR = REPO_ROOT / "mods"
 RIMURU_DIR = MODS_DIR / "rimuru-branding"
+CUSTOM_THEMES_DIR = MODS_DIR / "custom-themes"
 API = "/api/apps/floofycrew"
 
 #: The scratch home's display config: the pack selected, dark mode, onboarding done (no wizard over the shell).

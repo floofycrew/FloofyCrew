@@ -1,4 +1,9 @@
-"""The first-party mods under ``mods/`` stay valid, hashed, baked and applicable (task 5.5; Requirement 1.7, 2.1, 2.6)."""
+"""The first-party mods under ``mods/`` stay valid, hashed and applicable (task 5.5; Requirement 1.7, 2.1, 2.6).
+
+Since ``rimuru-branding`` 2.0.0 the first-frame boot part and the theme-reset guard live in
+``custom-themes`` (the layer every theme mod depends on); the pack itself stays a pure
+``theme`` part. ``loader-app/tests/test_custom_themes.py`` covers the editor mod's routes.
+"""
 from __future__ import annotations
 
 import json
@@ -11,18 +16,19 @@ import pytest
 
 from floofy_core.boot_script import boot_mods_from_manifests, build_boot_descriptor
 from floofy_core.patches import PatchDescriptor, apply_descriptor
-from floofy_core.themes import theme_css_for_pack, validate_theme_dir
+from floofy_core.semver import Range, Version
+from floofy_core.themes import validate_theme_dir
 from floofy_core.validator import validate_mod
 
 from floofy_testing import REPO_ROOT
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-import bake_theme_css  # noqa: E402
 import hash_example_files  # noqa: E402
 
 MODS_DIR = REPO_ROOT / "mods"
 MODS = sorted(p for p in MODS_DIR.iterdir() if (p / "floofy.json").is_file())
 RIMURU = MODS_DIR / "rimuru-branding"
+CUSTOM_THEMES = MODS_DIR / "custom-themes"
 SCRATCH_ASSETS = Path(os.environ.get("FLOOFY_SCRATCH_PAYLOAD") or REPO_ROOT / ".scratch" / "payload-0.7.0.5") / "lib" / "python3.12" / "site-packages" / "kiro_crew" / "static" / "dist" / "assets"
 
 
@@ -46,24 +52,26 @@ def test_rimuru_theme_part_is_the_pack_the_host_validator_accepts():
     assert manifest["branding"]["botName"] == "Great Sage"
 
 
-def test_rimuru_baked_css_is_current_and_scoped():
-    assert bake_theme_css.bake(RIMURU, check=True) == 0
-    css = (RIMURU / "spa" / "boot.css").read_text(encoding="utf-8")
-    assert css.strip() == theme_css_for_pack(RIMURU / "theme")
-    assert css.startswith('[data-theme="custom-rimuru-dark"]{') and '[data-theme="custom-rimuru-light"]{' in css
-    assert "--bg:#171C26" in css and "--bg:#FBF4EB" in css and "url(" not in css and "</style" not in css
-
-
-def test_rimuru_boot_descriptor_renders_and_reset_guard_is_an_import_map_patch(tmp_path: Path):
+def test_rimuru_is_a_pure_theme_pack_on_top_of_custom_themes():
     manifest = json.loads((RIMURU / "floofy.json").read_text(encoding="utf-8"))
-    boot_mods = boot_mods_from_manifests([("rimuru-branding", RIMURU, manifest)])
-    assert len(boot_mods) == 1 and boot_mods[0].boot["when"] == {"theme": "custom-rimuru"}
+    assert manifest["version"].startswith("2.") and [p["kind"] for p in manifest["parts"]] == ["theme"], "no boot part, no patch: custom-themes provides both"
+    assert not (RIMURU / "spa").exists() and not (RIMURU / "patches").exists()
+    depends = manifest["dependsOn"]["custom-themes"]
+    custom = json.loads((CUSTOM_THEMES / "floofy.json").read_text(encoding="utf-8"))
+    assert Range.parse(depends["range"]).contains(Version.parse(custom["version"])), "the shipped custom-themes satisfies the range"
+    assert boot_mods_from_manifests([("rimuru-branding", RIMURU, manifest)]) == []
+    assert {p["kind"] for p in custom["parts"]} == {"ui", "python-hook", "spa", "patch"}
+
+
+def test_custom_themes_boot_and_reset_guard(tmp_path: Path):
+    manifest = json.loads((CUSTOM_THEMES / "floofy.json").read_text(encoding="utf-8"))
+    boot_mods = boot_mods_from_manifests([("custom-themes", CUSTOM_THEMES, manifest)])
+    assert len(boot_mods) == 1 and "when" not in boot_mods[0].boot and "css" not in boot_mods[0].boot, "generic: every custom theme, the sheet is written by the hook"
     descriptor = build_boot_descriptor(boot_mods, host_home=tmp_path)
-    assert descriptor is not None and [op.op for op in descriptor.ops] == ["insert-before", "insert-before", "append-head"]
-    assert {a.dest for a in descriptor.ui_assets} == {"boot/rimuru-branding/favicon.png", "boot/rimuru-branding/logo.png"}
+    assert descriptor is not None and [op.op for op in descriptor.ops] == ["insert-before", "insert-before"] and descriptor.ui_assets == ()
     script = descriptor.ops[1].content
-    assert '"favicon":"/apps/floofycrew/ui/boot/rimuru-branding/favicon.png"' in script and "data-floofy-rimuru" in script
-    guard = PatchDescriptor.load(RIMURU / "patches" / "theme-reset-guard.json")
+    assert "/apps/floofycrew/ui/boot/custom-themes/themes.css" in script and "document.write(" in script
+    guard = PatchDescriptor.load(CUSTOM_THEMES / "patches" / "theme-reset-guard.json")
     assert guard.is_import_map and guard.target_is_glob and guard.find == "mc-custom-theme-"
     assert guard.applies_to is not None and guard.applicability("0.7.0.5") is None and guard.applicability("0.9.0") is not None
     sample = "...e.installed)){U(e);return}f.has(e)||U(Y)}},[k,i,f,u,U]);let mc-custom-theme-"
@@ -73,8 +81,8 @@ def test_rimuru_boot_descriptor_renders_and_reset_guard_is_an_import_map_patch(t
 
 
 @pytest.mark.skipif(not SCRATCH_ASSETS.is_dir(), reason="no payload copy under .scratch")
-def test_rimuru_reset_guard_matches_the_0_7_0_5_chunk_exactly_once():
-    guard = PatchDescriptor.load(RIMURU / "patches" / "theme-reset-guard.json")
+def test_reset_guard_matches_the_0_7_0_5_chunk_exactly_once():
+    guard = PatchDescriptor.load(CUSTOM_THEMES / "patches" / "theme-reset-guard.json")
     chunks = sorted(SCRATCH_ASSETS.glob("useTheme-*.js"))
     assert len(chunks) == 1
     text = chunks[0].read_text(encoding="utf-8")

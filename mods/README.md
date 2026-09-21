@@ -8,10 +8,13 @@ They are the reference mods the tests, the docs and the Forge smoke stage use.
 
 | Mod | What it is |
 |---|---|
-| [`rimuru-branding/`](rimuru-branding/) | the Rimuru slime theme: a Level-1 theme pack + a first-frame boot part + an import-map patch (the first real mod, ported from the standalone O3R theme patcher — task 5.5) |
+| [`custom-themes/`](custom-themes/) | a theme editor for KiroCrew inside the FloofyCrew App, and the layer theme mods build on: a `ui` editor (palette / look / pack / branding, live preview, install, activate, export, import), a `python-hook` backend (the library, the CSS compiler, presets harvested from the running host's own stylesheet, the first-frame sheet), a `spa` runtime part (applies the active theme's extra CSS the host's allowlist would drop), a `spa` boot part (the first frame, warm and cold clients) and the theme-reset `patch` every custom theme needs |
+| [`rimuru-branding/`](rimuru-branding/) | the Rimuru slime theme: a Level-1 theme pack (the first real mod, ported from the standalone O3R theme patcher — task 5.5). Since 2.0.0 a pure `theme` part depending on `custom-themes` |
 | [`settings-demo/`](settings-demo/) | the example of a mod with its own settings page inside the FloofyCrew App: a `ui` part persisting a text field and a toggle through `floofy.mod(id).config`, plus a `python-hook` part registering the `echo` route the page calls (Requirement 16.4 — task 11.6; the second mod of the internal registry) |
 
 Keep a mod honest with `python scripts/hash_example_files.py mods/<id>` (the
 `files[]` hashes) and `python -m floofy_core.cli_validate mods/<id>`
-(schema, hashes, targets, network scan). Theme mods with a boot part regenerate
-their baked CSS with `python scripts/bake_theme_css.py mods/<id>`.
+(schema, hashes, targets, network scan). A theme mod that still bakes its own
+first-frame CSS into a boot part regenerates it with
+`python scripts/bake_theme_css.py mods/<id>`; the first-party theme relies on
+`custom-themes` instead.

@@ -36,6 +36,9 @@ from registry_tools.submission import accepted_tags, validate_submission
 
 from registry_testing import EXAMPLES_DIR, REPO_ROOT, ScratchRegistry
 
+#: The tag the seeder expects for the first-party theme: ``<id>-<version>`` from its manifest.
+RIMURU_TAG = "rimuru-branding-" + json.loads((REPO_ROOT / "mods" / "rimuru-branding" / "floofy.json").read_text(encoding="utf-8"))["version"]
+
 pytestmark = pytest.mark.registry
 
 GIT_ENV = {"GIT_AUTHOR_NAME": "tests", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "tests", "GIT_COMMITTER_EMAIL": "t@example.invalid", "PATH": "/usr/bin:/bin:/usr/local/bin"}
@@ -225,13 +228,13 @@ def test_check_record_reports_every_kind_of_drift(tmp_path: Path, monkeypatch: p
 
 
 def test_bootstrap_seeds_a_link_record_from_a_local_tag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # a repository shaped like the FloofyCrew package: mods/rimuru-branding at the tag rimuru-branding-1.0.0
+    # a repository shaped like the FloofyCrew package: mods/rimuru-branding at the tag <id>-<version> (RIMURU_TAG)
     work = tmp_path / "floofycrew-package"
     shutil.copytree(REPO_ROOT / "mods" / "rimuru-branding", work / "mods" / "rimuru-branding")
     _git("init", "-q", "-b", "mainline", cwd=work)
     _git("add", "-A", cwd=work)
     _git("commit", "-q", "-m", "ship the mod source", cwd=work)
-    _git("tag", "rimuru-branding-1.0.0", cwd=work)
+    _git("tag", RIMURU_TAG, cwd=work)
     commit = _git("rev-parse", "HEAD", cwd=work)
     bare = tmp_path / "FloofyCrew.git"
     _git("clone", "-q", "--bare", str(work), str(bare), cwd=tmp_path)
@@ -251,10 +254,10 @@ def test_bootstrap_seeds_a_link_record_from_a_local_tag(tmp_path: Path, monkeypa
     shutil.rmtree(target, ignore_errors=True)
     summary = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel="beta", verdict="tested", link_source=work)
     seed = summary["seeded"][0]
-    assert summary["recordKind"] == "link" and seed["record"] == "link" and seed["commit"] == commit and seed["tag"] == "rimuru-branding-1.0.0"
+    assert summary["recordKind"] == "link" and seed["record"] == "link" and seed["commit"] == commit and seed["tag"] == RIMURU_TAG
     assert not (target / "archives").exists(), "a link record carries no archive"
-    release = json.loads((target / "mods" / "rimuru-branding" / "1.0.0" / "release.json").read_text(encoding="utf-8"))
-    assert release["link"] == {"repo": package_url, "tag": "rimuru-branding-1.0.0", "commit": commit, "manifestSha256": seed["manifestSha256"], "path": "mods/rimuru-branding"}
+    release = json.loads((target / "mods" / "rimuru-branding" / RIMURU_TAG.rsplit("-", 1)[1] / "release.json").read_text(encoding="utf-8"))
+    assert release["link"] == {"repo": package_url, "tag": RIMURU_TAG, "commit": commit, "manifestSha256": seed["manifestSha256"], "path": "mods/rimuru-branding"}
     manifest = json.loads((REPO_ROOT / "mods" / "rimuru-branding" / "floofy.json").read_text(encoding="utf-8"))
     listed = {f["path"]: f["sha256"] for f in manifest["files"]}
     recorded = {f["path"]: f["sha256"] for f in release["files"]}
@@ -265,7 +268,7 @@ def test_bootstrap_seeds_a_link_record_from_a_local_tag(tmp_path: Path, monkeypa
     assert json.loads((target / "registry.json").read_text(encoding="utf-8"))["recordKind"] == "link"
     assert "link-based" in (target / "README.md").read_text(encoding="utf-8")
     # the gate the internal package runs: clone at the tag, compare
-    assert validate_submission(None, registry=target, record="rimuru-branding@1.0.0").ok
+    assert validate_submission(None, registry=target, record=f"rimuru-branding@{RIMURU_TAG.rsplit('-', 1)[1]}").ok
     # re-rendering over the populated clone is refused without --replace and idempotent with it
     with pytest.raises(BootstrapError, match="--replace"):
         init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version=None, channel=None, link_source=work)
@@ -275,8 +278,8 @@ def test_bootstrap_seeds_a_link_record_from_a_local_tag(tmp_path: Path, monkeypa
     (work / "mods" / "rimuru-branding" / "floofy.json").write_text(json.dumps({**manifest, "description": "drifted"}, indent=2) + "\n", encoding="utf-8")
     _git("add", "-A", cwd=work)
     _git("commit", "-q", "-m", "drift", cwd=work)
-    _git("tag", "-f", "rimuru-branding-1.0.0", cwd=work)
+    _git("tag", "-f", RIMURU_TAG, cwd=work)
     with pytest.raises(BootstrapError, match="differs from the seed"):
         init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version=None, channel=None, link_source=work, replace=True)
-    facts = facts_from_local_tag(work, "rimuru-branding-1.0.0", "mods/rimuru-branding")
+    facts = facts_from_local_tag(work, RIMURU_TAG, "mods/rimuru-branding")
     assert facts.manifest_sha256 != seed["manifestSha256"]

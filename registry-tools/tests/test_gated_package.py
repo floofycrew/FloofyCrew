@@ -25,6 +25,9 @@ from registry_tools.readme import MARK_BEGIN, MARK_END, readme_matches, render_t
 from registry_tools.repo import RegistryRepo
 
 from registry_testing import REPO_ROOT
+
+#: The tag the seeder expects for the first-party theme: ``<id>-<version>`` from its manifest.
+RIMURU_TAG = "rimuru-branding-" + json.loads((REPO_ROOT / "mods" / "rimuru-branding" / "floofy.json").read_text(encoding="utf-8"))["version"]
 from test_link_records import _git, point_forge_at
 
 pytestmark = pytest.mark.registry
@@ -50,7 +53,7 @@ def rendered(tmp_path_factory: pytest.TempPathFactory):
     _git("init", "-q", "-b", "mainline", cwd=work)
     _git("add", "-A", cwd=work)
     _git("commit", "-q", "-m", "ship the mod source", cwd=work)
-    _git("tag", "rimuru-branding-1.0.0", cwd=work)
+    _git("tag", RIMURU_TAG, cwd=work)
     bare = tmp_path / "forge.git"
     _git("clone", "-q", "--bare", str(work), str(bare), cwd=tmp_path)
     git_env = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.{bare.as_uri()}.insteadOf", "GIT_CONFIG_VALUE_0": str(config["floofycrewRepo"])}
@@ -114,7 +117,7 @@ def test_the_rendered_package_has_the_documented_layout(rendered):
     assert reserved["leadingToken"] == sorted(set(reserved["leadingToken"])) and "floofycrew" in reserved["leadingToken"] and reserved["exactOnly"] == sorted(set(reserved["exactOnly"]))
     # the README table is generated and in sync
     readme = (target / "README.md").read_text(encoding="utf-8")
-    assert MARK_BEGIN in readme and MARK_END in readme and "| `rimuru-branding` — Rimuru branding | 1.0.0 | link:" in readme
+    assert MARK_BEGIN in readme and MARK_END in readme and f"| `rimuru-branding` — Rimuru branding | {RIMURU_TAG.rsplit('-', 1)[1]} | link:" in readme
     assert readme_matches(RegistryRepo.load(target))[0]
 
 
@@ -133,7 +136,7 @@ def test_the_rendered_gate_passes_in_a_fresh_interpreter_and_rejects_a_bad_recor
     assert offline.returncode == 0 and "clone step skipped" in offline.stdout
     broken = tmp_path / "broken"
     shutil.copytree(target, broken, ignore=shutil.ignore_patterns(".git", "__pycache__"))
-    release_path = broken / "mods" / "rimuru-branding" / "1.0.0" / "release.json"
+    release_path = broken / "mods" / "rimuru-branding" / RIMURU_TAG.rsplit("-", 1)[1] / "release.json"
     release = json.loads(release_path.read_text(encoding="utf-8"))
     release["link"]["repo"] = "ssh://git.example.evil/pkg/FloofyCrew"
     release_path.write_text(json.dumps(release), encoding="utf-8")

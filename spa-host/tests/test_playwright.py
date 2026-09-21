@@ -40,7 +40,7 @@ import pytest
 from floofy_loader.paths import FloofyPaths
 
 from loader_testing import REPO_ROOT, ScratchGateway, ShellGuard, build_loader_app, fresh_scratch, scratch_payload, shell_path
-from spa_testing import API, RIMURU_DIR, consent, dashboard_url, install_loader_app, install_mod, write_test_mod
+from spa_testing import API, CUSTOM_THEMES_DIR, RIMURU_DIR, consent, dashboard_url, install_loader_app, install_mod, write_test_mod
 
 pytest.importorskip("playwright.sync_api")
 pytestmark = pytest.mark.skipif(scratch_payload() is None, reason="no payload copy under .scratch (set FLOOFY_SCRATCH_PAYLOAD)")
@@ -49,7 +49,12 @@ SHOTS = REPO_ROOT / ".scratch" / "loader-tests" / "playwright"
 RIMURU_VARIABLES = json.loads((RIMURU_DIR / "theme" / "variables.json").read_text(encoding="utf-8"))
 
 PROBE_INIT = """
-window.__probe = {};
+window.__probe = { bootNode: null };
+new MutationObserver((records) => {
+  for (const record of records) for (const node of record.addedNodes) {
+    if (node.nodeType === 1 && node.id === 'floofy-custom-themes-boot' && !window.__probe.bootNode) window.__probe.bootNode = node.tagName;
+  }
+}).observe(document, { childList: true, subtree: true });
 document.addEventListener('DOMContentLoaded', () => {
   const cs = getComputedStyle(document.documentElement);
   const root = document.getElementById('root');
@@ -118,7 +123,8 @@ def harness():
     gw = ScratchGateway(payload, scratch, extra_env={"FLOOFY_ALLOW_LOCAL_GIT": "1"})
     guard = ShellGuard(payload, gw.data_home)
     FloofyPaths(gw.data_home).ensure()
-    install_mod(gw, RIMURU_DIR)
+    install_mod(gw, CUSTOM_THEMES_DIR)  # the first-frame sheet + the reset guard every custom theme needs
+    install_mod(gw, RIMURU_DIR)  # a pure theme pack on top of it (2.0.0)
     write_test_mod(gw, "spa-import-fail", {"spa/main.js": 'import "./missing.js";\nwindow.__importFail = 1;\n'}, [{"kind": "spa", "side": "spa", "path": "spa/main.js"}])
     write_test_mod(gw, "spa-activate-fail", {"spa/main.js": 'export function activate(ctx) {\n  ctx.log.info("about to explode");\n  throw new Error("activate exploded on purpose");\n}\nexport function deactivate() { window.__activateFailDeactivated = 1; }\n'}, [{"kind": "spa", "side": "spa", "path": "spa/main.js"}])
     write_test_mod(
@@ -146,36 +152,60 @@ def harness():
 
 
 def test_1_no_first_frame_flash(harness: Harness):
+    """The Rimuru pack paints on the first frame through custom-themes. A COLD client (empty storage) gets the boot
+    hook's render-blocking link to the sheet the hook keeps for every installed custom theme: the palette is in force
+    by DOMContentLoaded. A WARM client (the runtime part cached the compiled sheet) gets it inlined before anything
+    else in <head>, so even the very first animation frame carries the pack's colours. Then the runtime part's own
+    <style> takes over and drops the boot element."""
     dark = RIMURU_VARIABLES["dark"]
     context, page = harness.page(init=PROBE_INIT)
     try:
+        # cold
         page.goto(dashboard_url(harness.gw), wait_until="domcontentloaded", timeout=60000)
         page.screenshot(path=str(SHOTS / "first-frame-domcontentloaded.png"))
         page.wait_for_selector('[data-testid="dashboard-shell"]', timeout=60000)
         page.wait_for_function("() => document.getElementById('mc-custom-theme-rimuru') !== null", timeout=30000)
+        page.wait_for_function("() => (document.getElementById('floofy-custom-themes') || {}).textContent", timeout=30000)
         page.wait_for_timeout(500)
         page.screenshot(path=str(SHOTS / "first-frame-hydrated.png"))
         probe = page.evaluate("() => window.__probe")
         early = probe["atDomContentLoaded"]
         assert early["rootChildren"] == 0, "React had not mounted yet at DOMContentLoaded"
         assert early["theme"] == "custom-rimuru-dark" and early["bg"] == dark["--bg"] and early["accent"] == dark["--accent"], early
-        assert "/apps/floofycrew/ui/boot/rimuru-branding/favicon.png" in early["favicon"] and "boot/rimuru-branding/logo.png" in early["logo"]
-        assert probe["firstFrame"] == {"theme": "custom-rimuru-dark", "bg": dark["--bg"]}
+        assert probe["bootNode"] == "LINK", "a cold client is served the render-blocking link"
+        assert probe["firstFrame"]["theme"] == "custom-rimuru-dark"
         after = page.evaluate(
             """() => ({
               theme: document.documentElement.getAttribute('data-theme'),
               bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
               hostCss: document.getElementById('mc-custom-theme-rimuru').textContent,
+              modCss: document.getElementById('floofy-custom-themes').textContent,
+              bootNode: document.getElementById('floofy-custom-themes-boot') !== null,
+              cached: localStorage.getItem('floofy-custom-themes-css:rimuru'),
               boot: window.__floofyBoot,
               favicons: [...document.querySelectorAll('link[rel="icon"]')].map((l) => l.id),
               logo: document.querySelector('nav[role="navigation"] button[aria-expanded] img')?.getAttribute('src'),
             })"""
         )
         assert after["theme"] == "custom-rimuru-dark" and after["bg"] == dark["--bg"]
-        assert after["hostCss"].strip() == (RIMURU_DIR / "spa" / "boot.css").read_text(encoding="utf-8").strip(), "the baked CSS is byte-identical to the host's runtime stylesheet"
-        assert after["boot"]["applied"] == ["rimuru-branding"] and after["boot"]["settled"] is True and after["boot"]["errors"] == []
-        assert "mc-theme-favicon" in after["favicons"] and "floofy-boot-favicon-rimuru-branding" not in after["favicons"], "the boot favicon yields to the host's once it lands"
+        assert after["boot"]["applied"] == ["custom-themes"] and after["boot"]["settled"] is True and after["boot"]["errors"] == []
+        assert after["hostCss"].strip().replace('[data-theme="custom-rimuru-', 'html[data-theme="custom-rimuru-') in after["modCss"], "the mod's compiled sheet carries the host's own generated palette CSS (values byte for byte, one type selector more)"
+        assert after["bootNode"] is False, "the runtime part drops the boot element once its <style> holds the same rules"
+        assert after["cached"] == after["modCss"], "the compiled sheet is cached for the next load of this client"
+        assert "mc-theme-favicon" in after["favicons"]
         assert after["logo"] == "/api/theme/rimuru/assets/branding/logo.png"
+        sheet = harness.gw.client().get("/apps/floofycrew/ui/boot/custom-themes/themes.css")
+        assert sheet.status == 200 and 'html[data-theme="custom-rimuru-dark"]{' in sheet.body.decode("utf-8"), "the first-frame sheet is served by the Loader app's ui route"
+
+        # warm: the same client again
+        page.goto(dashboard_url(harness.gw), wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_selector('[data-testid="dashboard-shell"]', timeout=60000)
+        page.wait_for_function("() => (document.getElementById('floofy-custom-themes') || {}).textContent", timeout=30000)
+        probe = page.evaluate("() => window.__probe")
+        assert probe["bootNode"] == "STYLE", "a warm client gets the cached sheet inlined"
+        assert probe["atDomContentLoaded"]["bg"] == dark["--bg"]
+        assert probe["firstFrame"] == {"theme": "custom-rimuru-dark", "bg": dark["--bg"]}, "not even the first animation frame shows the stock colours"
+        assert page.evaluate("() => document.getElementById('floofy-custom-themes-boot') === null")
     finally:
         context.close()
 
@@ -204,7 +234,7 @@ def test_2_boundary_isolation(harness: Harness):
               mods: window.floofy.mods.map((m) => [m.id, m.active]),
             })"""
         )
-        assert seen["loaded"] == ["spa-healthy"] and sorted(seen["faulted"]) == ["spa-activate-fail", "spa-import-fail"]
+        assert sorted(seen["loaded"]) == ["custom-themes", "spa-healthy"] and sorted(seen["faulted"]) == ["spa-activate-fail", "spa-import-fail"]
         assert seen["badge"] == "modded 0.7.0.5" and seen["importFail"] is None and seen["deactivated"] == 1
         assert seen["shell"] is True, "the host UI is unaffected"
         assert set(seen["healthySawFaults"]) <= {"spa-activate-fail", "spa-import-fail"} and seen["healthySawFaults"], "the healthy mod's scoped bus saw the faults raised after it subscribed"
@@ -245,7 +275,7 @@ def test_3_reporter_flags_a_broken_fingerprint(harness: Harness):
         assert report["spaFingerprints"]["total"] >= 24 and report["spaFingerprints"]["missed"] == sorted(missed) or set(report["spaFingerprints"]["missed"]) == set(missed)
         assert all(not n.startswith("test.") for n in report["matched"] if "impossible" in n)
         # the patch rows of the two import-map patches are matched too
-        assert "patch:rimuru-branding#2#importMap" in report["matched"] and "patch:spa-remap#0#ops/0" in report["matched"]
+        assert "patch:custom-themes#4#importMap" in report["matched"] and "patch:spa-remap#0#ops/0" in report["matched"]
     finally:
         context.close()
 
@@ -281,7 +311,7 @@ def test_4_import_map_remap_is_what_the_host_evaluates(harness: Harness):
         )
         assert seen["remapped"] == 1, "the host's own importers evaluated the patched copy"
         assert seen["applied"] is True and seen["original"] is True
-        assert sorted(seen["rows"]) == [["useIsMobile", "spa-remap", True], ["useTheme", "rimuru-branding", True]]
+        assert sorted(seen["rows"]) == [["useIsMobile", "spa-remap", True], ["useTheme", "custom-themes", True]]
     finally:
         context.close()
     original = harness.gw.payload / "lib" / "python3.12" / "site-packages" / "kiro_crew" / "static" / "dist" / "assets"
@@ -304,7 +334,9 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         assert "UNOFFICIAL" in banner and "not affiliated" in banner, banner
         page.wait_for_selector('[data-testid="floofycrew-mod-row-rimuru-branding"]', timeout=30000)
         row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
-        assert "rimuru-branding 1.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" in row, row
+        assert "rimuru-branding 2.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" not in row, row
+        themes_row = page.inner_text('[data-testid="floofycrew-mod-row-custom-themes"]')
+        assert "custom-themes 1.0.0" in themes_row and "active" in themes_row and "modifies payload files" in themes_row, themes_row
         assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
         assert page.inner_text('[data-testid="floofycrew-tier-rimuru-branding"]') == "tier: unlisted", "copied in without a registry record: the source tier badge says so (Requirement 8.11)"
         assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')
@@ -526,7 +558,7 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         page.wait_for_selector('[data-testid="floofycrew-unsigned-accept"]', timeout=60000)
         page.click('[data-testid="floofycrew-unsigned-accept"]')
         page.wait_for_selector('[data-testid="floofycrew-source-loopdemo"]', timeout=60000)
-        assert "UNSIGNED INDEXES ACCEPTED" in page.inner_text('[data-testid="floofycrew-source-loopdemo"]')
+        assert "unsigned indexes accepted" in page.inner_text('[data-testid="floofycrew-source-loopdemo"]').lower()
         ops = [r["op"] for r in _audit_rows(harness)[rows_before:]]
         assert ops == ["registry-add", "registry-trust-loosened"], ops
         assert client.request("DELETE", f"{API}/registries/loopdemo").status == 200
@@ -837,6 +869,7 @@ def test_6_manager_app_smoke(harness: Harness):
             removed = client.post(f"{API}/mods/settings-demo/uninstall", {"now": True, "confirmations": {"yes": True}})
             assert removed.status == 200, removed.body[:300]
         client.request("DELETE", f"{API}/registries/local")
+
 
 
 def test_7_ui_polish_and_the_restart_button(harness: Harness):

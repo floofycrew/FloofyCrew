@@ -4,10 +4,12 @@
 Requirement 10.3: *the same mod archive SHALL install on both editions when its
 manifest allows both*. This script proves it end to end without a live host:
 
-1. builds every first-party mod — ``mods/rimuru-branding`` (``theme`` + ``spa``
-   boot + ``patch`` parts) and ``mods/settings-demo`` (a ``ui`` settings page +
-   a ``python-hook`` backend route; task 11.6), both with ``kirocrew.editions``
-   internal **and** external — into one deterministic archive each: the bytes
+1. builds every first-party mod — ``mods/custom-themes`` (a ``ui`` editor, a
+   ``python-hook`` backend, ``spa`` runtime + boot parts and the theme-reset
+   ``patch``), ``mods/rimuru-branding`` (a pure ``theme`` part depending on it)
+   and ``mods/settings-demo`` (a ``ui`` settings page + a ``python-hook``
+   backend route; task 11.6), all with ``kirocrew.editions`` internal **and**
+   external — into one deterministic archive each: the bytes
    both editions receive;
 2. for each edition lays out a scratch **payload** (a venv-shaped host with a
    ``static/dist`` copied from a fixture or from a payload copy — never a live
@@ -19,7 +21,7 @@ manifest allows both*. This script proves it end to end without a live host:
    record; no Loader app, no trigger), then per mod ``floofy validate <archive>``,
    ``floofy --yes install <archive> --now``, ``floofy enable <id>``;
 4. runs the Loader's ``boot()`` in-process against the same payload and asserts
-   every mod is **active** there: the Patcher ran for ``rimuru-branding`` (the
+   every mod is **active** there: the Patcher ran for ``custom-themes`` (the
    ``spa`` boot part is baked into the payload's ``index.html``; the ``patch``
    part applies when the fixture carries the real chunk and is *skipped with a
    diagnostic* when it holds the trimmed stub — a skip is Requirement 5.5's
@@ -57,8 +59,8 @@ for entry in ("floofy-core", "loader-app", "registry-tools"):
 
 from registry_tools.bootstrap import deterministic_zip  # noqa: E402
 
-#: The first-party mods, in install order (``rimuru-branding`` first: it is the one with payload-touching parts).
-DEFAULT_MODS: tuple[Path, ...] = (REPO_ROOT / "mods" / "rimuru-branding", REPO_ROOT / "mods" / "settings-demo")
+#: The first-party mods, in install order (``custom-themes`` first: the one with payload-touching parts, and ``rimuru-branding`` depends on it).
+DEFAULT_MODS: tuple[Path, ...] = (REPO_ROOT / "mods" / "custom-themes", REPO_ROOT / "mods" / "rimuru-branding", REPO_ROOT / "mods" / "settings-demo")
 DEFAULT_MOD = DEFAULT_MODS[0]
 FIXTURE_DIST = REPO_ROOT / "floofy-core" / "tests" / "fixtures" / "dist-0.7.0.5"
 PAYLOAD_COPY_DIST = REPO_ROOT / ".scratch" / "payload-0.7.0.5" / "lib" / "python3.12" / "site-packages" / "kiro_crew" / "static" / "dist"
@@ -151,10 +153,16 @@ def _boot_in_process(host_home: Path, package_dir: Path, payload_root: Path, mod
             continue
         calls = []
         for route in routes:
-            if route["method"] != "GET":
+            # only the parameter-free GET routes can be probed blind; a JSON reply must be non-empty, any other
+            # content type (custom-themes answers text/css) only has to be a 200 with a body
+            if route["method"] != "GET" or "{" in route["path"]:
                 continue
-            status, _headers, body = registry.dispatch_sync(mod_id, "GET", route["path"])
-            calls.append({"route": f"GET {route['path']}", "status": status, "ok": status == 200 and bool(json.loads(body or b"null"))})
+            status, headers, body = registry.dispatch_sync(mod_id, "GET", route["path"])
+            if headers.get("Content-Type", "").startswith("application/json"):
+                ok = status == 200 and bool(json.loads(body or b"null"))
+            else:
+                ok = status == 200 and bool(body)
+            calls.append({"route": f"GET {route['path']}", "status": status, "ok": ok})
         probes[mod_id] = {"routes": routes, "calls": calls}
     deactivate_all(result, deps)
     return state, probes
