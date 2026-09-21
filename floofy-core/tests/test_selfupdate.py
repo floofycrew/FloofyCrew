@@ -120,9 +120,10 @@ class FakeRelease:
 class FakeReleaseServer:
     """Loopback HTTP serving a :class:`FakeRelease` as GitHub releases (``/gh/…``) and as a package's raw blobs (``/pkg/…``)."""
 
-    def __init__(self, release: FakeRelease, *, fail_with: int | None = None):
+    def __init__(self, release: FakeRelease, *, fail_with: int | None = None, tag_pushed: bool = True):
         self.release = release
         self.fail_with = fail_with
+        self.tag_pushed = tag_pushed  # package shape: the assets live at the release tag; False = the tag is not on the remote yet
         self.requests: list[dict[str, Any]] = []
         self._server: ThreadingHTTPServer | None = None
 
@@ -155,6 +156,8 @@ class FakeReleaseServer:
                 if path == "/pkg/mainline/RELEASE.md" and query == "raw=1":
                     return self._send(200, release.internal_notes.encode(), "text/plain")
                 if path.startswith(f"/pkg/{release.tag}/dist/") and query == "raw=1":
+                    if not server.tag_pushed:
+                        return self._send(404, b"not found", "text/plain")  # the package commit is on mainline, the tag is not pushed yet
                     name = path.rsplit("/", 1)[1]
                     if name == "SHA256SUMS":
                         return self._send(200, release.internal_sums_text.encode(), "text/plain")
@@ -679,6 +682,25 @@ def test_apply_installs_a_staged_loader_app_only_when_no_gateway_runs(cli, tmp_p
     assert rows[-1]["phase"] == "loader-app" and rows[-1]["result"] == "ok"
     third = cli.run("--kirocrew", str(launcher), "apply", "--no-verify")
     assert "selfUpdateLoaderApp" not in third.json, "an applied stage is not applied twice"
+
+
+def test_a_published_release_whose_tag_is_not_pushed_yet_fails_cleanly_before_any_change(cli, tmp_path: Path) -> None:
+    """Seen on the test box for 1.1.4: the package's RELEASE.md on mainline named the release, but the assets are raw
+    blobs at the tag ``v<version>`` and the tag had not been pushed, so SHA256SUMS 404'd — as an uncaught traceback.
+    Nothing had changed (SHA256SUMS is fetched first); the CLI now says exactly that and what is missing."""
+    release = FakeRelease(newer())
+    target, pending = scratch_prefix(tmp_path)
+    before = target.read_bytes()
+    with FakeReleaseServer(release, tag_pushed=False) as server:
+        cli.feed(server, shape="notes")
+        result = cli.run("--yes", "self-update", "--target", str(target))
+        assert result.exit != 0
+        assert "Traceback" not in result.stderr
+        assert "could not fetch the release assets" in result.stderr and "HTTP 404" in result.stderr
+        assert f"tag {release.tag}, which does not exist yet" in result.stderr and "nothing was changed" in result.stderr
+        assert target.read_bytes() == before and read_stage(cli.paths.pending) is None, "no swap, no stage"
+        rows = [r for r in read_audit(cli.paths.audit) if r["op"] == "self-update"]
+        assert rows[-1]["result"] == "unavailable" and rows[-1]["version"] == release.version
 
 
 def test_self_update_now_installs_a_stage_left_by_an_earlier_run_when_the_zipapp_is_already_current(cli, tmp_path: Path) -> None:

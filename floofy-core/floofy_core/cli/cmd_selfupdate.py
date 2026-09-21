@@ -30,7 +30,7 @@ from typing import Any
 from .. import __version__ as FRAMEWORK_VERSION
 from ..deploy import utc_now
 from ..loaderapp import installed_meta
-from ..selfupdate import CACHE_NAME, Release, ReleaseFeed, SelfUpdateError, StagePlan, UpdateCheck, check, download_release, is_newer, read_stage, swap, write_stage
+from ..selfupdate import CACHE_NAME, FeedError, Release, ReleaseFeed, SelfUpdateError, StagePlan, UpdateCheck, check, download_release, is_newer, read_stage, swap, write_stage
 from ..settings import KNOWN_SETTINGS, SettingsError
 from . import cmd_init
 from .context import CliContext, CliError, _running_from_zipapp
@@ -176,6 +176,16 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
     except SelfUpdateError as exc:
         ctx.audit.record("self-update", result="refused", version=release.version, detail=str(exc))
         raise CliError(f"self-update refused: {exc}") from exc
+    except FeedError as exc:
+        # The feed named the release but an asset could not be fetched: nothing was swapped or staged
+        # (SHA256SUMS is read first). On the internal edition the feed is RELEASE.md on mainline while
+        # the assets are raw blobs at the tag `v<version>`, so a release whose package commit is
+        # pushed but not yet tagged shows up exactly like this (seen on the test box for 1.1.4):
+        # a 404 at the tag URL. Say so instead of a traceback.
+        ctx.audit.record("self-update", result="unavailable", version=release.version, detail=str(exc))
+        tag_missing = "HTTP 404" in str(exc) and bool(release.tag) and f"/{release.tag}/" in str(exc)
+        hint = f" — the feed already names {release.version} but the assets are read at the tag {release.tag}, which does not exist yet: the publisher still has to push that tag; try again later" if tag_missing else ""
+        raise CliError(f"self-update could not fetch the release assets: {exc}{hint}; nothing was changed") from exc
     # everything below runs on modules imported before the swap: after os.replace the zipapp on disk is the new release
     swapped = swap(plan)
     stage = write_stage(plan, version=release.version, archive=Path(downloaded["loaderApp"]["path"]), sha256=downloaded["loaderApp"]["sha256"], by=ctx.actor)

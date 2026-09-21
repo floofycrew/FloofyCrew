@@ -11,6 +11,22 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- `floofy self-update` died with a traceback when the feed named a release whose
+  assets could not be fetched (seen for 1.1.4 on the internal edition: `RELEASE.md`
+  on `mainline` already said 1.1.4, but the assets are raw blobs at the tag
+  `v1.1.4`, which had not been pushed, so `SHA256SUMS` was a 404). Nothing had
+  changed — `SHA256SUMS` is fetched before any download — and the command now says
+  so, names the missing tag when the 404 is at the tag URL, and records an
+  `unavailable` audit row instead of crashing.
+
+### Changed
+
+- The internal release recipe (task 10.11, `tools/install-test-box.sh` readiness
+  gate, BLOCKERS 11.7) treats the package tag `v<version>` as part of the release:
+  a package commit on `mainline` without it is not released yet.
+
 ## 1.1.4 — 2026-09-21
 
 A patch on 1.1.3 with three fixes found while updating the test box from 1.1.2 to
