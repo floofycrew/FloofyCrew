@@ -19,9 +19,10 @@ action in :data:`ACTIONS`, that parsing its ``argv`` yields that handler.
 Confirmations keep their grade (Requirement 11.1, 11.4, 15.3):
 
 * ordinary yes/no → a two-item menu (``Console.confirm_fn``);
-* the one-time consent → the same full-screen ``[ I AGREE ]`` frame as
-  :mod:`floofy_core.cli.consent_screen`, drawn in curses (``Console.consent_fn``),
-  recorded ``how="screen"`` by the same ``init`` step;
+* the one-time consent → the very frame of :mod:`floofy_core.cli.consent_screen`
+  (its :func:`~floofy_core.cli.consent_screen.present` loop on the interface's
+  own terminal; ``Console.consent_fn``), recorded ``how="screen"`` by the same
+  ``init`` step;
 * a governance-altering target → a **text field** that must contain the exact
   path (``Console.typed_fn``) — never a button, never a menu;
 * an unlisted source → the disclosure text and an explicit accept item that
@@ -29,18 +30,24 @@ Confirmations keep their grade (Requirement 11.1, 11.4, 15.3):
 * ``--allow-unsigned`` on a registry source → the same loosening warning and an
   explicit confirm item.
 
-Standard library only (``curses``). When curses cannot start — no terminal,
-``TERM`` unset or ``dumb``, no terminfo, ``initscr`` failing — :func:`launch`
-returns ``None`` and ``floofy`` prints its usage plus a one-line hint, exactly
-as the plain subcommands would (Requirement 15.6, 14.2).
+Standard library only, and **no curses** (Requirement 15.6): the screens are
+drawn on :class:`floofy_core.cli.term.Terminal` — the ``termios``/ANSI/``select``
+driver the consent screen uses — so the interface runs on an interpreter built
+without ``_curses`` (the Python bundled with the host) and with ``TERM``
+unset, whenever stdin and stdout are terminals. :func:`launch` returns ``None``
+only when there is no such terminal or ``TERM`` is ``dumb``; ``floofy`` then
+prints its usage plus a one-line hint, exactly as the plain subcommands would
+(Requirement 15.6, 14.2). Colours come from the detected
+:class:`~floofy_core.cli.style.Style`, so ``NO_COLOR`` and ``--no-color`` apply
+here as everywhere.
 """
 from __future__ import annotations
 
 import argparse
 import io
-import os
+import sys
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -50,12 +57,13 @@ from . import cmd_doctor, cmd_init, cmd_mods, cmd_profile, cmd_registry, cmd_sel
 from .cmd_doctor import loader_state
 from .console import Console
 from .context import CliContext, build_context
-from .style import Style, cube_index, strip_ansi
+from .style import Style
+from .term import Canvas, Terminal, TerminalUnavailable, is_dumb
 
-__all__ = ["ACTIONS", "Action", "TuiApp", "action", "global_argv", "host_summary", "launch", "run_action"]
+__all__ = ["ACTIONS", "Action", "FALLBACK_HINT", "TuiApp", "action", "global_argv", "host_summary", "launch", "run_action"]
 
-#: What the fallback prints under the usage when curses cannot start (Requirement 15.6).
-FALLBACK_HINT = "floofy: the interactive mode needs a terminal curses can drive (TERM is unset or dumb, or curses could not start here); the subcommands above work everywhere."
+#: What the fallback prints under the usage when the interface cannot open (Requirement 15.6).
+FALLBACK_HINT = "floofy: the interactive mode needs a terminal (stdin and stdout TTYs; not TERM=dumb); the subcommands above work everywhere."
 #: The explicit accept item of the unlisted-source disclosure: it supplies the phrase the CLI would have you type.
 UNLISTED_ACCEPT_ITEM = f"{ACCEPT_PHRASE} — install from this unlisted source anyway"
 
@@ -215,70 +223,43 @@ def host_summary(ctx: CliContext) -> list[tuple[str, str]]:
     return rows
 
 
-# --- the curses application ---------------------------------------------------------------------------------------
+# --- the terminal application --------------------------------------------------------------------------------------
 
 
 def launch(args: argparse.Namespace, console: Console) -> int | None:
-    """Open the interface; ``None`` when curses cannot start here (the caller prints the usage)."""
-    if not console.screen_available:
+    """Open the interface; ``None`` only without a terminal on stdin and stdout, or under ``TERM=dumb`` (the caller prints the usage)."""
+    if not console.screen_available or is_dumb():
         return None
-    term = (os.environ.get("TERM") or "").strip().lower()
-    if not term or term == "dumb":
+    terminal = Terminal(sys.stdin, console.out)
+    try:
+        terminal.enter()
+    except TerminalUnavailable:
         return None
     try:
-        import curses  # noqa: PLC0415
-    except ImportError:
-        return None
-    try:
-        screen = curses.initscr()
-    except Exception:  # noqa: BLE001 - curses.error, or a terminfo problem: fall back to the usage
-        return None
-    try:
-        curses.noecho()
-        curses.cbreak()
-        screen.keypad(True)
-        try:
-            curses.set_escdelay(25)
-        except AttributeError:  # pragma: no cover - Python < 3.9
-            pass
-        app = TuiApp(screen, args, console)
-        return app.run()
-    except KeyboardInterrupt:
+        return TuiApp(terminal, args, console).run()
+    except (KeyboardInterrupt, EOFError):
         return 130
     finally:
-        try:
-            screen.keypad(False)
-            curses.echo()
-            curses.nocbreak()
-            curses.endwin()
-        except Exception:  # noqa: BLE001
-            pass
-
-
-@dataclass
-class Palette:
-    """curses attributes for the semantic tones, and colour pairs for the banner."""
-
-    tones: dict[str, int] = field(default_factory=dict)
-    banner_pairs: dict[tuple[int, int, int], int] = field(default_factory=dict)
-    banner_mode: str = "off"  # off | single | cube
-
-    def attr(self, tone: str) -> int:
-        return self.tones.get(tone, 0)
+        terminal.leave()
 
 
 class TuiApp:
-    """The screens; every mutation goes through :func:`run_action`."""
+    """The screens; every mutation goes through :func:`run_action`.
 
-    def __init__(self, screen: Any, args: argparse.Namespace, console: Console):
-        import curses  # noqa: PLC0415
+    Drawing: each widget composes a fresh :class:`Canvas` per frame with the
+    palette tones of the console's :class:`Style` and hands it to
+    :meth:`Terminal.paint`, which rewrites only the rows that changed. Keys come
+    from :meth:`Terminal.read_key` (names for the special keys, characters as
+    themselves); ``None``/``"resize"`` redraws, Ctrl-C leaves the interface with
+    exit 130 and EOF on stdin does the same.
+    """
 
-        self.curses = curses
-        self.screen = screen
+    def __init__(self, terminal: Terminal, args: argparse.Namespace, console: Console):
+        self.term = terminal
         self.args = args
         self.prefix = global_argv(args)
-        self.plain = console
-        self.palette = self._colours()
+        self.style: Style = console.styling
+        self.canvas = Canvas(*terminal.size())
         self.ctx = self._context()
 
     # -- infrastructure --------------------------------------------------------------------------
@@ -290,103 +271,76 @@ class TuiApp:
         """The console an action runs with: captured, plain, with the interface's controls plugged in."""
         return Console(out=io.StringIO(), err=io.StringIO(), non_interactive=False, style=Style.off(), consent_fn=self.consent_screen, confirm_fn=self.confirm, typed_fn=self.typed_field)
 
-    def _colours(self) -> Palette:
-        curses = self.curses
-        palette = Palette()
-        try:
-            curses.start_color()
-            curses.use_default_colors()
-        except curses.error:
-            return palette
-        if not curses.has_colors():
-            return palette
-        pairs = {"heading": curses.COLOR_YELLOW, "ok": curses.COLOR_GREEN, "warn": curses.COLOR_YELLOW, "danger": curses.COLOR_RED, "accent": curses.COLOR_MAGENTA}
-        number = 1
-        for tone, colour in pairs.items():
-            try:
-                curses.init_pair(number, colour, -1)
-                palette.tones[tone] = curses.color_pair(number) | (curses.A_BOLD if tone in ("heading", "danger") else 0)
-            except curses.error:
-                break
-            number += 1
-        palette.tones["muted"] = curses.A_DIM
-        palette.tones["bold"] = curses.A_BOLD
-        from .banner import load  # noqa: PLC0415
-
-        art = load()
-        if curses.COLORS >= 256 and curses.COLOR_PAIRS > number + len(art.colours):
-            for rgb in sorted(art.colours):
-                try:
-                    curses.init_pair(number, cube_index(*rgb), -1)
-                except curses.error:
-                    palette.banner_pairs.clear()
-                    break
-                palette.banner_pairs[rgb] = curses.color_pair(number)
-                number += 1
-            palette.banner_mode = "cube" if palette.banner_pairs else "single"
-        else:
-            palette.banner_mode = "single"
-        return palette
-
     def size(self) -> tuple[int, int]:
-        rows, columns = self.screen.getmaxyx()
+        """``(rows, columns)`` — the order the screens were written in (the driver says ``(columns, rows)``)."""
+        columns, rows = self.term.size()
         return rows, columns
 
-    def put(self, row: int, column: int, text: str, attr: int = 0) -> None:
-        rows, columns = self.size()
-        if row < 0 or row >= rows or column >= columns:
-            return
-        text = text[: max(0, columns - column - 1)]
-        if not text:
-            return
-        try:
-            self.screen.addstr(row, column, text, attr)
-        except self.curses.error:
-            pass
+    def begin(self) -> None:
+        """Start a frame: a blank canvas at the terminal's current size."""
+        self.canvas = Canvas(*self.term.size())
+
+    def flush(self, *, cursor: tuple[int, int] | None = None) -> None:
+        """Paint the frame (only the rows that changed reach the terminal)."""
+        self.term.paint(self.canvas.render(self.style), cursor=cursor)
+
+    def key(self) -> str | None:
+        """The next key; ``None`` or ``"resize"`` means redraw. Ctrl-C raises ``KeyboardInterrupt`` (exit 130), EOF ``EOFError``."""
+        key = self.term.read_key()
+        if key == "eof":
+            raise EOFError("stdin closed")
+        if key == "ctrl-c":
+            raise KeyboardInterrupt
+        return key
+
+    def put(self, row: int, column: int, text: str, tone: str | None = None, *, reverse: bool = False, underline: bool = False) -> None:
+        self.canvas.put(row, column, text, tone, reverse=reverse, underline=underline)
 
     def banner_rows(self, top: int) -> int:
-        """Draw the banner at ``top`` when colours and the width allow; returns the rows used."""
+        """Draw the banner at ``top`` when colours and the size allow; returns the rows used.
+
+        Cell by cell in the art's own colours through :meth:`Style.rgb`, so the depth
+        rule is the plain CLI's: exact on a truecolor terminal, the 256-colour cube on a
+        256-colour one, the single bright magenta on 16 colours, nothing when off.
+        """
         from .banner import MARGIN, load  # noqa: PLC0415
 
         rows, columns = self.size()
         art = load()
-        if self.palette.banner_mode == "off" or columns < art.width + MARGIN or rows < art.height + 12:
+        if not self.style.on or columns < art.width + MARGIN or rows < art.height + 12:
             return 0
         for index, row in enumerate(art.rows):
-            if self.palette.banner_mode == "cube":
-                column = MARGIN // 2
-                for ch, rgb in row:
-                    self.put(top + index, column, ch, self.palette.banner_pairs.get(rgb, 0))
-                    column += 1
-            else:
-                self.put(top + index, MARGIN // 2, "".join(ch for ch, _ in row), self.palette.attr("accent"))
+            column = MARGIN // 2
+            for ch, rgb in row:
+                if ch != " ":  # transparent cells carry no colour of their own (as in banner.render_lines)
+                    self.canvas.put(top + index, column, ch, rgb=rgb)
+                column += 1
         return art.height + 1
 
     def footer(self, text: str) -> None:
         rows, _ = self.size()
-        self.put(rows - 1, 0, text, self.palette.attr("muted"))
+        self.put(rows - 1, 0, text, "muted")
 
     # -- widgets -------------------------------------------------------------------------------
 
-    def menu(self, title: str, items: list[str], *, header: list[tuple[str, int]] | None = None, footer: str = "↑/↓ or j/k move · Enter select · / filter · Esc back · q quit", banner: bool = False, default: int = 0, allow_filter: bool = True) -> int | None:
+    def menu(self, title: str, items: list[str], *, header: list[tuple[str, str | None]] | None = None, footer: str = "↑/↓ or j/k move · Enter select · / filter · Esc back · q quit", banner: bool = False, default: int = 0, allow_filter: bool = True) -> int | None:
         """A list; returns the chosen index (into ``items``) or ``None`` for Esc/``q``."""
-        curses = self.curses
         selected = min(default, max(0, len(items) - 1))
         needle = ""
         while True:
             visible = [(i, label) for i, label in enumerate(items) if needle.lower() in label.lower()] if needle else list(enumerate(items))
             if visible and not any(i == selected for i, _ in visible):
                 selected = visible[0][0]
-            self.screen.erase()
+            self.begin()
             top = 0
             if banner:
                 top += self.banner_rows(0)
-            self.put(top, 2, title, self.palette.attr("heading"))
+            self.put(top, 2, title, "heading")
             top += 1
-            self.put(top, 2, "FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew.", self.palette.attr("muted"))
+            self.put(top, 2, "FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew.", "muted")
             top += 2
-            for text, attr in header or []:
-                self.put(top, 2, text, attr)
+            for text, tone in header or []:
+                self.put(top, 2, text, tone)
                 top += 1
             if header:
                 top += 1
@@ -396,88 +350,81 @@ class TuiApp:
             start = max(0, min(position - window // 2, len(visible) - window))
             for n, (i, label) in enumerate(visible[start : start + window]):
                 marker = "▸ " if i == selected else "  "
-                self.put(top + n, 2, marker + label, curses.A_REVERSE if i == selected else 0)
+                self.put(top + n, 2, marker + label, reverse=i == selected)
             if not visible:
-                self.put(top, 4, "(nothing matches)", self.palette.attr("muted"))
+                self.put(top, 4, "(nothing matches)", "muted")
             if needle:
-                self.put(rows - 2, 2, f"filter: {needle}", self.palette.attr("accent"))
+                self.put(rows - 2, 2, f"filter: {needle}", "accent")
             self.footer(footer)
-            self.screen.refresh()
-            key = self.screen.getch()
-            if key in (curses.KEY_UP, ord("k")) and visible:
+            self.flush()
+            key = self.key()
+            if key is None or key == "resize":
+                continue
+            if key in ("up", "k") and visible:
                 position = max(0, position - 1)
                 selected = visible[position][0]
-            elif key in (curses.KEY_DOWN, ord("j")) and visible:
+            elif key in ("down", "j", "tab") and visible:
                 position = min(len(visible) - 1, position + 1)
                 selected = visible[position][0]
-            elif key == curses.KEY_PPAGE and visible:
+            elif key == "pageup" and visible:
                 selected = visible[max(0, position - window)][0]
-            elif key == curses.KEY_NPAGE and visible:
+            elif key == "pagedown" and visible:
                 selected = visible[min(len(visible) - 1, position + window)][0]
-            elif key in (curses.KEY_HOME,) and visible:
+            elif key == "home" and visible:
                 selected = visible[0][0]
-            elif key in (curses.KEY_END,) and visible:
+            elif key == "end" and visible:
                 selected = visible[-1][0]
-            elif key in (10, 13, curses.KEY_ENTER):
+            elif key == "enter":
                 if visible:
                     return selected
-            elif key == 27:
+            elif key == "esc":
                 if needle:
                     needle = ""
                 else:
                     return None
-            elif key == ord("q") and not needle:
+            elif key == "q" and not needle:
                 return None
-            elif key == ord("/") and allow_filter:
+            elif key == "/" and allow_filter:
                 needle = self.text_field(["Filter the list (Esc clears):"], initial=needle) or ""
-            elif key in (curses.KEY_BACKSPACE, 127, 8) and needle:
+            elif key == "backspace" and needle:
                 needle = needle[:-1]
-            elif key == curses.KEY_RESIZE:
-                continue
 
     def text_field(self, prompt: list[str], *, initial: str = "") -> str | None:
         """A single-line text field under the wrapped ``prompt``; Enter submits, Esc cancels (``None``)."""
-        curses = self.curses
         value = initial
         while True:
-            self.screen.erase()
+            self.begin()
             rows, columns = self.size()
             row = 1
             for paragraph in prompt:
                 for line in textwrap.wrap(paragraph, width=max(20, columns - 4)) or [""]:
-                    self.put(row, 2, line, self.palette.attr("bold") if row == 1 else 0)
+                    self.put(row, 2, line, "bold" if row == 1 else None)
                     row += 1
             row += 1
-            self.put(row, 2, "> " + value, curses.A_UNDERLINE)
+            self.put(row, 2, "> " + value, underline=True)
             self.footer("type, then Enter · Esc cancels")
-            try:
-                self.screen.move(row, min(columns - 2, 4 + len(value)))
-            except curses.error:
-                pass
-            self.screen.refresh()
-            try:
-                key = self.screen.get_wch()
-            except curses.error:
+            self.flush(cursor=(row, min(columns - 1, 4 + len(value))))
+            key = self.key()
+            if key is None or key == "resize":
                 continue
-            if key in ("\n", "\r", curses.KEY_ENTER):
+            if key == "enter":
                 return value
-            if key == "\x1b":
+            if key == "esc":
                 return None
-            if key in (curses.KEY_BACKSPACE, "\x7f", "\b"):
+            if key == "backspace":
                 value = value[:-1]
-            elif key == "\x15":  # Ctrl-U clears
+            elif key == "ctrl-u":  # Ctrl-U clears
                 value = ""
-            elif isinstance(key, str) and key.isprintable():
+            elif len(key) == 1 and key.isprintable():
                 value += key
 
     def pager(self, title: str, lines: list[str], *, tone: str = "heading") -> None:
         """A scrollable output pane; Esc, ``q`` or Enter close it."""
-        curses = self.curses
         scroll = 0
         while True:
-            self.screen.erase()
+            self.begin()
             rows, columns = self.size()
-            self.put(0, 2, title, self.palette.attr(tone))
+            self.put(0, 2, title, tone)
             window = max(1, rows - 3)
             wrapped: list[str] = []
             for line in lines:
@@ -485,30 +432,32 @@ class TuiApp:
             max_scroll = max(0, len(wrapped) - window)
             scroll = max(0, min(scroll, max_scroll))
             for n, line in enumerate(wrapped[scroll : scroll + window]):
-                attr = self.palette.attr("warn") if line.startswith("WARNING") else self.palette.attr("danger") if line.startswith("ERROR") else 0
-                self.put(2 + n, 2, line, attr)
+                line_tone = "warn" if line.startswith("WARNING") else "danger" if line.startswith("ERROR") else None
+                self.put(2 + n, 2, line, line_tone)
             more = (" · ↑ more above" if scroll > 0 else "") + (" · ↓ more below" if scroll < max_scroll else "")
             self.footer("↑/↓ PgUp/PgDn scroll · Esc, q or Enter back" + more)
-            self.screen.refresh()
-            key = self.screen.getch()
-            if key in (27, ord("q"), 10, 13, curses.KEY_ENTER):
+            self.flush()
+            key = self.key()
+            if key is None or key == "resize":
+                continue
+            if key in ("esc", "q", "enter"):
                 return
-            if key in (curses.KEY_UP, ord("k")):
+            if key in ("up", "k"):
                 scroll -= 1
-            elif key in (curses.KEY_DOWN, ord("j")):
+            elif key in ("down", "j", "tab"):
                 scroll += 1
-            elif key == curses.KEY_PPAGE:
+            elif key == "pageup":
                 scroll -= window
-            elif key == curses.KEY_NPAGE:
+            elif key == "pagedown":
                 scroll += window
-            elif key == curses.KEY_HOME:
+            elif key == "home":
                 scroll = 0
-            elif key == curses.KEY_END:
+            elif key == "end":
                 scroll = max_scroll
 
     def confirm(self, prompt: str, default: bool) -> bool:
         """``Console.confirm_fn``: an ordinary yes/no as a two-item menu."""
-        choice = self.menu("Confirm", ["yes", "no"], header=[(line, 0) for line in textwrap.wrap(prompt, 90)], default=0 if default else 1, allow_filter=False, footer="↑/↓ choose · Enter confirm · Esc = no")
+        choice = self.menu("Confirm", ["yes", "no"], header=[(line, None) for line in textwrap.wrap(prompt, 90)], default=0 if default else 1, allow_filter=False, footer="↑/↓ choose · Enter confirm · Esc = no")
         return choice == 0  # Esc is a no
 
     def typed_field(self, prompt: str, what: str) -> str | None:
@@ -519,54 +468,19 @@ class TuiApp:
         item that supplies the phrase; declining returns nothing.
         """
         if what == "unlisted source":
-            choice = self.menu("Unlisted source", [UNLISTED_ACCEPT_ITEM, "Cancel"], header=[(line, self.palette.attr("warn")) for line in textwrap.wrap(prompt, 90)], default=1, allow_filter=False, footer="↑/↓ choose · Enter confirm · Esc cancels")
+            choice = self.menu("Unlisted source", [UNLISTED_ACCEPT_ITEM, "Cancel"], header=[(line, "warn") for line in textwrap.wrap(prompt, 90)], default=1, allow_filter=False, footer="↑/↓ choose · Enter confirm · Esc cancels")
             return ACCEPT_PHRASE if choice == 0 else None
         return self.text_field([prompt, f"Type the exact answer for: {what}. Nothing else — no shortcut, no button — satisfies this confirmation."])
 
     def consent_screen(self) -> bool | None:
-        """``Console.consent_fn``: the Requirement 15.3 frame, drawn in curses; Enter agrees, Esc/q declines."""
-        from .banner import MARGIN, load  # noqa: PLC0415
-        from .consent_screen import FOOTER_ROWS, body_lines, compose  # noqa: PLC0415
+        """``Console.consent_fn``: the Requirement 15.3 frame — :func:`consent_screen.present` on the interface's own terminal.
 
-        curses = self.curses
-        art = load()
-        scroll = 0
-        while True:
-            self.screen.erase()
-            rows, columns = self.size()
-            with_banner = self.palette.banner_mode != "off" and columns >= art.width + MARGIN and rows >= art.height + len(body_lines(columns)) + FOOTER_ROWS
-            frame = compose(columns, rows, scroll=scroll, banner_lines=list(art.text_rows) if with_banner else None, style=Style.off())
-            for n, line in enumerate(frame.body):
-                source_index = frame.scroll + n
-                if with_banner and source_index < art.height:
-                    if self.palette.banner_mode == "cube":
-                        column = MARGIN // 2
-                        for ch, rgb in art.rows[source_index]:
-                            self.put(n, column, ch, self.palette.banner_pairs.get(rgb, 0))
-                            column += 1
-                    else:
-                        self.put(n, MARGIN // 2, line, self.palette.attr("accent"))
-                    continue
-                attr = self.palette.attr("heading") if source_index == (art.height + 1 if with_banner else 0) else 0
-                self.put(n, 0, line, attr)
-            control_row = len(frame.body) + 1
-            pad = max(0, (columns - len("[ I AGREE ]")) // 2)
-            self.put(control_row, pad, "[ I AGREE ]", curses.A_REVERSE | self.palette.attr("accent"))
-            self.put(control_row + 1, 0, strip_ansi(frame.hint), self.palette.attr("muted"))
-            self.screen.refresh()
-            key = self.screen.getch()
-            if key in (10, 13, curses.KEY_ENTER):
-                return True
-            if key in (27, ord("q"), ord("Q")):
-                return False
-            if key in (curses.KEY_DOWN, ord("j")):
-                scroll = min(frame.max_scroll, scroll + 1)
-            elif key in (curses.KEY_UP, ord("k")):
-                scroll = max(0, scroll - 1)
-            elif key == curses.KEY_NPAGE:
-                scroll = min(frame.max_scroll, scroll + max(1, rows - FOOTER_ROWS - 1))
-            elif key == curses.KEY_PPAGE:
-                scroll = max(0, scroll - max(1, rows - FOOTER_ROWS - 1))
+        The same ``compose()`` at the same size, painted by the same driver as the
+        standalone ``floofy init`` screen; Enter agrees, Esc/``q``/Ctrl-C decline.
+        """
+        from .consent_screen import present  # noqa: PLC0415
+
+        return present(self.term, style=self.style)
 
     # -- running actions -------------------------------------------------------------------------
 
@@ -574,17 +488,18 @@ class TuiApp:
         """Run one action through the shared handler and show its output; ``None`` when the user backed out."""
         action_ = action(key)
         if action_.needs_consent and not read_consent(self.ctx.home.consent).ok:
-            choice = self.menu("Consent needed", ["Run floofy init now (the one-time warning, the Loader app, the trigger)", "Cancel"], header=[("FloofyCrew is not set up on this host: no consent record exists, so nothing can be applied (Requirement 11.1).", 0)], allow_filter=False)
+            choice = self.menu("Consent needed", ["Run floofy init now (the one-time warning, the Loader app, the trigger)", "Cancel"], header=[("FloofyCrew is not set up on this host: no consent record exists, so nothing can be applied (Requirement 11.1).", None)], allow_filter=False)
             if choice != 0:
                 return None
             init_outcome = self.act("setup.init")
             if init_outcome is None or init_outcome.exit != 0 or not read_consent(self.ctx.home.consent).ok:
                 return init_outcome
-        self.screen.erase()
-        self.put(0, 2, "Running: floofy " + " ".join(action_.build(**values)), self.palette.attr("accent"))
-        self.put(1, 2, "please wait…", self.palette.attr("muted"))
-        self.screen.refresh()
-        outcome = run_action(action_, self.prefix, console=self._console(), **values)
+        self.begin()
+        self.put(0, 2, "Running: floofy " + " ".join(action_.build(**values)), "accent")
+        self.put(1, 2, "please wait…", "muted")
+        self.flush()
+        with self.term.interruptible():  # Ctrl-C interrupts a running action the way it does at the plain CLI
+            outcome = run_action(action_, self.prefix, console=self._console(), **values)
         self.ctx = self._context()  # facts may have changed
         verdict = "ok" if outcome.exit == 0 else f"exit {outcome.exit}"
         self.pager(f"floofy {' '.join(action_.build(**values))} — {verdict}", outcome.lines or ["(no output)"], tone="heading" if outcome.exit == 0 else "danger")
@@ -596,7 +511,7 @@ class TuiApp:
         while True:
             consent = read_consent(self.ctx.home.consent)
             items = ["Mods", "Registries", "Profiles", "Doctor", "Check for updates", "Update FloofyCrew itself", "Set up FloofyCrew (floofy init)" if not consent.ok else "Re-run floofy init (Loader app, trigger)", "Quit"]
-            header = [(f"{label:>10}  {value}", 0) for label, value in host_summary(self.ctx)]
+            header = [(f"{label:>10}  {value}", None) for label, value in host_summary(self.ctx)]
             choice = self.menu("floofy — interactive", items, header=header, banner=True, footer="↑/↓ or j/k move · Enter open · q quit", allow_filter=False)
             if choice is None or choice == 7:
                 return 0
@@ -633,7 +548,7 @@ class TuiApp:
                     tier = "?"
                 labels.append(f"[{'on ' if flag else 'off'}] {mod.id} {mod.version}  tier={tier}" + (f"  PROBLEM: {mod.problem}" if mod.problem else "") + ("  (dev link)" if mod.is_link else ""))
             extras = ["+ Install from the registry (search)…", "+ Install from a git reference (ssh://… or https://…@tag)…", "↺ Restore a quarantined set (yeet --restore)…", "≡ Show the quarantine", "≡ Status of every mod"]
-            choice = self.menu("Mods", labels + extras, header=[("installed mods: state, version and source tier (unlisted / listed / tested)", self.palette.attr("muted"))])
+            choice = self.menu("Mods", labels + extras, header=[("installed mods: state, version and source tier (unlisted / listed / tested)", "muted")])
             if choice is None:
                 return
             if choice < len(mods):
@@ -672,7 +587,7 @@ class TuiApp:
             self.pager("floofy search — nothing found", outcome.lines or ["(no output)"], tone="warn")
             return
         labels = [f"{h.get('key')}  newest {h.get('newest')}  works here: {h.get('worksHere') or 'nothing'}  tier {h.get('tier')}" + (f"  (installed {h['installed']})" if h.get("installed") else "") for h in hits]
-        choice = self.menu(f"Registry: {len(hits)} match(es) for {query!r}", labels, header=[("Enter installs the newest version known to work here; the disclosure and its confirmations follow.", self.palette.attr("muted"))])
+        choice = self.menu(f"Registry: {len(hits)} match(es) for {query!r}", labels, header=[("Enter installs the newest version known to work here; the disclosure and its confirmations follow.", "muted")])
         if choice is None:
             return
         self.act("mods.install", ref=str(hits[choice].get("key")))
@@ -699,7 +614,7 @@ class TuiApp:
                 return
             labels = [f"{s.label}  trust={s.trust}" + ("  UNSIGNED ACCEPTED" if s.allow_unsigned else "") + f"  {s.url}" for s in sources]
             extras = ["+ Add a source…", "↻ Refresh every source", "≡ Record the edition's default source", "≡ List sources (cache state)"]
-            choice = self.menu("Registries", labels + extras, header=[("sources and their trust; the merged cache feeds search/install/update", self.palette.attr("muted"))])
+            choice = self.menu("Registries", labels + extras, header=[("sources and their trust; the merged cache feeds search/install/update", "muted")])
             if choice is None:
                 return
             if choice < len(sources):
@@ -730,13 +645,13 @@ class TuiApp:
 
     def confirm_loosening(self, url: str) -> bool:
         warning = cmd_registry.LOOSENING_WARNING.format(url=url)
-        choice = self.menu("Trust loosening", ["Accept unsigned indexes from this source (recorded in the audit log)", "Keep the signature requirement"], header=[(line, self.palette.attr("danger")) for line in textwrap.wrap(warning, 90)], default=1, allow_filter=False)
+        choice = self.menu("Trust loosening", ["Accept unsigned indexes from this source (recorded in the audit log)", "Keep the signature requirement"], header=[(line, "danger") for line in textwrap.wrap(warning, 90)], default=1, allow_filter=False)
         return choice == 0
 
     def source_actions(self, source: Any) -> None:
         keys = ["registries.refresh_one", "registries.trust", "registries.trust_unsigned", "registries.remove"]
         labels = [action("registries.refresh_one").label, "Change the trust level (index / owner)", "Accept unsigned indexes from this source" if not source.allow_unsigned else "Require a verified signature again", action("registries.remove").label]
-        choice = self.menu(f"Source {source.label}", labels, header=[(source.url, 0), (f"trust={source.trust} allowUnsigned={source.allow_unsigned} keyId={source.key_id or '-'}", self.palette.attr("muted"))], allow_filter=False)
+        choice = self.menu(f"Source {source.label}", labels, header=[(source.url, None), (f"trust={source.trust} allowUnsigned={source.allow_unsigned} keyId={source.key_id or '-'}", "muted")], allow_filter=False)
         if choice is None:
             return
         key = keys[choice]
@@ -760,7 +675,7 @@ class TuiApp:
             profiles = list_profiles(self.ctx.home)
             labels = [f"{p['name']}  {p.get('mods', '?')} mod(s)  saved {p.get('savedAt') or '?'}" + (f"  ERROR {p['error']}" if p.get("error") else "") for p in profiles]
             extras = ["+ Save the installed set as a profile…", "+ Import a profile from a file…"]
-            choice = self.menu("Profiles", labels + extras, header=[("named mod sets with pinned versions (lockfiles)", self.palette.attr("muted"))])
+            choice = self.menu("Profiles", labels + extras, header=[("named mod sets with pinned versions (lockfiles)", "muted")])
             if choice is None:
                 return
             if choice < len(profiles):
@@ -794,7 +709,7 @@ class TuiApp:
         summary = outcome.result.get("selfUpdate") or {}
         if not summary.get("available"):
             return
-        choice = self.menu("A FloofyCrew release for this host", [f"Update FloofyCrew to {summary.get('version')} now (floofy self-update)", "Not now"], header=[(str(summary.get("notice") or ""), 0)], allow_filter=False)
+        choice = self.menu("A FloofyCrew release for this host", [f"Update FloofyCrew to {summary.get('version')} now (floofy self-update)", "Not now"], header=[(str(summary.get("notice") or ""), None)], allow_filter=False)
         if choice == 0:
             self.act("selfupdate.install")
 
@@ -806,6 +721,6 @@ class TuiApp:
         due = [row for row in plan if row.get("update")]
         if not due:
             return
-        choice = self.menu("Updates available", [f"Update all {len(due)} now (floofy update --all)", "Not now"], header=[(f"{row['id']}: {row['installed']} -> {row['candidate']}", 0) for row in due], allow_filter=False)
+        choice = self.menu("Updates available", [f"Update all {len(due)} now (floofy update --all)", "Not now"], header=[(f"{row['id']}: {row['installed']} -> {row['candidate']}", None) for row in due], allow_filter=False)
         if choice == 0:
             self.act("updates.apply")

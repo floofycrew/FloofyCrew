@@ -109,17 +109,31 @@ class Style:
         """``ESC[<params>m`` at this depth, or ``""`` when off."""
         return f"\x1b[{params}m" if self.on else ""
 
+    def params(self, tone: str) -> str:
+        """The SGR parameters ``tone`` (a palette colour or a weight) paints with at this depth; ``""`` when off."""
+        if not self.on:
+            return ""
+        if tone in PALETTE:
+            return PALETTE[tone][_column(self.depth)]
+        if tone in WEIGHTS:
+            return WEIGHTS[tone]
+        raise KeyError(f"unknown tone {tone!r}; palette: {', '.join(PALETTE)}; weights: {', '.join(WEIGHTS)}")
+
+    def rgb_params(self, red: int, green: int, blue: int, *, basic: str = "95") -> str:
+        """The SGR parameters for an exact colour at this depth: 24-bit as given, 256 as the nearest cube entry, 16 as ``basic``."""
+        if not self.on:
+            return ""
+        if self.depth == Depth.TRUECOLOR:
+            return f"38;2;{red};{green};{blue}"
+        if self.depth == Depth.EXTENDED:
+            return f"38;5;{cube_index(red, green, blue)}"
+        return basic
+
     def paint(self, text: str, tone: str) -> str:
         """``text`` in the palette colour ``tone`` (or weight), unchanged when off or when ``text`` is empty."""
         if not self.on or not text:
             return text
-        if tone in PALETTE:
-            params = PALETTE[tone][_column(self.depth)]
-        elif tone in WEIGHTS:
-            params = WEIGHTS[tone]
-        else:
-            raise KeyError(f"unknown tone {tone!r}; palette: {', '.join(PALETTE)}; weights: {', '.join(WEIGHTS)}")
-        return f"\x1b[{params}m{text}{RESET}"
+        return f"\x1b[{self.params(tone)}m{text}{RESET}"
 
     def heading(self, text: str) -> str:
         return self.paint(text, "heading")
@@ -152,13 +166,7 @@ class Style:
         """``text`` in an exact colour: 24-bit as given, 256 as the nearest cube entry, 16 as ``basic``."""
         if not self.on or not text:
             return text
-        if self.depth == Depth.TRUECOLOR:
-            params = f"38;2;{red};{green};{blue}"
-        elif self.depth == Depth.EXTENDED:
-            params = f"38;5;{cube_index(red, green, blue)}"
-        else:
-            params = basic
-        return f"\x1b[{params}m{text}{RESET}"
+        return f"\x1b[{self.rgb_params(red, green, blue, basic=basic)}m{text}{RESET}"
 
 
 def depth_from_terminal(env: Mapping[str, str]) -> Depth:

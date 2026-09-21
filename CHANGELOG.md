@@ -11,6 +11,34 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- **Interactive `floofy` without curses** (task 10.10; Requirement 15.6, 15.4,
+  15.3, 14.2). Bare `floofy` on a terminal now opens the interface on every
+  interpreter FloofyCrew runs on: the KiroCrew ***REMOVED*** bundle's `python3.12`,
+  which the internal installer selects, ships without `_curses`, so until now
+  bare `floofy` always printed the fallback hint there while `kiro-cli` ran its
+  own interface in the same terminal. The curses backend is gone: the screens are
+  drawn by a small standard-library terminal driver, `floofy_core.cli.term`,
+  shared with the one-time consent screen — `termios` raw mode entered and
+  restored in a `finally` that also covers SIGINT, the alternate screen buffer,
+  the cursor hidden while drawn, a frame buffer diffed line by line and painted
+  with cursor moves so redraws do not flicker, colours through the CLI's own
+  style layer at the detected depth (so `NO_COLOR` and `--no-color` now apply to
+  the interface too), the size re-read on `SIGWINCH` and every 0.5 s, and key
+  decoding for Enter, Esc (told from an arrow sequence by a short timeout), `q`,
+  digits, the arrows, Home/End, PgUp/PgDn, Tab, Backspace and Ctrl-C. Screens,
+  menus, handler mapping and audit rows are unchanged; the consent frame is the
+  same `compose()` drawn by the same driver, so `floofy init` standalone and from
+  the interface show one thing. The interface opens whenever stdin and stdout
+  are terminals and `TERM` is not `dumb` — an unset `TERM` is an ANSI terminal,
+  as it is for `kiro-cli` — and falls back to the usage only otherwise; the hint
+  now says "needs a terminal (stdin and stdout TTYs; not TERM=dumb)". Tests
+  drive every screen on a pseudo-terminal with `TERM` unset and with `curses`
+  blocked out of `sys.modules`, and assert no module of the package imports
+  curses. Docs: [docs/interactive.md](docs/interactive.md), "Using `floofy`
+  interactively".
+
 ### Changed
 
 - The terminal banner is now the fox itself (Requirement 15.5): `branding/build_ascii.py`

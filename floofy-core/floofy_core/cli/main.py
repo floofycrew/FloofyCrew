@@ -147,8 +147,8 @@ def execute(argv: list[str], console: Console, *, actor: str = "cli", in_gateway
         args.command = "vanilla"
         args.handler = __import__(f"{__package__}.cmd_doctor", fromlist=["vanilla"]).vanilla
     if not args.command:
-        # Requirement 15.4/15.6: bare `floofy` on a terminal opens the interactive interface; without one, or when
-        # curses cannot start here, the usage as today (plus a one-line hint in the latter case) and exit 2.
+        # Requirement 15.4/15.6: bare `floofy` on a terminal opens the interactive interface; without one (or under
+        # TERM=dumb, the one terminal the driver refuses) the usage as today, plus a one-line hint, and exit 2.
         hint: str | None = None
         if console.screen_available:
             from .tui import FALLBACK_HINT, launch  # noqa: PLC0415

@@ -5,7 +5,7 @@ program that runs on the KiroCrew host's own interpreter, shipped as a single
 file (`floofy.pyz`), a wheel, or the host-specific installer of each edition.
 `floofy --version` prints the FloofyCrew release and the API version;
 `floofy --help` and `floofy <command> --help` print what is below; bare `floofy`
-on a terminal opens the interactive mode of [terminal.md](terminal.md) (without a
+on a terminal opens the interactive mode of [interactive.md](interactive.md) (without a
 terminal it prints the usage). FloofyCrew is unofficial and says so in every banner.
 
 ## Global options

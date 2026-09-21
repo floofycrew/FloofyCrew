@@ -82,7 +82,7 @@ def _consent_step(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any]:
     how: str | None = None
     if not args.accept_flag:
         # Requirement 15.3: on a terminal, the full-screen [ I AGREE ] control; None means "not available here".
-        # A host control (the interactive floofy's curses frame, the manager App's modal) answers the same way and
+        # A host control (the interactive floofy's own frame, the manager App's modal) answers the same way and
         # says what it is through Console.consent_how (screen | app) — the record differs in that one field.
         accepted = ctx.console.ask_consent_screen()
         if accepted is True:

@@ -101,14 +101,14 @@ class Console:
     transcript: list[str] = field(default_factory=list)
     #: The styling of ``out``; ``None`` until :func:`floofy_core.cli.main.execute` detects it (off by default).
     style: Style | None = None
-    #: A host-supplied consent screen (the interactive ``floofy`` draws it in curses): ``() -> accepted | None``.
+    #: A host-supplied consent screen (the interactive ``floofy`` draws it on its own terminal): ``() -> accepted | None``.
     consent_fn: Callable[[], bool | None] | None = None
     #: A host-supplied yes/no control for :meth:`confirm` (the interactive ``floofy``): ``(prompt, default) -> answer``.
     confirm_fn: Callable[[str, bool], bool | None] | None = None
     #: A host-supplied text field for :meth:`typed` (the interactive ``floofy``): ``(prompt, what) -> text``. Never a button.
     typed_fn: Callable[[str, str], str | None] | None = None
     #: What ``consent.json`` records as ``how`` when :attr:`consent_fn` accepts: ``screen`` (a full-screen frame —
-    #: the terminal and curses controls) or ``app`` (the manager App's modal, Requirement 16.3).
+    #: the standalone and the interactive-``floofy`` controls) or ``app`` (the manager App's modal, Requirement 16.3).
     consent_how: str = "screen"
     #: Art rows still to be printed beside :meth:`say` lines while a banner column is open (``None`` = closed).
     _banner_rows: list[str] | None = field(default=None, init=False, repr=False)

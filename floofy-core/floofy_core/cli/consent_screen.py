@@ -15,31 +15,26 @@ terminal the typed ``I ACCEPT`` prompt (``how="typed"``) is used as before.
 Typed governance confirmations (Requirement 11.4) are **not** this screen and
 never become a button: they stay :meth:`floofy_core.cli.console.Console.typed`.
 
-Standard library only: ``termios``/``tty`` raw mode and ``select``; no curses,
-so it needs no terminfo and composes with the plain CLI. :func:`compose` is the
-pure layout the interactive ``floofy`` (curses) reuses for its own consent
-screen so both show the same thing.
+Standard library only: the frame is drawn by the shared terminal driver
+:class:`floofy_core.cli.term.Terminal` (``termios`` raw mode, ANSI sequences,
+``select``; no curses, no terminfo), so it composes with the plain CLI and runs
+on an interpreter without ``_curses``. :func:`compose` is the pure layout and
+:func:`present` the key loop; the interactive ``floofy`` calls :func:`present`
+on its own, already open, :class:`Terminal`, so both surfaces show the very same
+frame drawn by the very same driver.
 """
 from __future__ import annotations
 
-import os
-import select
-import shutil
 import sys
 import textwrap
 from dataclasses import dataclass, field
 from typing import IO
 
 from ..consent import WARNING_TEXT
-from .style import Depth, Style, strip_ansi
+from .style import Depth, Style
+from .term import ENTER_ALTERNATE, LEAVE_ALTERNATE, Terminal, TerminalUnavailable
 
-__all__ = ["CONTROL", "ConsentScreen", "Frame", "TITLE", "compose", "show"]
-
-ENTER_ALTERNATE = "\x1b[?1049h"
-LEAVE_ALTERNATE = "\x1b[?1049l"
-HIDE_CURSOR = "\x1b[?25l"
-SHOW_CURSOR = "\x1b[?25h"
-CLEAR = "\x1b[2J\x1b[H"
+__all__ = ["CONTROL", "ConsentScreen", "ENTER_ALTERNATE", "Frame", "LEAVE_ALTERNATE", "TITLE", "banner_rows", "compose", "present", "show"]
 
 TITLE = "READ THIS ONCE — FloofyCrew consent"
 CONTROL = "[ I AGREE ]"
@@ -104,9 +99,60 @@ def compose(width: int, height: int, *, scroll: int = 0, text: str = WARNING_TEX
     return Frame(visible, control, hint, scroll, max_scroll, scroll > 0, scroll < max_scroll)
 
 
+def banner_rows(depth: Depth, width: int, height: int, *, text: str = WARNING_TEXT) -> list[str] | None:
+    """The banner's rows at ``depth`` when colours are on and the screen has room for banner + text + footer."""
+    if depth == Depth.OFF:
+        return None
+    from .banner import load, render_lines  # noqa: PLC0415
+
+    art = load()
+    text_rows = len(body_lines(width, text=text))
+    if height < art.height + text_rows + FOOTER_ROWS:
+        return None
+    return render_lines(depth, width)
+
+
+def present(terminal: Terminal, *, style: Style | None = None, text: str = WARNING_TEXT, banner_depth: Depth | None = None) -> bool:
+    """Drive the frame on an open :class:`Terminal` until an answer: ``True`` on Enter, ``False`` on Esc/``q``/Ctrl-C/EOF.
+
+    Arrows or ``j``/``k`` scroll by a line, PgUp/PgDn by a screen, Home/End to the
+    ends; a resize (or the 0.5 s poll) recomposes at the new size. The frame is
+    :func:`compose` at the terminal's size, painted through the driver's
+    line-diffing buffer, so the standalone ``floofy init`` screen and the
+    interactive ``floofy`` show the same thing.
+    """
+    style = style or Style.off()
+    depth = style.depth if banner_depth is None else banner_depth
+    scroll = 0
+    while True:
+        columns, rows = terminal.size()
+        frame = compose(columns, rows, scroll=scroll, text=text, banner_lines=banner_rows(depth, columns, rows, text=text), style=style)
+        terminal.paint(frame.rows)
+        key = terminal.read_key()
+        if key is None or key == "resize":
+            continue
+        if key == "enter":
+            return True
+        if key in ("esc", "q", "Q", "ctrl-c", "ctrl-d", "eof"):
+            return False
+        page = max(1, rows - FOOTER_ROWS - 1)
+        if key in ("down", "j"):
+            scroll = min(frame.max_scroll, scroll + 1)
+        elif key in ("up", "k"):
+            scroll = max(0, scroll - 1)
+        elif key == "pagedown":
+            scroll = min(frame.max_scroll, scroll + page)
+        elif key == "pageup":
+            scroll = max(0, scroll - page)
+        elif key == "end":
+            scroll = frame.max_scroll
+        elif key == "home":
+            scroll = 0
+
+
 @dataclass
 class ConsentScreen:
-    """The interactive screen on ``stdin``/``stdout`` (both terminals)."""
+    """The interactive screen on ``stdin``/``stdout`` (both terminals), opened on its own :class:`Terminal`."""
 
     stdin: IO = field(default_factory=lambda: sys.stdin)
     stdout: IO = field(default_factory=lambda: sys.stdout)
@@ -117,153 +163,31 @@ class ConsentScreen:
 
     @property
     def available(self) -> bool:
-        try:
-            return bool(self.stdin.isatty()) and bool(self.stdout.isatty())
-        except (AttributeError, ValueError):
-            return False
+        return Terminal(self.stdin, self.stdout).available
 
     def size(self) -> tuple[int, int]:
-        try:
-            size = os.get_terminal_size(self.stdout.fileno())
-            columns, rows = size.columns, size.lines
-        except (OSError, ValueError, AttributeError):
-            fallback = shutil.get_terminal_size()
-            columns, rows = fallback.columns, fallback.lines
-        return (columns or 80), (rows or 24)
+        return Terminal(self.stdin, self.stdout).size()
 
     def banner_lines(self, width: int, height: int) -> list[str] | None:
         """The banner rows when colours are on and the screen has room for banner + text + footer."""
-        depth = self.style.depth if self.banner_depth is None else self.banner_depth
-        if depth == Depth.OFF:
-            return None
-        from .banner import load, render_lines  # noqa: PLC0415
-
-        art = load()
-        text_rows = len(body_lines(width, text=self.text))
-        if height < art.height + text_rows + FOOTER_ROWS:
-            return None
-        return render_lines(depth, width)
+        return banner_rows(self.style.depth if self.banner_depth is None else self.banner_depth, width, height, text=self.text)
 
     def run(self) -> bool | None:
         """Show the screen; ``True`` accepted, ``False`` declined, ``None`` when it cannot run here."""
         if not self.available:
             return None
-        try:
-            import termios  # noqa: PLC0415
-            import tty  # noqa: PLC0415
-        except ImportError:
-            return None
         columns, rows = self.size()
         if columns < MIN_COLUMNS or rows < MIN_ROWS:
             return None
-        fd = self.stdin.fileno()
+        terminal = Terminal(self.stdin, self.stdout)
         try:
-            saved = termios.tcgetattr(fd)
-        except termios.error:
+            terminal.enter()
+        except TerminalUnavailable:
             return None
-        out = self.stdout
-        scroll = 0
         try:
-            out.write(ENTER_ALTERNATE + HIDE_CURSOR)
-            out.flush()
-            tty.setraw(fd)
-            frame = self._draw(columns, rows, scroll)
-            while True:
-                key = self._read_key(fd, timeout=0.5)
-                if key is None:  # timeout: redraw on resize
-                    new_columns, new_rows = self.size()
-                    if (new_columns, new_rows) != (columns, rows):
-                        columns, rows = new_columns, new_rows
-                        frame = self._draw(columns, rows, scroll)
-                    continue
-                if key in ("\r", "\n"):
-                    return True
-                if key in ("\x1b", "q", "Q", "\x03", "\x04"):
-                    return False
-                if key in ("down", "j"):
-                    scroll = min(frame.max_scroll, scroll + 1)
-                elif key in ("up", "k"):
-                    scroll = max(0, scroll - 1)
-                elif key == "pagedown":
-                    scroll = min(frame.max_scroll, scroll + max(1, rows - FOOTER_ROWS - 1))
-                elif key == "pageup":
-                    scroll = max(0, scroll - max(1, rows - FOOTER_ROWS - 1))
-                elif key == "end":
-                    scroll = frame.max_scroll
-                elif key == "home":
-                    scroll = 0
-                else:
-                    continue
-                frame = self._draw(columns, rows, scroll)
+            return present(terminal, style=self.style, text=self.text, banner_depth=self.banner_depth)
         finally:
-            try:
-                termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-            finally:
-                out.write(SHOW_CURSOR + LEAVE_ALTERNATE)
-                out.flush()
-
-    # -- drawing and keys ------------------------------------------------------------------
-
-    def _draw(self, columns: int, rows: int, scroll: int) -> Frame:
-        frame = compose(columns, rows, scroll=scroll, text=self.text, banner_lines=self.banner_lines(columns, rows), style=self.style)
-        parts = [CLEAR]
-        for index, row in enumerate(frame.rows[:rows], start=1):
-            parts.append(f"\x1b[{index};1H\x1b[2K{_clip(row, columns)}")
-        self.stdout.write("".join(parts))
-        self.stdout.flush()
-        return frame
-
-    @staticmethod
-    def _read_key(fd: int, *, timeout: float) -> str | None:
-        """One key: a character, ``"\\x1b"`` for a lone Escape, or a name for an arrow/page key; ``None`` on timeout."""
-        ready, _, _ = select.select([fd], [], [], timeout)
-        if not ready:
-            return None
-        data = os.read(fd, 32)
-        if not data:
-            return "\x04"
-        if data[:1] != b"\x1b":
-            return data[:1].decode("utf-8", "replace")
-        if len(data) == 1:
-            # a lone Escape, or the start of a sequence whose rest is still in flight
-            more, _, _ = select.select([fd], [], [], 0.05)
-            if not more:
-                return "\x1b"
-            data += os.read(fd, 32)
-        return _SEQUENCES.get(data[:3], _SEQUENCES.get(data[:4], "other"))
-
-
-_SEQUENCES: dict[bytes, str] = {
-    b"\x1b[A": "up",
-    b"\x1b[B": "down",
-    b"\x1bOA": "up",
-    b"\x1bOB": "down",
-    b"\x1b[5~": "pageup",
-    b"\x1b[6~": "pagedown",
-    b"\x1b[H": "home",
-    b"\x1b[F": "end",
-}
-
-
-def _clip(row: str, columns: int) -> str:
-    """Cut a row to ``columns`` visible characters (sequences are not counted)."""
-    if len(strip_ansi(row)) <= columns:
-        return row
-    out: list[str] = []
-    visible = 0
-    index = 0
-    while index < len(row) and visible < columns:
-        if row.startswith("\x1b[", index):
-            end = row.find("m", index)
-            if end == -1:
-                break
-            out.append(row[index : end + 1])
-            index = end + 1
-            continue
-        out.append(row[index])
-        visible += 1
-        index += 1
-    return "".join(out) + ("\x1b[0m" if "\x1b[" in row else "")
+            terminal.leave()
 
 
 def show(*, stdin: IO | None = None, stdout: IO | None = None, style: Style | None = None, text: str = WARNING_TEXT) -> bool | None:

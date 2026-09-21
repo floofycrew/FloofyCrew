@@ -107,46 +107,21 @@ that, by design (Requirement 11.4).
 
 ## The interactive mode
 
-Run `floofy` with no subcommand on a terminal and it opens:
+Run `floofy` with no subcommand on a terminal and it opens a keyboard-driven
+interface — the banner, a host summary and menus for mods, registries,
+profiles, doctor, updates and FloofyCrew's own update — where every action runs
+**the same handler as the corresponding subcommand** and writes the same audit
+row (`actor: tui`). [interactive.md](interactive.md) is its page: the screens,
+every key, how confirmations keep their grade (the one-time consent is the
+`[ I AGREE ]` frame above; a governance-altering target stays a typed text
+field), and the terminal it needs.
 
-- **Home** — the banner, a host summary (edition, version, channel, Loader
-  state, consent record, data home, and the one-line FloofyCrew update notice
-  when a newer release supports this host — the same daily cached check
-  `doctor` and `status` use, [updating.md](updating.md)) and the menu.
-- **Mods** — every installed mod with its state (`[on ]`/`[off]`), version and
-  source tier (`unlisted` / `listed` / `tested`); Enter on a mod for Info,
-  Enable/Disable, Update, Uninstall, Yeet; plus *Install from the registry*
-  (a search field, then the matching records), *Install from a git reference*
-  (a text field for `ssh://…@tag` or `https://…@tag`), *Restore a quarantined
-  set*, *Show the quarantine*, *Status*.
-- **Registries** — the sources and their trust; Enter on a source for Refresh,
-  Change the trust level, Accept/require unsigned indexes, Remove; plus *Add a
-  source* (URL, trust level, signature requirement), *Refresh every source*,
-  *Record the edition's default source*, *List*.
-- **Profiles** — Enter on a profile for the plan, Switch (staged), Switch now,
-  Export; plus *Save the installed set*, *Import from a file*.
-- **Doctor** and **Check for updates** (then an explicit "update all now").
-- **Update FloofyCrew itself** — a fresh `floofy self-update --check`, then an
-  explicit "update now" that runs `floofy self-update` (its own yes/no).
-
-Keys: `↑`/`↓` or `j`/`k` move, PgUp/PgDn and Home/End jump, **Enter** selects,
-**Esc** (or `q`) goes back, `/` filters a list, `q` on the home screen quits.
-No mouse is needed, so it works over ssh.
-
-Every action runs **the same handler as the corresponding subcommand** and
-writes the same audit row (with `actor: tui`); the command's output is shown in
-a scrollable pane with its exit status, so nothing the interface does is
-different from typing the command. Confirmations keep their grade: an ordinary
-yes/no is a two-item menu; the one-time consent is the full-screen `[ I AGREE ]`
-frame above; a governance-altering target is a text field that must contain
-the exact path; the unlisted-source line of a git reference shows its disclosure
-with an explicit *I ACCEPT* item; loosening a registry's signature requirement
-shows the same warning as `--allow-unsigned` and needs an explicit confirm item.
-
-The interactive mode uses only the standard library (`curses`). Without a
-terminal, bare `floofy` prints the usage as it always did (exit 2). On a
-terminal `curses` cannot drive — `TERM` unset or `dumb`, no terminfo — it prints
-the usage plus one hint line, and every subcommand works as before.
+It uses only the standard library and **no curses**: the same
+`termios`/ANSI/`select` driver as the consent screen, so it runs on an
+interpreter without `_curses` (the Python bundled with the host) and
+with `TERM` unset. Without a terminal on stdin and stdout, bare `floofy` prints
+the usage as it always did (exit 2); under `TERM=dumb` it prints the usage plus
+one hint line. Every subcommand works as before in either case.
 
 ## Guarantees for automation
 
