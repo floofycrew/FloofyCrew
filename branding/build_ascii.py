@@ -190,38 +190,117 @@ def to_ansi(rows: list[list[tuple[str, RGB]]]) -> str:
     return "\n".join(out) + "\n"
 
 
+# --------------------------------------------------------------------------
+# the wordmark ("FloofyCrew" from wordmark-text.svg), for the interactive banner
+# --------------------------------------------------------------------------
+WORDMARK_SOURCE = HERE / "wordmark-text.svg"
+DEFAULT_WORDMARK_ROWS = 7
+#: "Floofy" on a terminal: the peach of the dark wordmark (the ink of the light one is near-black).
+WORDMARK_NAME_COLOR: RGB = _hex("#FFE4CF")
+
+
+def _svg_size(svg: Path) -> tuple[float, float]:
+    import re
+
+    m = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg.read_text(encoding="utf-8"))
+    assert m, f"{svg}: no viewBox"
+    return float(m.group(1)), float(m.group(2))
+
+
+def _ink_bbox(pixels: list[list[tuple[int, int, int, int]]], threshold: int = 40) -> tuple[int, int, int, int]:
+    xs = [x for row in pixels for x, p in enumerate(row) if p[3] > threshold]
+    ys = [y for y, row in enumerate(pixels) if any(p[3] > threshold for p in row)]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def wordmark_cells(chrome: Path, svg: Path, rows: int) -> list[list[tuple[str, RGB]]]:
+    """The wordmark text as ``rows`` cells tall: "Floofy" in peach, "Crew" in the pink→orange gradient.
+
+    Two renders: a coarse one to measure the ink's bounding box in SVG units, then one
+    at the scale that makes the ink exactly ``2 * rows`` px tall, cropped to the ink.
+    Cells are classified per pixel like the fox: dark pixels are the "Floofy" ink and
+    take the peach; anything else is the gradient and keeps its own (averaged) colour.
+    """
+    units_w, units_h = _svg_size(svg)
+    coarse = 4.0  # px per unit for the measuring pass
+    _, _, probe = decode_png(render_png(chrome, svg, round(units_w * coarse), round(units_h * coarse)))
+    x0, y0, x1, y1 = _ink_bbox(probe)
+    ink_h_units = (y1 - y0 + 1) / coarse
+    scale = (2 * rows) / ink_h_units
+    width, height, pixels = decode_png(render_png(chrome, svg, round(units_w * scale), round(units_h * scale)))
+    bx0, by0, bx1, by1 = _ink_bbox(pixels)
+    top = by0 - (by0 % 2)  # cells are pixel pairs; start on an even row
+    cropped = [row[bx0 : bx1 + 1] for row in pixels[top : top + 2 * rows]]
+    while len(cropped) < 2 * rows:
+        cropped.append([(0, 0, 0, 0)] * len(cropped[0]))
+    cols = len(cropped[0])
+    art: list[list[tuple[str, RGB]]] = []
+    for r in range(rows):
+        cells: list[tuple[str, RGB]] = []
+        for c in range(cols):
+            pair = (cropped[2 * r][c], cropped[2 * r + 1][c])
+            alpha = sum(p[3] for p in pair) / 510
+            if alpha < RAMP[0][0]:
+                cells.append((" ", (0, 0, 0)))
+                continue
+            covered = [p for p in pair if p[3] >= 64] or list(pair)
+            if all(p[0] < 120 for p in covered):  # the "Floofy" ink
+                colour: RGB = WORDMARK_NAME_COLOR
+            else:  # the "Crew" gradient: alpha-weighted mean of the covered pixels
+                weight = sum(p[3] for p in covered) or 1
+                colour = tuple(round(sum(p[i] * p[3] for p in covered) / weight) for i in range(3))  # type: ignore[assignment]
+            glyph = "#"
+            for threshold, partial in RAMP[1:]:
+                if alpha < threshold:
+                    glyph = partial
+                    break
+            cells.append((glyph, colour))
+        art.append(cells)
+    while art and all(ch == " " for ch, _ in art[-1]):
+        art.pop()
+    return art
+
+
+def write_art(name: str, stem: str, source: Path, art: list[list[tuple[str, RGB]]]) -> None:
+    doc = {
+        "name": name,
+        "width": len(art[0]) if art else 0,
+        "height": len(art),
+        "source": source.name,
+        "rows": [[[ch, list(rgb)] for ch, rgb in row] for row in art],
+    }
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / f"{stem}.json").write_text(json.dumps(doc, separators=(",", ":")) + "\n", encoding="utf-8")
+    (OUT / f"{stem}.ans").write_text(to_ansi(art), encoding="utf-8")
+    (OUT / f"{stem}.txt").write_text("\n".join("".join(ch for ch, _ in row) for row in art) + "\n", encoding="utf-8")
+    palette = sorted({rgb for row in art for ch, rgb in row if ch != " "})
+    print(f"{stem}: {len(art)} rows x {doc['width']} cols, {len(palette)} colours -> {OUT}")
+    print("\n".join("".join(ch for ch, _ in row) for row in art))
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--cols", type=int, default=DEFAULT_COLS, help=f"art width in cells (default {DEFAULT_COLS})")
+    ap.add_argument("--cols", type=int, default=DEFAULT_COLS, help=f"fox art width in cells (default {DEFAULT_COLS})")
+    ap.add_argument("--wordmark-rows", type=int, default=DEFAULT_WORDMARK_ROWS, help=f"wordmark height in cells (default {DEFAULT_WORDMARK_ROWS})")
     ap.add_argument("--chrome", type=Path, default=DEFAULT_CHROME)
     ap.add_argument("--source", type=Path, default=SOURCE)
+    ap.add_argument("--wordmark-source", type=Path, default=WORDMARK_SOURCE)
     args = ap.parse_args(argv)
     if not args.chrome.exists():
         print(f"chrome not found at {args.chrome}", file=sys.stderr)
         return 2
-    if not args.source.exists():
-        print(f"{args.source} missing — run branding/build_icons.py first", file=sys.stderr)
-        return 2
+    for needed, hint in ((args.source, "branding/build_icons.py"), (args.wordmark_source, "branding/build_wordmark.py")):
+        if not needed.exists():
+            print(f"{needed} missing — run {hint} first", file=sys.stderr)
+            return 2
     cols = args.cols
     rows = cols // 2  # the mark is square; a cell is 1×2 px
-    png = render_png(args.chrome, args.source, cols, rows * 2)
-    width, height, pixels = decode_png(png)
+    width, height, pixels = decode_png(render_png(args.chrome, args.source, cols, rows * 2))
     assert (width, height) == (cols, rows * 2), (width, height)
-    art = cells_from_pixels(pixels, cols, rows)
-    doc = {
-        "name": "floofycrew-banner",
-        "width": cols,
-        "height": len(art),
-        "source": args.source.name,
-        "rows": [[[ch, list(rgb)] for ch, rgb in row] for row in art],
-    }
-    OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "floofy.json").write_text(json.dumps(doc, separators=(",", ":")) + "\n", encoding="utf-8")
-    (OUT / "floofy.ans").write_text(to_ansi(art), encoding="utf-8")
-    (OUT / "floofy.txt").write_text("\n".join("".join(ch for ch, _ in row) for row in art) + "\n", encoding="utf-8")
-    palette = sorted({rgb for row in art for ch, rgb in row if ch != " "})
-    print(f"{len(art)} rows x {cols} cols, {len(palette)} colours -> {OUT}")
-    print("\n".join("".join(ch for ch, _ in row) for row in art))
+    fox = cells_from_pixels(pixels, cols, rows)
+    # the fox keeps the full requested width (columns are the layout contract)
+    write_art("floofycrew-banner", "floofy", args.source, fox)
+    write_art("floofycrew-wordmark", "wordmark", args.wordmark_source, wordmark_cells(args.chrome, args.wordmark_source, args.wordmark_rows))
     return 0
 
 

@@ -38,10 +38,19 @@ from typing import Sequence
 from ..resources import read_package_text
 from .style import RESET, Depth, cube_index
 
-__all__ = ["BASIC_COLOR", "Banner", "MARGIN", "fits", "load", "render", "render_lines"]
+__all__ = [
+    "BASIC_COLOR", "Banner", "MARGIN", "WORDMARK_GAP", "WORDMARK_NAME_RGB", "WORDMARK_CREW_RGB",
+    "fits", "load", "load_wordmark", "render", "render_lines", "wordmark_fits", "wordmark_top",
+]
 
 #: Columns the banner needs beyond the art's width (half on each side).
 MARGIN = 4
+#: Columns between the fox and the wordmark drawn to its right (the interactive ``floofy``).
+WORDMARK_GAP = 3
+#: The plain-text wordmark used when the block wordmark does not fit: "Floofy" in the peach of
+#: ``wordmark-dark.svg``, "Crew" in the sunset orange the gradient ends on.
+WORDMARK_NAME_RGB = (0xFF, 0xE4, 0xCF)
+WORDMARK_CREW_RGB = (0xFF, 0x9A, 0x3D)
 
 #: The single colour of the 16-colour rendering: bright magenta, nearest the sunset pink.
 BASIC_COLOR = "95"
@@ -80,11 +89,31 @@ def load() -> Banner:
     return Banner.from_document(json.loads(read_package_text(__package__, "banner.json")))
 
 
+@lru_cache(maxsize=1)
+def load_wordmark() -> Banner:
+    """The bundled "FloofyCrew" wordmark (``branding/ascii/wordmark.json``, from ``wordmark-text.svg``): "Floofy" in
+    peach, "Crew" in the pink→orange gradient, seven cells tall. Drawn to the right of the fox, vertically centred."""
+    return Banner.from_document(json.loads(read_package_text(__package__, "wordmark.json")))
+
+
 def fits(width: int | None = None, *, banner: Banner | None = None) -> bool:
     """Whether a terminal ``width`` columns wide (default: the current one) has room for the art plus margins."""
     art = banner or load()
     columns = shutil.get_terminal_size().columns if width is None else width
     return columns >= art.width + MARGIN
+
+
+def wordmark_fits(width: int | None = None, *, banner: Banner | None = None, wordmark: Banner | None = None) -> bool:
+    """Whether the block wordmark fits to the right of the art (art + gap + wordmark + margins)."""
+    art, mark = banner or load(), wordmark or load_wordmark()
+    columns = shutil.get_terminal_size().columns if width is None else width
+    return columns >= MARGIN + art.width + WORDMARK_GAP + mark.width
+
+
+def wordmark_top(banner: Banner | None = None, wordmark: Banner | None = None) -> int:
+    """Row offset (from the art's top row) that centres the wordmark on the art's height."""
+    art, mark = banner or load(), wordmark or load_wordmark()
+    return max(0, (art.height - mark.height) // 2)
 
 
 def render_lines(depth: Depth, width: int | None = None, *, banner: Banner | None = None, indent: int = MARGIN // 2) -> list[str] | None:

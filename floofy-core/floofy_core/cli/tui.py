@@ -303,7 +303,7 @@ class TuiApp:
         rule is the plain CLI's: exact on a truecolor terminal, the 256-colour cube on a
         256-colour one, the single bright magenta on 16 colours, nothing when off.
         """
-        from .banner import MARGIN, load  # noqa: PLC0415
+        from .banner import MARGIN, WORDMARK_CREW_RGB, WORDMARK_GAP, WORDMARK_NAME_RGB, load, load_wordmark, wordmark_fits, wordmark_top  # noqa: PLC0415
 
         rows, columns = self.size()
         art = load()
@@ -315,6 +315,22 @@ class TuiApp:
                 if ch != " ":  # transparent cells carry no colour of their own (as in banner.render_lines)
                     self.canvas.put(top + index, column, ch, rgb=rgb)
                 column += 1
+        # The wordmark sits to the RIGHT of the fox, centred on its height: the block letters
+        # (branding/ascii/wordmark.json) when the terminal is wide enough, else the plain word in
+        # the same two colours, so the name is always beside the art.
+        left = MARGIN // 2 + art.width + WORDMARK_GAP
+        mark = load_wordmark()
+        if wordmark_fits(columns, banner=art, wordmark=mark):
+            for index, row in enumerate(mark.rows):
+                column = left
+                for ch, rgb in row:
+                    if ch != " ":
+                        self.canvas.put(top + wordmark_top(art, mark) + index, column, ch, rgb=rgb)
+                    column += 1
+        elif columns >= left + len("FloofyCrew") + MARGIN // 2:
+            middle = top + art.height // 2
+            self.canvas.put(middle, left, "Floofy", rgb=WORDMARK_NAME_RGB)
+            self.canvas.put(middle, left + len("Floofy"), "Crew", rgb=WORDMARK_CREW_RGB)
         return art.height + 1
 
     def footer(self, text: str) -> None:

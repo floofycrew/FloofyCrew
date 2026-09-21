@@ -32,6 +32,7 @@ from floofy_testing import REPO_ROOT
 BRANDING = REPO_ROOT / "branding" / "ascii"
 WIDTH, HEIGHT = 34, 15
 PACKAGE_DATA = REPO_ROOT / "floofy-core" / "floofy_core" / "cli" / "banner.json"
+WORDMARK_DATA = REPO_ROOT / "floofy-core" / "floofy_core" / "cli" / "wordmark.json"
 
 
 def test_package_data_is_a_byte_identical_copy_of_the_branding_asset():
@@ -45,6 +46,21 @@ def test_package_data_is_a_byte_identical_copy_of_the_branding_asset():
     inked = {rgb for row in art.rows for ch, rgb in row if ch != " "}
     assert inked == {(0xFF, 0xE4, 0xCF), (0xFF, 0xBF, 0xAE), (0xFF, 0xFF, 0xFF), (0x8A, 0x3B, 0x4C)}, "peach fluff, inner ear, white tail tip, lifted-ink eyes — the sunset palette, flat"
     assert any(ch == "." and rgb == (0x8A, 0x3B, 0x4C) for row in art.rows for ch, rgb in row), "the eyes are drawn"
+
+
+def test_wordmark_package_data_is_a_byte_identical_copy_and_sits_beside_the_fox():
+    """The interactive banner draws "FloofyCrew" right of the fox, centred on its height (wordmark-text.svg rasterised)."""
+    assert WORDMARK_DATA.read_bytes() == (BRANDING / "wordmark.json").read_bytes(), "floofy_core/cli/wordmark.json must equal branding/ascii/wordmark.json (source: branding/build_ascii.py)"
+    mark = banner.load_wordmark()
+    assert mark.name == "floofycrew-wordmark" and mark.source == "wordmark-text.svg" and mark.height == 7 and 70 <= mark.width <= 100
+    assert "\n".join(mark.text_rows) + "\n" == (BRANDING / "wordmark.txt").read_text(encoding="utf-8")
+    colours = {rgb for row in mark.rows for ch, rgb in row if ch != " "}
+    assert banner.WORDMARK_NAME_RGB in colours, '"Floofy" is the peach of wordmark-dark.svg'
+    assert len(colours) > 20 and all(r == 255 and 90 <= g <= 240 for r, g, _ in colours), '"Crew" carries the pink→orange gradient: every colour is a sunset tint'
+    art = banner.load()
+    assert banner.wordmark_top(art, mark) == (art.height - mark.height) // 2 == 4, "centred on the fox's 15 rows"
+    needed = banner.MARGIN + art.width + banner.WORDMARK_GAP + mark.width
+    assert banner.wordmark_fits(needed) and not banner.wordmark_fits(needed - 1)
 
 
 def test_truecolor_rendering_is_the_ans_export_with_the_margin():

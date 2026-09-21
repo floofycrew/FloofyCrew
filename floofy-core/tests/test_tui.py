@@ -45,7 +45,7 @@ from floofy_core.audit import read_audit
 from floofy_core.cli import banner, term, tui
 from floofy_core.cli.console import Console
 from floofy_core.cli.main import build_parser, execute, run
-from floofy_core.cli.style import Depth, Style, cube_index
+from floofy_core.cli.style import Depth, Style, cube_index, strip_ansi
 from floofy_core.consent import read_consent, write_consent
 from floofy_core.datahome import DataHome
 
@@ -418,6 +418,39 @@ def test_the_interface_opens_with_term_unset_and_quits_with_q(host):
     assert term.HIDE_CURSOR in out and out.rstrip().endswith(term.SHOW_CURSOR + term.LEAVE_ALTERNATE), "the cursor is hidden while drawn and shown again"
     assert "\x1b[95m" in out and "38;5;" not in out and "38;2;" not in out, "TERM unset: 16 colours — the banner in the single bright magenta"
     assert "usage: floofy" not in plain and tui.FALLBACK_HINT not in plain
+
+
+def _first_frame(raw: str) -> dict[int, str]:
+    """The first frame as ``row index -> plain text``: the driver paints each changed row as ``ESC[n;1H ESC[2K <row>``,
+    so the first occurrence of every row index is the first frame's content."""
+    frame: dict[int, str] = {}
+    for match in re.finditer(r"\x1b\[(\d+);1H\x1b\[2K(.*?)(?=\x1b\[\d+;1H|\x1b\[\?|\Z)", raw, re.S):
+        index = int(match.group(1)) - 1
+        frame.setdefault(index, strip_ansi(match.group(2)))
+    return frame
+
+
+def test_the_wordmark_sits_right_of_the_fox_centred_on_its_height(host):
+    """Block "FloofyCrew" (7 rows) beside the 15-row fox on a wide terminal; the plain two-colour word when it does not fit."""
+    art, mark = banner.load(), banner.load_wordmark()
+    left = banner.MARGIN // 2 + art.width + banner.WORDMARK_GAP
+    wide = banner.MARGIN + art.width + banner.WORDMARK_GAP + mark.width + 2
+    _, out = drive(host.argv(), _env(host, COLORTERM="truecolor"), [("Quit", "q")], columns=wide)
+    frame = _first_frame(out)
+    for index, text in enumerate(art.text_rows):
+        assert frame[index][banner.MARGIN // 2 : banner.MARGIN // 2 + art.width].rstrip() == text.rstrip(), f"fox row {index}"
+    top = banner.wordmark_top(art, mark)
+    for index, text in enumerate(mark.text_rows):
+        assert frame[top + index][left : left + mark.width].rstrip() == text.rstrip(), f"wordmark row {index} at column {left}, row {top + index}"
+    assert all(not frame[i][left:].strip() for i in range(art.height) if not top <= i < top + mark.height), "only the wordmark shares the fox's rows"
+    assert "\x1b[38;2;255;228;207m" in out, '"Floofy" in the peach of wordmark-dark.svg'
+    needed = banner.MARGIN + art.width + banner.WORDMARK_GAP + mark.width
+    _, narrow = drive(host.argv(), _env(host, COLORTERM="truecolor"), [("Quit", "q")], columns=needed - 1)
+    frame = _first_frame(narrow)
+    middle = art.height // 2
+    assert frame[middle][left : left + len("FloofyCrew")] == "FloofyCrew", "one column short of the block letters: the plain word, on the fox's middle row"
+    assert all(not frame[i][left:].strip() for i in range(art.height) if i != middle)
+    assert "\x1b[38;2;255;228;207mFloofy" in narrow and "\x1b[38;2;255;154;61mCrew" in narrow, "peach Floofy, orange Crew"
 
 
 def test_the_banner_follows_the_detected_colour_depth(host):
