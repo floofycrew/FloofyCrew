@@ -635,6 +635,41 @@ def test_self_update_swaps_a_scratch_target_stages_and_installs_the_loader_app_a
         assert again.exit == 0 and again.json["selfUpdate"]["available"] is True
 
 
+def test_the_swapped_in_release_runs_the_loader_app_step_itself(cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Everything after the swap runs on the OLD release's modules, so a bug in the Loader step of the release being
+    replaced ran once more on every update (1.1.3 → 1.1.4 and 1.1.4 → 1.1.5 on the test box). When the new zipapp is
+    runnable it is invoked as `<new pyz> self-update --install-staged --json` and its result relayed; the fake stand-in
+    zipapps of the other tests are not zip files, so they keep exercising the in-process fallback."""
+    import subprocess
+    import sys
+
+    built = tmp_path / "built" / "floofy.pyz"
+    built.parent.mkdir()
+    build = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "build_zipapp.py"), "--out", str(built)], capture_output=True, text=True, check=False)
+    assert build.returncode == 0, build.stderr
+    release = FakeRelease(newer(), pyz=built.read_bytes())
+    target, _pending = scratch_prefix(tmp_path)
+    install_fake_loader_app(cli.host_home)
+    launcher = tmp_path / "bin" / "kirocrew"
+    launcher.parent.mkdir()
+    launcher.write_text("#!/bin/sh\necho \"$@\" >> \"$FAKE_KIROCREW_LOG\"\ncase \"$1 $2\" in\n  \"app install\") mkdir -p \"$KIROCREW_HOME/apps/floofycrew\"; cp -r \"$3\"/. \"$KIROCREW_HOME/apps/floofycrew/\"; printf '{\"name\": \"floofycrew\", \"version\": \"%s\", \"enabled\": true}\\n' \"$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]+\"/app.json\"))[\"version\"])' \"$3\")\" > \"$KIROCREW_HOME/apps/floofycrew/installed.json\" ;;\n  \"app uninstall\") rm -rf \"$KIROCREW_HOME/apps/floofycrew\" ;;\n  *) : ;;\nesac\n", encoding="utf-8")
+    launcher.chmod(0o755)
+    monkeypatch.setenv("FAKE_KIROCREW_LOG", str(tmp_path / "kirocrew.log"))
+    with FakeReleaseServer(release) as server:
+        cli.feed(server)
+        result = cli.run("--yes", "--kirocrew", str(launcher), "self-update", "--target", str(target))
+        assert result.exit == 0, result.stderr + result.stdout
+        assert target.read_bytes() == built.read_bytes()
+        install = result.json["selfUpdate"]["installed"]["loaderApp"]["install"]
+        assert install["via"] == "new-release" and install["ok"] is True and install["enabled"] is True, install
+        assert "by the new release itself" in result.stdout
+        assert json.loads((cli.host_home / "apps" / "floofycrew" / "installed.json").read_text())["version"] == release.version
+        stage = read_stage(cli.paths.pending)
+        assert stage["applied"] is True and stage["present"] is False
+        rows = [r for r in read_audit(cli.paths.audit) if r["op"] == "self-update" and r["phase"] == "loader-app"]
+        assert rows[-1]["result"] == "ok", "the subprocess wrote the loader-app audit row into the same data home"
+
+
 def test_self_update_refuses_an_unsupported_release_unless_forced_and_needs_a_zipapp_target(cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target, _pending = scratch_prefix(tmp_path)
     with FakeReleaseServer(FakeRelease(newer(), supports={"internal": {CHANNEL: ["0.7.0.4"]}})) as server:

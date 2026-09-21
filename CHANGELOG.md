@@ -11,6 +11,28 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- The Loader app grant is recorded in the host's **local-source shape**. The
+  manager wrote the app name into `agent.apps_trusted` alone; the host treats such
+  a name-only grant as legacy — honoured only while an app with local provenance is
+  installed under that name, and refused for a fresh install as "execution trust
+  predates repository binding" (`apps/execution.py`). A Loader reinstall is exactly
+  a fresh install between its uninstall and install steps, so the 1.1.4 → 1.1.5
+  update on the test box had its restored grant rejected and `kirocrew app install`
+  refused, leaving the App page broken. `grant_app_trust` now writes what the
+  dashboard's "trust this app" writes for a directory/archive install: the name in
+  `agent.apps_trusted` **and** `agent.apps_trusted_local`, with no
+  `agent.apps_trusted_repositories` entry (a stale one is dropped). The test double
+  now refuses a fresh install on a name-only grant and requires the binding to
+  enable, like the host.
+- After the zipapp swap, the Loader app step is run **by the release just
+  installed**: `<interpreter> <new pyz> self-update --install-staged --json` as a
+  subprocess with the same host home, launcher and roots, its result relayed.
+  Everything after the swap otherwise runs on the old release's modules, which is
+  why two consecutive updates each re-ran the previous release's Loader-step bug.
+  A swap target that is not a runnable zipapp falls back to the in-process step.
+
 ## 1.1.5 — 2026-09-21
 
 A patch on 1.1.4 closing the two `self-update` reporting gaps found while updating

@@ -35,15 +35,22 @@ echo "$@" >> "$FAKE_KIROCREW_LOG"
 case "$1 $2" in
   "app install")
     name=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]+'/app.json'))['name'])" "$3")
+    # like the host (apps/execution.py _repository_grant_denied_for_binding): a name in apps_trusted with neither a
+    # local marker nor a repository binding is a legacy grant, refused for a fresh install of that name
+    if python3 -c "import json,sys; c=json.load(open(sys.argv[1])); a=c.get('agent',{}); n=sys.argv[2]; sys.exit(0 if n in a.get('apps_trusted',[]) and n not in a.get('apps_trusted_local',[]) and n not in a.get('apps_trusted_repositories',{}) else 1)" "$KIROCREW_HOME/config.json" "$name" 2>/dev/null; then
+      echo "execution trust predates repository binding and is inactive for repository-backed code; refresh the app listing, review its current repository, and grant trust again" >&2
+      exit 1
+    fi
     mkdir -p "$KIROCREW_HOME/apps/$name"
     cp -r "$3"/. "$KIROCREW_HOME/apps/$name/"
     printf '{"name": "%s", "version": "0.0.0", "enabled": false}\\n' "$name" > "$KIROCREW_HOME/apps/$name/installed.json"
     echo "installed $name v0.0.0"
     ;;
   "app enable")
-    if python3 -c "import json,sys; c=json.load(open(sys.argv[1])); sys.exit(0 if 'floofycrew' in c.get('agent',{}).get('apps_trusted',[]) else 1)" "$KIROCREW_HOME/config.json" 2>/dev/null; then
-      printf '{"name": "floofycrew", "version": "0.0.0", "enabled": true}\\n' > "$KIROCREW_HOME/apps/floofycrew/installed.json"
-      echo "enabled floofycrew"
+    # like the host: the name grant plus its binding (local marker for a directory/archive install, or a repository)
+    if python3 -c "import json,sys; c=json.load(open(sys.argv[1])); a=c.get('agent',{}); n=sys.argv[2]; sys.exit(0 if n in a.get('apps_trusted',[]) and (n in a.get('apps_trusted_local',[]) or n in a.get('apps_trusted_repositories',{})) else 1)" "$KIROCREW_HOME/config.json" "$3" 2>/dev/null; then
+      printf '{"name": "%s", "version": "0.0.0", "enabled": true}\\n' "$3" > "$KIROCREW_HOME/apps/$3/installed.json"
+      echo "enabled $3"
     else
       echo "blocked by execution policy: third-party app execution is disabled" >&2
       exit 1
@@ -61,8 +68,13 @@ except (OSError, ValueError):
     sys.exit(0)
 agent = doc.get("agent") or {}
 trusted = agent.get("apps_trusted")
+changed = False
 if isinstance(trusted, list) and name in trusted:
-    agent["apps_trusted"] = [n for n in trusted if n != name]
+    agent["apps_trusted"] = [n for n in trusted if n != name]; changed = True
+local = agent.get("apps_trusted_local")
+if isinstance(local, list) and name in local:
+    agent["apps_trusted_local"] = [n for n in local if n != name]; changed = True
+if changed:
     doc["agent"] = agent
     json.dump(doc, open(path, "w"), indent=2)
 PY
@@ -164,7 +176,8 @@ def test_init_installs_the_loader_app_offers_the_grant_and_enables(fake_host):
     calls = fake_host.called()
     assert any(c.startswith("app install") for c in calls) and "app enable floofycrew" in calls
     config = json.loads((fake_host.home_dir / "config.json").read_text(encoding="utf-8"))
-    assert config["agent"]["apps_trusted"] == ["floofycrew"], "the grant was written with the user's (--yes) confirmation"
+    assert config["agent"]["apps_trusted"] == ["floofycrew"] and config["agent"]["apps_trusted_local"] == ["floofycrew"], "the grant was written with the user's (--yes) confirmation, in the host's local-source shape"
+    assert "floofycrew" not in config["agent"].get("apps_trusted_repositories", {})
     installed = json.loads((fake_host.home_dir / "apps" / "floofycrew" / "installed.json").read_text(encoding="utf-8"))
     assert installed["enabled"] is True
     assert (fake_host.home_dir / "apps" / "floofycrew" / "floofy_core" / "cli" / "main.py").is_file(), "the vendored core is in the installed app"
@@ -192,7 +205,7 @@ def test_reinstall_restores_the_grant_the_host_drops_on_uninstall(fake_host):
     calls = fake_host.called()
     assert calls.count("app uninstall floofycrew") == 1
     config = json.loads((fake_host.home_dir / "config.json").read_text(encoding="utf-8"))
-    assert config["agent"]["apps_trusted"] == ["floofycrew"], "the grant the uninstall dropped is back"
+    assert config["agent"]["apps_trusted"] == ["floofycrew"] and config["agent"]["apps_trusted_local"] == ["floofycrew"], "the grant the uninstall dropped is back, local marker included (a name-only grant would have been refused at `app install`)"
     assert again.json["loaderApp"]["grantRestored"]["written"] is True
     assert "grant" not in again.json["loaderApp"] and again.json["loaderApp"]["hostVerdict"]["appExecutionAllowed"] is True, "with the grant back the host verdict is allowed and no grant question arises"
     assert "grant: restored" in again.stdout

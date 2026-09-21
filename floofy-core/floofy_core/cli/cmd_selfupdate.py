@@ -23,7 +23,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
+import subprocess
+import sys
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +49,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     su = sub.add_parser("self-update", help="update FloofyCrew itself to the newest release that supports this host (verified download, atomic swap, Loader app staged)")
     su.add_argument("--check", action="store_true", help="only check (a fresh check, ignoring the daily cache) and report")
     su.add_argument("--now", action="store_true", help="also install the Loader app update right away, even while a gateway runs (default: staged until no gateway runs)")
+    su.add_argument("--install-staged", action="store_true", help=argparse.SUPPRESS)  # the swapped-in release installs the stage on behalf of the process that swapped it
     su.add_argument("--force", action="store_true", help="install the newest release even when it is not newer or does not list this host version as supported")
     su.add_argument("--target", metavar="PYZ", default=None, help="the installed floofy.pyz to replace (default: the zipapp this floofy runs from, else ~/.local/lib/floofycrew/floofy.pyz)")
     su.set_defaults(handler=self_update)
@@ -126,6 +131,12 @@ def default_target() -> Path | None:
 
 
 def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
+    if getattr(args, "install_staged", False):
+        # Invoked by the process that just swapped this release in: no feed, no download — only the
+        # staged Loader app, installed with THIS release's code (install_stage_with_new_release).
+        installed = apply_staged(ctx, force=True)
+        ctx.set_result(selfUpdate={"installed": {"loaderApp": {"install": installed}}, "staged": read_stage(ctx.home.pending)})
+        return 0
     if ctx.offline:
         raise CliError("self-update needs the network; drop --offline")
     outcome = update_check(ctx, force=True, explicit=True)
@@ -193,11 +204,71 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.say(f"swapped {swapped} to FloofyCrew {release.version} (sha256 {downloaded['pyz']['sha256'][:12]}…); the next `floofy` runs it", tone="ok")
     result: dict[str, Any] = {"version": release.version, "target": str(swapped), "pyzSha256": downloaded["pyz"]["sha256"], "loaderApp": {**downloaded["loaderApp"], "stage": stage}}
     if meta["installed"]:
-        result["loaderApp"]["install"] = install_stage_now(ctx, args)
+        result["loaderApp"]["install"] = install_stage_with_new_release(ctx, args, swapped)
     else:
         say_stage(ctx)
     ctx.set_result(selfUpdate={**document, "installed": result})
     return 0
+
+
+def install_stage_with_new_release(ctx: CliContext, args: argparse.Namespace, swapped: Path) -> dict[str, Any] | None:
+    """Run the Loader app step on the release that was just swapped in, not on this (old) process.
+
+    Everything after :func:`swap` still executes the modules of the release being
+    replaced. For the Loader step that means an update from a release with a bug in
+    that very step re-runs the bug once more (the 1.1.3 → 1.1.4 and 1.1.4 → 1.1.5
+    updates on the test box each tripped over the grant handling of the *previous*
+    release). So when the stage is to be installed now, the new zipapp is invoked
+    as a subprocess — ``<interpreter> <new pyz> [global flags] self-update
+    --install-staged --json`` — with the same host home, launcher override and
+    payload roots, and its ``--json`` result is relayed. If it cannot be run (the
+    swap target is not a runnable zipapp, e.g. a test stand-in, or it exits without
+    a result) the step falls back to this process, as before.
+    """
+    stage = read_stage(ctx.home.pending)
+    if not stage or stage.get("applied") or not stage.get("present"):
+        return None
+    if not (args.now or not ctx.gateway_running()):
+        say_stage(ctx)
+        return None
+    if not _looks_like_zipapp(swapped):
+        return apply_staged(ctx, force=True)
+    command = [sys.executable, str(swapped), "--home", str(ctx.host_home), "--json", "--yes"]
+    if ctx.kirocrew is not None:
+        command += ["--kirocrew", str(ctx.kirocrew)]
+    for root in ctx.roots:
+        command += ["--root", str(root)]
+    if ctx.no_adapters:
+        command.append("--no-adapters")
+    if getattr(args, "no_color", False):
+        command.append("--no-color")
+    command += ["self-update", "--install-staged"]
+    env = {**os.environ, "FLOOFY_ACTOR": ctx.actor}
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=600, env=env, check=False)
+        document = json.loads(completed.stdout) if completed.stdout.strip() else {}
+        install = document.get("selfUpdate", {}).get("installed", {}).get("loaderApp", {}).get("install")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        install = None
+    if not isinstance(install, dict):
+        ctx.say("the new release could not run the Loader app step itself; running it here", tone="muted")
+        return apply_staged(ctx, force=True)
+    version = stage.get("version")
+    if install.get("ok") and install.get("enabled"):
+        ctx.say(f"Loader app updated to FloofyCrew {version} through the host App Kit (by the new release itself); it runs at the next gateway start", tone="ok")
+    elif install.get("ok"):
+        ctx.say(f"Loader app {version} is installed but DISABLED: the host refused to enable it. Run `floofy init` to record the grant and enable it, then restart the gateway", tone="warn")
+    else:
+        ctx.say("Loader app update: the host App Kit install did not complete; the archive stays staged (details in the audit log)", tone="warn")
+    return {**install, "via": "new-release"}
+
+
+def _looks_like_zipapp(path: Path) -> bool:
+    """A zipapp ends in a zip central directory; a stand-in or a truncated download does not."""
+    try:
+        return zipfile.is_zipfile(path)
+    except OSError:
+        return False
 
 
 def install_stage_now(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any] | None:

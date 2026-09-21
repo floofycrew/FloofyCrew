@@ -242,11 +242,22 @@ def config_set_many(config_path: Path, values: dict[str, Any], *, delete_absent_
 
 
 def grant_app_trust(config_path: Path, app_name: str = LOADER_APP_NAME) -> ConfigEdit:
-    """Append ``app_name`` to ``agent.apps_trusted`` (``apps/execution.py`` L378–L425 ``trusted_app_names``).
+    """Record the per-app execution grant for a **local-source** app, in the host's own shape.
 
-    The per-app grant the manager offers with the user's confirmation
-    (Requirement 2.3). Literal names only; idempotent. This is the operator's
-    own config key, not a governance file.
+    The grant the manager offers with the user's confirmation (Requirement 2.3),
+    written exactly as the dashboard's "trust this app" does for an app installed
+    from a directory or archive (``dashboard/handlers/security.py`` ``_mutate``):
+    the name in ``agent.apps_trusted`` **and** in ``agent.apps_trusted_local``, with
+    no ``agent.apps_trusted_repositories`` entry. The host (``apps/execution.py``
+    ``_repository_grant_denied_for_binding``) treats a name that is in
+    ``apps_trusted`` alone as a legacy grant: it is honoured only while an app with
+    positively local provenance is installed under that name, and refused as
+    "execution trust predates repository binding" for a fresh install — which is
+    what a Loader reinstall is between its uninstall and install steps (seen on a
+    live 0.7.0.5: `kirocrew app install` refused with exactly that reason). The
+    local marker covers the empty source coordinate without consulting installed
+    metadata, so the grant holds across the reinstall. Literal names only;
+    idempotent; this is the operator's own config key, not a governance file.
     """
     edit = ConfigEdit(Path(config_path))
 
@@ -257,12 +268,23 @@ def grant_app_trust(config_path: Path, app_name: str = LOADER_APP_NAME) -> Confi
         trusted = agent.get("apps_trusted")
         if not isinstance(trusted, list):
             trusted = []
+        local = agent.get("apps_trusted_local")
+        if not isinstance(local, list):
+            local = []
+        repositories = agent.get("apps_trusted_repositories")
+        if not isinstance(repositories, dict):
+            repositories = {}
         edit.previous["agent.apps_trusted"] = list(trusted)
-        if app_name in trusted:
+        edit.previous["agent.apps_trusted_local"] = list(local)
+        edit.previous["agent.apps_trusted_repositories"] = dict(repositories)
+        if app_name in trusted and app_name in local and app_name not in repositories:
             return None
-        agent["apps_trusted"] = [*trusted, app_name]
+        agent["apps_trusted"] = trusted if app_name in trusted else [*trusted, app_name]
+        agent["apps_trusted_local"] = local if app_name in local else [*local, app_name]
+        # a stale repository binding from a former registry-owned occupant of the name must not survive
+        agent["apps_trusted_repositories"] = {k: v for k, v in repositories.items() if k != app_name}
         return document
 
     _document, edit.written = _locked_rmw(edit.path, mutate)
-    edit.detail = f"agent.apps_trusted now includes {app_name!r}" if edit.written else f"{app_name!r} was already in agent.apps_trusted"
+    edit.detail = f"agent.apps_trusted and agent.apps_trusted_local now include {app_name!r} (local-source binding)" if edit.written else f"{app_name!r} was already granted as a local-source app"
     return edit
