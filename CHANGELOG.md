@@ -98,7 +98,11 @@ same `supports` list as 1.1.1.
   art and centred on its height; when the terminal is narrower than fox + gap + block
   letters (110 columns) the plain word is drawn in the same two colours instead.
   `floofy doctor` and `floofy --version` print the block over their header lines
-  on a terminal of 110 columns or more. The copies the installers
+  on a terminal of 110 columns or more. The installers print the same composition
+  (`branding/ascii/floofy-wide.*`, the fox with the wordmark beside it) from 110
+  columns: embedded as `BANNER_WIDE_TXT`/`BANNER_WIDE_ANS` in the public `install.sh`,
+  shipped as `banner/floofy-wide.*` in the internal package; both are written by
+  `scripts/refresh_install_banners.py` (`--check` in the tests). The copies the installers
   carry — the `BANNER_TXT`/`BANNER_ANS` literals of the public `install.sh` and the
   internal package's `banner/` files — are refreshed from the same
   `branding/ascii/` art (their tests hold them byte-identical to it).

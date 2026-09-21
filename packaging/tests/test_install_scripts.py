@@ -154,8 +154,15 @@ def test_the_public_script_embeds_the_branding_banner_and_the_internal_package_s
     assert embedded_txt + "\n" == (BRANDING / "floofy.txt").read_text(encoding="utf-8")
     embedded_ans = public.split("BANNER_ANS='", 1)[1].split("'", 1)[0]
     assert embedded_ans.replace("\\033", "\x1b") + "\n" == (BRANDING / "floofy.ans").read_text(encoding="utf-8"), "printf %b turns \\033 into ESC: the embedded art is branding/ascii/floofy.ans"
-    for name in ("floofy.ans", "floofy.txt"):
-        assert (INTERNAL / "FloofyCrew" / "banner" / name).read_bytes() == (BRANDING / name).read_bytes(), f"packaging/internal/FloofyCrew/banner/{name} is a byte-identical copy (source: branding/build_ascii.py)"
+    embedded_wide_txt = public.split("BANNER_WIDE_TXT='", 1)[1].split("'", 1)[0]
+    assert embedded_wide_txt + "\n" == (BRANDING / "floofy-wide.txt").read_text(encoding="utf-8"), "the wide art (fox + wordmark) is embedded too"
+    embedded_wide_ans = public.split("BANNER_WIDE_ANS='", 1)[1].split("'", 1)[0]
+    assert embedded_wide_ans.replace("\\033", "\x1b") + "\n" == (BRANDING / "floofy-wide.ans").read_text(encoding="utf-8")
+    for name in ("floofy.ans", "floofy.txt", "floofy-wide.ans", "floofy-wide.txt"):
+        assert (INTERNAL / "FloofyCrew" / "banner" / name).read_bytes() == (BRANDING / name).read_bytes(), f"packaging/internal/FloofyCrew/banner/{name} is a byte-identical copy (source: branding/build_ascii.py, copied by scripts/refresh_install_banners.py)"
+    wide = (BRANDING / "floofy-wide.txt").read_text(encoding="utf-8").splitlines()
+    assert len(wide[0]) + 2 <= 110, "indented by two, the wide art fits a 110-column terminal"
+    assert wide[4:10] != (BRANDING / "floofy.txt").read_text(encoding="utf-8").splitlines()[4:10], "the wordmark occupies the fox's middle rows"
 
 
 # --- non-interactive runs -------------------------------------------------------------------------------------
@@ -306,6 +313,14 @@ def test_terminal_banner_switches(internal_package: dict, tmp_path: Path):
     assert "\x1b[95m  " + art[0] in basic, "16/256 colours: the plain art in one colour"
     narrow_code, narrow = _run_on_pty(script, ["--prefix", str(prefix)], _env(home, COLORTERM="truecolor"), answers, columns=41)
     assert narrow_code == 0 and "\x1b[38;2;" not in narrow and art[0] not in narrow, "narrower than 42 columns: no banner, colours still on"
+    wide_rows = (BRANDING / "floofy-wide.ans").read_text(encoding="utf-8").splitlines()
+    wide_code, wide = _run_on_pty(script, ["--prefix", str(prefix)], _env(home, COLORTERM="truecolor"), answers, columns=110)
+    assert wide_code == 0 and "  " + wide_rows[6] in wide, "110 columns: the fox with the FloofyCrew wordmark beside it"
+    plain_wide_code, plain_wide = _run_on_pty(script, ["--prefix", str(prefix)], _env(home), answers, columns=110)
+    wide_txt = (BRANDING / "floofy-wide.txt").read_text(encoding="utf-8").splitlines()
+    assert plain_wide_code == 0 and "\x1b[95m  " + wide_txt[0] in plain_wide and "  " + wide_txt[6] in plain_wide, "16 colours at 110 columns: the wide art in one colour"
+    just_short_code, just_short = _run_on_pty(script, ["--prefix", str(prefix)], _env(home, COLORTERM="truecolor"), answers, columns=109)
+    assert just_short_code == 0 and "  " + wide_rows[6] not in just_short and "  " + (BRANDING / "floofy.ans").read_text(encoding="utf-8").splitlines()[6] in just_short, "109 columns: the fox alone"
     assert "\x1b[95m[1/5]\x1b[0m" in narrow
     no_banner_code, no_banner = _run_on_pty(script, ["--prefix", str(prefix), "--no-banner"], _env(home, COLORTERM="truecolor"), answers)
     assert no_banner_code == 0 and art[0] not in no_banner and "\x1b[95m[1/5]\x1b[0m" in no_banner

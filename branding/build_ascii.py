@@ -300,8 +300,30 @@ def main(argv: list[str] | None = None) -> int:
     fox = cells_from_pixels(pixels, cols, rows)
     # the fox keeps the full requested width (columns are the layout contract)
     write_art("floofycrew-banner", "floofy", args.source, fox)
-    write_art("floofycrew-wordmark", "wordmark", args.wordmark_source, wordmark_cells(args.chrome, args.wordmark_source, args.wordmark_rows))
+    mark = wordmark_cells(args.chrome, args.wordmark_source, args.wordmark_rows)
+    write_art("floofycrew-wordmark", "wordmark", args.wordmark_source, mark)
+    # the two side by side, as the installers print them on a terminal of >= 110 columns
+    write_art("floofycrew-banner-wide", "floofy-wide", args.source, compose(fox, mark, WIDE_GAP))
     return 0
+
+
+#: Columns between the fox and the wordmark in the composed wide banner (matches the CLI's WORDMARK_GAP).
+WIDE_GAP = 3
+
+
+def compose(fox: list[list[tuple[str, RGB]]], mark: list[list[tuple[str, RGB]]], gap: int) -> list[list[tuple[str, RGB]]]:
+    """Fox rows with the wordmark to their right, centred on the fox's height (the interactive layout)."""
+    top = max(0, (len(fox) - len(mark)) // 2)
+    fox_width = len(fox[0])
+    blank: tuple[str, RGB] = (" ", (0, 0, 0))
+    rows: list[list[tuple[str, RGB]]] = []
+    for index in range(max(len(fox), top + len(mark))):
+        row = list(fox[index]) if index < len(fox) else [blank] * fox_width
+        if top <= index < top + len(mark):
+            row += [blank] * gap + list(mark[index - top])
+        rows.append(row)
+    width = max(len(r) for r in rows)
+    return [r + [blank] * (width - len(r)) for r in rows]
 
 
 if __name__ == "__main__":
