@@ -14,7 +14,9 @@
 // action goes through the Loader's typed routes (`./app/api.mjs`, task 11.1) —
 // the same `floofy` handler as the CLI, `actor: app` in the audit row — and a
 // confirmation the CLI would ask arrives as a 409 question the App presents.
-// The unofficial banner is always visible; the palette mirrors the CLI's.
+// The unofficial statement is always visible — in the banner, and in the footer
+// once the banner has been dismissed with "don't show this again" (a browser
+// preference; Settings › About restores it); the palette mirrors the CLI's.
 // A capability the App lacks is shown with its terminal command, never hidden.
 // The red "Restart KiroCrew" button (header, the staged line, Settings) is the
 // one action that touches the host process: POST /host/restart asks first and
@@ -29,7 +31,7 @@ import { ensureStarted } from "./host.mjs";
 import { RestartButton } from "./app/actions.mjs";
 import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf, waitForGateway } from "./app/api.mjs";
 import { ConfirmationHost, useAsker } from "./app/confirm.mjs";
-import { UNOFFICIAL, styles } from "./app/palette.mjs";
+import { RADIUS, UNOFFICIAL, styles } from "./app/palette.mjs";
 import { AuditPage } from "./app/pages/audit.mjs";
 import { DoctorPage } from "./app/pages/doctor.mjs";
 import { ModsPage } from "./app/pages/mods.mjs";
@@ -171,11 +173,63 @@ function Header({ manager }) {
     "div",
     { style: styles.header, "data-testid": "floofycrew-header" },
     // the host serves an installed app's declared art at /apps/<name>/art/<iconPath verbatim> (kiro_crew/apps/routes.py handle_app_art_file)
-    React.createElement("img", { src: `/apps/floofycrew/art/${ICON_PATH}`, alt: "", width: 36, height: 36, style: { borderRadius: "8px" }, "data-testid": "floofycrew-icon" }),
+    React.createElement("img", { src: `/apps/floofycrew/art/${ICON_PATH}`, alt: "", width: 36, height: 36, style: { borderRadius: RADIUS }, "data-testid": "floofycrew-icon" }),
     React.createElement("h1", { style: styles.title }, "FloofyCrew"),
     React.createElement("span", { style: styles.muted }, state ? `Loader ${state.loader} · FloofyCrew ${state.loaderVersion || "?"} · API ${state.api_version || "?"}` : "loading…"),
     React.createElement("span", { style: styles.muted }, `host ${host.edition || "?"} ${host.version || "?"} (${host.channel || "channel unknown"})`),
     React.createElement("div", { style: styles.headerActions }, React.createElement(RestartButton, { manager, testid: "floofycrew-restart-header" })),
+  );
+}
+
+/** The author line of the footer. */
+export const AUTHOR = "Oscar Tseng";
+/** Where the banner preference lives: the browser's localStorage, per dashboard origin — a UI preference, not Loader state. */
+export const BANNER_PREFERENCE_KEY = "floofycrew.banner.hidden";
+
+function readBannerHidden() {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(BANNER_PREFERENCE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The banner preference: "don't show this again" hides the long unofficial banner on this browser; Settings brings it
+ * back. The unofficial statement itself stays on every page — the footer carries it — so hiding the banner never hides
+ * what FloofyCrew is (Requirement 11.8).
+ */
+export function useBannerPreference() {
+  const [hidden, setHidden] = React.useState(readBannerHidden);
+  const set = React.useCallback((value) => {
+    setHidden(value);
+    try {
+      if (value) localStorage.setItem(BANNER_PREFERENCE_KEY, "1");
+      else localStorage.removeItem(BANNER_PREFERENCE_KEY);
+    } catch {
+      /* no storage: the preference lasts for this page only */
+    }
+  }, []);
+  return { hidden, hide: () => set(true), show: () => set(false) };
+}
+
+function Banner({ banner }) {
+  if (banner.hidden) return null;
+  return React.createElement(
+    "div",
+    { style: styles.banner, "data-testid": "floofycrew-banner", role: "note" },
+    React.createElement("span", null, `FloofyCrew mod manager — UNOFFICIAL. ${UNOFFICIAL} Mods run with the gateway's privileges on your consent; governance verdicts are warnings, never gates.`),
+    React.createElement("button", { type: "button", style: styles.bannerDismiss, "data-testid": "floofycrew-banner-dismiss", title: "Hide this banner on this browser; Settings › About shows it again. The footer keeps the unofficial statement.", onClick: banner.hide }, "Don't show this again"),
+  );
+}
+
+function Footer({ state }) {
+  return React.createElement(
+    "footer",
+    { style: styles.footer, "data-testid": "floofycrew-footer" },
+    React.createElement("span", null, UNOFFICIAL),
+    React.createElement("span", null, `FloofyCrew ${(state && state.loaderVersion) || "?"}`),
+    React.createElement("span", { "data-testid": "floofycrew-footer-author" }, `author: ${AUTHOR}`),
   );
 }
 
@@ -219,17 +273,19 @@ export default function FloofyCrewApp({ ask: askOverride, initialPage } = {}) {
   }, [route.key, refresh]);
   // the one-time warning on request (Settings, the "consent required" line): the consent route asks, the modal answers
   const openConsent = React.useCallback(({ reaccept = false } = {}) => manager.act("/consent", reaccept ? { reaccept: true } : {}), [manager.act]);
+  const banner = useBannerPreference();
 
   return React.createElement(
     "div",
     { style: styles.page, "data-testid": "floofycrew-manager" },
     React.createElement(Header, { manager }),
-    React.createElement("div", { style: styles.banner, "data-testid": "floofycrew-banner", role: "note" }, `FloofyCrew mod manager — UNOFFICIAL. ${UNOFFICIAL} Mods run with the gateway's privileges on your consent; governance verdicts are warnings, never gates.`),
+    React.createElement(Banner, { banner }),
     React.createElement(Nav, { current: page.key, onSelect: select }),
     manager.restarting ? React.createElement("div", { style: { ...styles.card, ...styles.warn }, "data-testid": "floofycrew-restarting", role: "status" }, "Restarting the KiroCrew gateway — the dashboard reloads when the new gateway answers (up to two minutes). If it does not come back, run `kirocrew restart` at a terminal.") : null,
-    React.createElement("section", { style: styles.pageBody, "data-testid": `floofycrew-page-${page.key}` }, React.createElement(page.component, { manager, rest: route.rest, navigate: select, openConsent })),
+    React.createElement("section", { style: styles.pageBody, "data-testid": `floofycrew-page-${page.key}` }, React.createElement(page.component, { manager, rest: route.rest, navigate: select, openConsent, banner })),
     manager.error ? React.createElement("div", { style: { ...styles.card, ...styles.danger }, "data-testid": "floofycrew-error" }, manager.error) : null,
     manager.output ? React.createElement("pre", { style: { ...styles.card, ...styles.mono }, "data-testid": "floofycrew-output" }, manager.output) : null,
+    React.createElement(Footer, { state: manager.state }),
     askOverride ? null : React.createElement(ConfirmationHost, { pending: asker.pending, answer: asker.answer }),
   );
 }

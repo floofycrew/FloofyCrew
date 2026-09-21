@@ -34,6 +34,16 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Changed
 
+- **Manager App: squared corners, a footer, a dismissable banner.** Every corner
+  of the App sits on one small radius (`RADIUS`, 2 px): cards, the banner, tabs,
+  buttons, inputs, badges (no more pills), the code chips and the modal. The page
+  ends with a footer — a rule, the unofficial statement, the running version and
+  `author: Oscar Tseng` — with 6 rem of room below it. The unofficial banner at
+  the top carries "Don't show this again": a browser preference
+  (`localStorage` `floofycrew.banner.hidden`) that hides the banner on that
+  browser; Settings › About shows it again, and the footer keeps the unofficial
+  statement on every page, so hiding the banner never hides what FloofyCrew is
+  (Requirement 11.8).
 - **Link records no longer need a git tag.** A registry link record now pins
   `link{repo, path, commit, manifestSha256[, ref]}`: the mod lives under its
   directory on the repository's default branch, the registry records the commit it

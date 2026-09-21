@@ -125,13 +125,35 @@ def test_pages_are_columns_of_cards_and_the_sources_are_a_table():
     """1.1.6: the shell's page section is a flex column with the card gap, the page ends with room below, Sources is a table, Profiles explains itself."""
     palette = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
     assert re.search(r'pageBody: \{ display: "flex", flexDirection: "column", gap: "1\.25rem" \}', palette)
-    assert re.search(r'page: \{ padding: "1\.25rem 1\.25rem 4rem"', palette), "room under the last card"
+    assert re.search(r'page: \{ padding: "1\.25rem 1\.25rem 6rem"', palette), "room under the footer"
     shell = (UI / "index.mjs").read_text(encoding="utf-8")
     assert 'React.createElement("section", { style: styles.pageBody' in shell
     registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
     assert '"table"' in registry and "floofycrew-sources-table" in registry and '["Source", "Trust", "Signature policy", "Last refresh", "Actions"]' in registry
     profiles = (UI / "app" / "pages" / "profiles.mjs").read_text(encoding="utf-8")
     assert "export const PROFILES_INTRO" in profiles and "floofycrew-profiles-intro" in profiles
+
+
+def test_corners_are_squared_footer_and_banner_preference():
+    """Squared corners everywhere (one RADIUS ≤ 4px, no pill badges, no rounded modal), the footer with the author, the banner's
+    "don't show this again" that leaves the unofficial statement in the footer (Requirement 11.8)."""
+    palette = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
+    radius = re.search(r'export const RADIUS = "(\d+)px";', palette)
+    assert radius and int(radius.group(1)) <= 4, "the one radius is squared"
+    for path in modules():
+        text = path.read_text(encoding="utf-8")
+        for value in re.findall(r"borderRadius: ([^,}]+)", text):
+            assert "RADIUS" in value, f"{path.name}: a corner not on the shared radius: {value}"
+    assert "footer:" in palette and "bannerDismiss:" in palette
+    shell = (UI / "index.mjs").read_text(encoding="utf-8")
+    assert 'export const AUTHOR = "Oscar Tseng";' in shell
+    assert '"footer"' in shell and "floofycrew-footer-author" in shell and "`author: ${AUTHOR}`" in shell
+    footer = shell.split("function Footer")[1].split("function Nav")[0]
+    assert "UNOFFICIAL" in footer, "the footer carries the unofficial statement, so the dismissed banner never hides it"
+    assert "floofycrew-banner-dismiss" in shell and 'localStorage.getItem(BANNER_PREFERENCE_KEY) === "1"' in shell
+    settings = (UI / "app" / "pages" / "settings.mjs").read_text(encoding="utf-8")
+    assert "floofycrew-banner-toggle" in settings and "banner.show" in settings, "Settings brings the banner back"
+    assert re.search(r'page: \{ padding: "1\.25rem 1\.25rem 6rem"', palette), "room under the footer"
 
 
 def test_the_shell_talks_to_the_loader_same_origin_only():

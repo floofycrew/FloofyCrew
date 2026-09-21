@@ -924,6 +924,23 @@ def test_7_ui_polish_and_the_restart_button(harness: Harness):
         page.click('[data-testid="floofycrew-nav-profiles"]')
         page.wait_for_selector('[data-testid="floofycrew-profiles-intro"]', timeout=60000)
         assert "named snapshot" in page.inner_text('[data-testid="floofycrew-profiles-intro"]')
+        # squared corners: cards, the banner, buttons and badges all sit on the one small radius
+        radii = page.evaluate("() => ['[data-testid=\"floofycrew-profiles\"]', '[data-testid=\"floofycrew-banner\"]', '[data-testid=\"floofycrew-restart-header\"]', '[data-testid=\"floofycrew-nav-mods\"]'].map(s => parseFloat(getComputedStyle(document.querySelector(s)).borderTopLeftRadius))")
+        assert all(0 <= r <= 4 for r in radii), radii
+        # the footer: a rule, the unofficial statement, the author; "don't show this again" hides the banner and survives a reload
+        footer = page.inner_text('[data-testid="floofycrew-footer"]')
+        assert "not affiliated" in footer and "author: Oscar Tseng" in footer, footer
+        assert page.evaluate("() => getComputedStyle(document.querySelector('[data-testid=\"floofycrew-footer\"]')).borderTopStyle") == "solid"
+        page.click('[data-testid="floofycrew-banner-dismiss"]')
+        page.wait_for_selector('[data-testid="floofycrew-banner"]', state="detached", timeout=30000)
+        page.reload(wait_until="load")
+        page.wait_for_selector('[data-testid="floofycrew-footer"]', timeout=60000)
+        assert page.locator('[data-testid="floofycrew-banner"]').count() == 0, "the preference is remembered on this browser"
+        assert "not affiliated" in page.inner_text('[data-testid="floofycrew-footer"]'), "the unofficial statement stays (Requirement 11.8)"
+        page.click('[data-testid="floofycrew-nav-settings"]')
+        page.wait_for_selector('[data-testid="floofycrew-banner-toggle"]', timeout=60000)
+        page.click('[data-testid="floofycrew-banner-toggle"]')
+        page.wait_for_selector('[data-testid="floofycrew-banner"]', timeout=30000)
         # the red button: header, Settings; it asks through the modal and a decline changes nothing
         rows_before = len(_audit_rows(harness))
         assert page.locator('[data-testid="floofycrew-restart-header"]').count() == 1

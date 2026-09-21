@@ -40,7 +40,7 @@ function Banner() {
   );
 }
 
-export function SettingsPage({ manager, openConsent }) {
+export function SettingsPage({ manager, openConsent, banner }) {
   const { state, busy, act } = manager;
   const consent = (state && state.consent) || {};
   const host = (state && state.host) || {};
@@ -81,6 +81,14 @@ export function SettingsPage({ manager, openConsent }) {
       React.createElement("h2", { style: styles.cardTitle }, "About"),
       React.createElement("div", { style: styles.kv }, React.createElement("span", { style: styles.muted }, "FloofyCrew"), React.createElement("span", null, state ? `${state.loaderVersion || "?"} (API ${state.api_version || "?"})` : "…"), React.createElement("span", { style: styles.muted }, "host"), React.createElement("span", null, `${host.edition || "?"} ${host.version || "?"} ${host.channel || ""}`), React.createElement("span", { style: styles.muted }, "data home"), React.createElement("span", null, (state && state.dataHome) || "…")),
       React.createElement("div", { style: { ...styles.muted, marginTop: "0.4rem", color: PALETTE.accent } }, UNOFFICIAL),
+      banner
+        ? React.createElement(
+            "div",
+            { style: { marginTop: "0.5rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }, "data-testid": "floofycrew-banner-preference" },
+            React.createElement("span", { style: styles.muted }, banner.hidden ? "The unofficial banner at the top is hidden on this browser (the footer keeps the statement)." : "The unofficial banner shows at the top of every page on this browser."),
+            React.createElement("button", { type: "button", style: { ...styles.button, marginBottom: 0 }, "data-testid": "floofycrew-banner-toggle", onClick: banner.hidden ? banner.show : banner.hide }, banner.hidden ? "Show the banner again" : "Hide the banner"),
+          )
+        : null,
       React.createElement(Banner, null),
     ),
   );
