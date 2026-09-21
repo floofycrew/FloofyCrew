@@ -1,51 +1,186 @@
 #!/usr/bin/env python
-"""Build the FloofyCrew terminal banner from the coloured ASCII-art HTML export.
+"""Build the FloofyCrew terminal banner from the mark itself.
 
-Input:  ``branding/ascii/source.html`` — a ``<pre>`` of ``<span style="color: rgb(r, g, b)">chars</span>``
-        runs, one line per art row (the export ***REMOVED*** produced on 2026-09-20).
-Output: ``branding/ascii/floofy.json`` — ``{"width", "height", "rows": [[[char, [r, g, b]], …], …]}``,
-        one entry per cell, the machine-readable source the CLI renders from
-        (Requirement 15.5: truecolor when available, 16-colour fallback, omitted when colours are off);
-        ``branding/ascii/floofy.ans``  — the same art as 24-bit ANSI escapes, for a quick ``cat``;
-        ``branding/ascii/floofy.txt``  — plain glyphs, no colour.
+Pipeline (standard library + the headless Chromium already used by build_icons.py):
 
-Standard library only, like everything else in the project. Re-run after replacing ``source.html``.
+1. ``branding/logo-nobg.svg`` (the fox without the card, written by build_icons.py)
+   is rendered to a small transparent PNG, ``COLS`` px wide and ``2 * ROWS`` px
+   tall — one terminal cell is one pixel wide and two pixels tall, which is the
+   usual glyph aspect, so the art keeps the mark's proportions.
+2. The PNG is decoded here (8-bit RGBA, zlib + the five PNG filters; no Pillow).
+3. Each cell averages its two pixels: alpha coverage picks the glyph from a
+   density ramp (space, ``.``, ``+``, ``%``/``#``/``@``), the alpha-weighted colour
+   is snapped to the nearest branding colour so the terminal shows crisp flats.
+   Eyes (the ink colour) are drawn as ``.`` in a lifted maroon: the real ink is
+   near-black and would vanish on a dark terminal.
+
+Output (``branding/ascii/``): ``floofy.json`` — ``{"name", "width", "height",
+"source", "rows": [[[char, [r, g, b]], …], …]}``, the document
+``floofy_core/cli/banner.json`` must be a byte-identical copy of; ``floofy.ans``
+(24-bit ANSI, for ``cat``); ``floofy.txt`` (glyphs only).
+
+Usage: python branding/build_ascii.py [--cols N] [--chrome PATH]
 """
 from __future__ import annotations
 
-import html
+import argparse
 import json
-import re
+import struct
+import subprocess
 import sys
+import tempfile
+import zlib
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent / "ascii"
-SPAN = re.compile(r'<span style="color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\);?">([^<]*)</span>')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gen_logos as g  # noqa: E402
+
+HERE = Path(__file__).resolve().parent
+OUT = HERE / "ascii"
+SOURCE = HERE / "logo-nobg.svg"
+DEFAULT_CHROME = Path.home() / ".cache/ms-playwright/chromium-1244/chrome-linux64/chrome"
+DEFAULT_COLS = 34
+
+RGB = tuple[int, int, int]
 
 
-def parse(source: str) -> list[list[tuple[str, tuple[int, int, int]]]]:
-    body = re.search(r"<code>(.*?)</code>", source, re.S)
-    text = body.group(1) if body else source
-    rows: list[list[tuple[str, tuple[int, int, int]]]] = []
-    for raw_line in text.split("\n"):
-        line = raw_line.strip("\r")
-        if not line.strip():
-            continue
-        cells: list[tuple[str, tuple[int, int, int]]] = []
-        for r, g, b, chunk in SPAN.findall(line):
-            for ch in html.unescape(chunk):
-                cells.append((ch, (int(r), int(g), int(b))))
-        if cells:
-            rows.append(cells)
-    return rows
+def _hex(color: str) -> RGB:
+    return (int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16))
 
 
-def to_ansi(rows: list[list[tuple[str, tuple[int, int, int]]]]) -> str:
+PALETTE = g.PALETTES["sunset"]
+#: (rgb, glyph for a fully covered cell) — the colours a cell may take.
+CLASSES: tuple[tuple[RGB, str], ...] = (
+    (_hex(PALETTE.body), "%"),  # peach fluff
+    (_hex(PALETTE.inner), "#"),  # inner ear
+    (_hex(PALETTE.tip or "#FFFFFF"), "@"),  # white tail tip
+    (_hex(PALETTE.ink), "."),  # eyes
+)
+#: The eyes' terminal colour: the ink lifted so it survives a dark background.
+EYE_COLOR: RGB = (0x8A, 0x3B, 0x4C)
+#: Coverage thresholds for the partial-cell glyphs.
+RAMP = ((0.12, " "), (0.38, "."), (0.68, "+"))
+
+
+# --------------------------------------------------------------------------
+# PNG decoding (8-bit RGBA, non-interlaced — what Chromium writes)
+# --------------------------------------------------------------------------
+def decode_png(data: bytes) -> tuple[int, int, list[list[tuple[int, int, int, int]]]]:
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", "not a PNG"
+    pos, idat, width = 8, b"", 0
+    height = bit_depth = color_type = interlace = 0
+    while pos < len(data):
+        length, kind = struct.unpack(">I4s", data[pos : pos + 8])
+        body = data[pos + 8 : pos + 8 + length]
+        if kind == b"IHDR":
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", body)
+        elif kind == b"IDAT":
+            idat += body
+        elif kind == b"IEND":
+            break
+        pos += 12 + length
+    if bit_depth != 8 or color_type not in (6, 2) or interlace:
+        raise SystemExit(f"unsupported PNG (depth {bit_depth}, type {color_type}, interlace {interlace})")
+    channels = 4 if color_type == 6 else 3
+    stride = width * channels
+    raw = zlib.decompress(idat)
+    rows: list[bytearray] = []
+    prev = bytearray(stride)
+    offset = 0
+    for _ in range(height):
+        filter_type = raw[offset]
+        line = bytearray(raw[offset + 1 : offset + 1 + stride])
+        offset += 1 + stride
+        for i in range(stride):
+            a = line[i - channels] if i >= channels else 0
+            b = prev[i]
+            c = prev[i - channels] if i >= channels else 0
+            if filter_type == 1:
+                line[i] = (line[i] + a) & 0xFF
+            elif filter_type == 2:
+                line[i] = (line[i] + b) & 0xFF
+            elif filter_type == 3:
+                line[i] = (line[i] + (a + b) // 2) & 0xFF
+            elif filter_type == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                pred = a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+                line[i] = (line[i] + pred) & 0xFF
+        rows.append(line)
+        prev = line
+    pixels = [[(r[x * channels], r[x * channels + 1], r[x * channels + 2], r[x * channels + 3] if channels == 4 else 255) for x in range(width)] for r in rows]
+    return width, height, pixels
+
+
+# --------------------------------------------------------------------------
+# rendering
+# --------------------------------------------------------------------------
+def render_png(chrome: Path, svg: Path, width: int, height: int) -> bytes:
+    """Rasterise ``svg`` to exactly width×height with a transparent background."""
+    with tempfile.TemporaryDirectory() as td:
+        html = Path(td) / "wrap.html"
+        out = Path(td) / "art.png"
+        html.write_text(
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            "html,body{margin:0;padding:0;background:transparent;overflow:hidden}"
+            f"img{{display:block;width:{width}px;height:{height}px}}"
+            f"</style></head><body><img src='{svg.resolve().as_uri()}'></body></html>"
+        )
+        subprocess.run(
+            [str(chrome), "--headless=new", "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
+             "--default-background-color=00000000", f"--window-size={width},{height}", f"--screenshot={out}", html.as_uri()],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return out.read_bytes()
+
+
+def nearest_class(rgb: RGB) -> int:
+    return min(range(len(CLASSES)), key=lambda i: sum((a - b) ** 2 for a, b in zip(CLASSES[i][0], rgb)))
+
+
+def cells_from_pixels(pixels: list[list[tuple[int, int, int, int]]], cols: int, rows: int) -> list[list[tuple[str, RGB]]]:
+    art: list[list[tuple[str, RGB]]] = []
+    for row in range(rows):
+        cells: list[tuple[str, RGB]] = []
+        for col in range(cols):
+            pair = (pixels[2 * row][col], pixels[2 * row + 1][col])
+            alpha = sum(p[3] for p in pair) / (2 * 255)
+            if alpha < RAMP[0][0]:
+                cells.append((" ", (0, 0, 0)))
+                continue
+            # classify each pixel on its own colour (a cell straddling the eye edge would
+            # otherwise average ink and peach into something that snaps to the inner-ear tint)
+            classes = [nearest_class(p[:3]) for p in pair if p[3] >= 64]
+            if any(CLASSES[k][1] == "." for k in classes):  # eyes: always the dot, in the lifted colour
+                cells.append((".", EYE_COLOR))
+                continue
+            top, bottom = pair
+            klass = classes[0] if len(classes) == 1 else nearest_class((top if top[3] >= bottom[3] else bottom)[:3])
+            colour, full_glyph = CLASSES[klass]
+            glyph = full_glyph
+            for threshold, partial in RAMP[1:]:
+                if alpha < threshold:
+                    glyph = partial
+                    break
+            cells.append((glyph, colour))
+        art.append(cells)
+    # trim blank rows top and bottom, keep the width (columns are the layout contract)
+    while art and all(ch == " " for ch, _ in art[0]):
+        art.pop(0)
+    while art and all(ch == " " for ch, _ in art[-1]):
+        art.pop()
+    return art
+
+
+def to_ansi(rows: list[list[tuple[str, RGB]]]) -> str:
     out: list[str] = []
     for row in rows:
         parts: list[str] = []
-        last: tuple[int, int, int] | None = None
+        last: RGB | None = None
         for ch, rgb in row:
+            if ch == " ":
+                parts.append(" ")
+                continue
             if rgb != last:
                 parts.append("\x1b[38;2;%d;%d;%dm" % rgb)
                 last = rgb
@@ -55,28 +190,40 @@ def to_ansi(rows: list[list[tuple[str, tuple[int, int, int]]]]) -> str:
     return "\n".join(out) + "\n"
 
 
-def main(argv: list[str]) -> int:
-    src = Path(argv[1]) if len(argv) > 1 else HERE / "source.html"
-    rows = parse(src.read_text(encoding="utf-8"))
-    if not rows:
-        print(f"no coloured spans found in {src}", file=sys.stderr)
-        return 1
-    width = max(len(r) for r in rows)
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--cols", type=int, default=DEFAULT_COLS, help=f"art width in cells (default {DEFAULT_COLS})")
+    ap.add_argument("--chrome", type=Path, default=DEFAULT_CHROME)
+    ap.add_argument("--source", type=Path, default=SOURCE)
+    args = ap.parse_args(argv)
+    if not args.chrome.exists():
+        print(f"chrome not found at {args.chrome}", file=sys.stderr)
+        return 2
+    if not args.source.exists():
+        print(f"{args.source} missing — run branding/build_icons.py first", file=sys.stderr)
+        return 2
+    cols = args.cols
+    rows = cols // 2  # the mark is square; a cell is 1×2 px
+    png = render_png(args.chrome, args.source, cols, rows * 2)
+    width, height, pixels = decode_png(png)
+    assert (width, height) == (cols, rows * 2), (width, height)
+    art = cells_from_pixels(pixels, cols, rows)
     doc = {
         "name": "floofycrew-banner",
-        "width": width,
-        "height": len(rows),
-        "source": src.name,
-        "rows": [[[ch, list(rgb)] for ch, rgb in row] for row in rows],
+        "width": cols,
+        "height": len(art),
+        "source": args.source.name,
+        "rows": [[[ch, list(rgb)] for ch, rgb in row] for row in art],
     }
-    HERE.mkdir(parents=True, exist_ok=True)
-    (HERE / "floofy.json").write_text(json.dumps(doc, separators=(",", ":")) + "\n", encoding="utf-8")
-    (HERE / "floofy.ans").write_text(to_ansi(rows), encoding="utf-8")
-    (HERE / "floofy.txt").write_text("\n".join("".join(ch for ch, _ in row) for row in rows) + "\n", encoding="utf-8")
-    palette = sorted({tuple(rgb) for row in rows for _, rgb in row})
-    print(f"{len(rows)} rows x {width} cols, {len(palette)} colours -> {HERE}")
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "floofy.json").write_text(json.dumps(doc, separators=(",", ":")) + "\n", encoding="utf-8")
+    (OUT / "floofy.ans").write_text(to_ansi(art), encoding="utf-8")
+    (OUT / "floofy.txt").write_text("\n".join("".join(ch for ch, _ in row) for row in art) + "\n", encoding="utf-8")
+    palette = sorted({rgb for row in art for ch, rgb in row if ch != " "})
+    print(f"{len(art)} rows x {cols} cols, {len(palette)} colours -> {OUT}")
+    print("\n".join("".join(ch for ch, _ in row) for row in art))
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    raise SystemExit(main())

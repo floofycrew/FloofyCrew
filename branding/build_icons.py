@@ -84,7 +84,10 @@ def main() -> None:
     logo.write_text(g.fox_mark(palette) + "\n")
     mono = HERE / "logo-mono.svg"
     mono.write_text(g.mono_mark("currentColor") + "\n")
-    print("wrote", logo, "and", mono)
+    # the fox alone, transparent — for placing on coloured surfaces and as the ASCII-art source
+    nobg = HERE / "logo-nobg.svg"
+    nobg.write_text(g.fox_mark(palette, bg=False) + "\n")
+    print("wrote", logo, mono, "and", nobg)
 
     pngs: dict[int, bytes] = {}
     for size in SIZES:

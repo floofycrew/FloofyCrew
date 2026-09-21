@@ -263,7 +263,9 @@ def _quarantine_summary(ctx: CliContext) -> dict[str, list[str]]:
 
 def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
     about, host, loader = report["floofycrew"], report["host"], report["loader"]
-    ctx.console.show_banner()
+    # The banner sits to the LEFT of the header block (this line through the loader state); the
+    # column closes before the detail sections so their long paths are not pushed right.
+    ctx.console.open_banner_column()
     ctx.say(f"{ctx.paint('floofy doctor', 'heading')} — FloofyCrew {about['version']} (api {about['apiVersion']}, {ctx.paint('unofficial', 'italic')}) on Python {about['python']}")
     ctx.say(f"{ctx.paint('host:', 'accent')} edition={host['edition']} version={host['version']} channel={host['channel']} home={host['hostHome']}")
     gateway = host["gateway"]
@@ -288,6 +290,7 @@ def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
             ctx.say(f"  loader error: {error}", tone="danger")
     if loader["failure"]:
         ctx.say(f"  LOADER FAILURE during {loader['failure'].get('phase')}: {loader['failure'].get('error')}", tone="danger")
+    ctx.console.close_banner_column()
     consent = report["consent"]
     ctx.say(f"{ctx.paint('consent:', 'accent')} {ctx.paint(consent['status'], 'ok' if consent['status'] == 'ok' else 'warn')}" + (f" (v{consent['warningVersion']} by {consent['by']} at {consent['acknowledgedAt']}, {consent.get('how') or 'unknown'})" if consent["status"] == "ok" else f" — {consent['message']}"))
     shim = report["earlyShim"]

@@ -50,6 +50,8 @@ __all__ = ["CONFIRMATION_KINDS", "ConfirmationNeeded", "Console", "EXIT_CONFIRMA
 
 #: ``execute()``'s exit code when a hook raised :class:`ConfirmationNeeded` (the route maps it to HTTP 409).
 EXIT_CONFIRMATION_NEEDED = 4
+#: Columns between the banner art and the text printed beside it.
+BANNER_GAP = "  "
 
 #: ``kind`` → what the client must present and send back (design "Manager App — confirmation protocol").
 CONFIRMATION_KINDS: dict[str, str] = {
@@ -108,6 +110,10 @@ class Console:
     #: What ``consent.json`` records as ``how`` when :attr:`consent_fn` accepts: ``screen`` (a full-screen frame —
     #: the terminal and curses controls) or ``app`` (the manager App's modal, Requirement 16.3).
     consent_how: str = "screen"
+    #: Art rows still to be printed beside :meth:`say` lines while a banner column is open (``None`` = closed).
+    _banner_rows: list[str] | None = field(default=None, init=False, repr=False)
+    #: Blank prefix used for lines that outlast the art while the column is open.
+    _banner_pad: str = field(default="", init=False, repr=False)
 
     # -- the full-screen consent (Requirement 15.3) --------------------------------------------
 
@@ -165,23 +171,53 @@ class Console:
         """``out`` is a real terminal (styling may be on for a pipe under ``FORCE_COLOR``; this is stricter)."""
         return _isatty(self.out)
 
-    def show_banner(self, width: int | None = None) -> bool:
-        """Print the FloofyCrew banner (Requirement 15.5) when styling is on and ``out`` is a terminal.
+    def _banner_lines(self, width: int | None) -> list[str] | None:
+        """The banner's rendered lines when it may be shown here (styling on, a real terminal, wide enough), else ``None``.
 
         Decoration only: it never enters the transcript, is omitted when colours
         are off or the terminal is narrower than the art plus margins, and never
-        appears in ``--json`` output (styling is off there). Returns whether it printed.
+        appears in ``--json`` output (styling is off there).
         """
         if self.quiet or not self.styling.on or self.styling.forced or not self.is_terminal:
-            return False
-        from .banner import render  # noqa: PLC0415
+            return None
+        from .banner import render_lines  # noqa: PLC0415
 
-        text = render(self.styling.depth, width)
-        if text is None:
+        return render_lines(self.styling.depth, width)
+
+    def show_banner(self, width: int | None = None) -> bool:
+        """Print the FloofyCrew banner (Requirement 15.5) on its own, above whatever follows. Returns whether it printed."""
+        lines = self._banner_lines(width)
+        if lines is None:
             return False
-        self.out.write(text)
+        self.out.write("\n".join(lines) + "\n")
         self.out.flush()
         return True
+
+    def open_banner_column(self, width: int | None = None) -> bool:
+        """Print the banner *beside* the lines that follow (Requirement 15.5).
+
+        Until :meth:`close_banner_column`, every :meth:`say` line is prefixed with
+        the next row of the art (then with blank padding once the art is used up),
+        so the first line — ``floofy doctor — FloofyCrew …`` — sits on the art's
+        top row and the block reads like a card. Rows the text did not reach are
+        flushed by ``close``, so the art is always whole. Same gates as
+        :meth:`show_banner`; when it returns ``False`` nothing changes and the
+        lines print flush-left as usual. The transcript never sees the art.
+        """
+        lines = self._banner_lines(width)
+        if lines is None:
+            return False
+        from .banner import MARGIN, load  # noqa: PLC0415
+
+        self._banner_rows = list(lines)
+        self._banner_pad = " " * (MARGIN // 2 + load().width) + BANNER_GAP
+        return True
+
+    def close_banner_column(self) -> None:
+        """Stop prefixing lines; print any art rows the text did not reach."""
+        rows, self._banner_rows = self._banner_rows, None
+        for row in rows or ():
+            print(row, file=self.out)
 
     # -- output ------------------------------------------------------------------------------
 
@@ -189,7 +225,10 @@ class Console:
         """Print one line; ``tone`` paints the whole line. The transcript keeps the plain text."""
         self.transcript.append(strip_ansi(message))
         if not self.quiet:
-            print(self.styling.paint(message, tone) if tone else message, file=self.out)
+            text = self.styling.paint(message, tone) if tone else message
+            if self._banner_rows is not None:
+                text = (self._banner_rows.pop(0) + BANNER_GAP if self._banner_rows else self._banner_pad) + text
+            print(text, file=self.out)
 
     def heading(self, message: str) -> None:
         self.say(message, tone="heading")

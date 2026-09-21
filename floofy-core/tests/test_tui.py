@@ -310,7 +310,7 @@ def test_the_interface_needs_no_installed_mods_and_the_registry_screens_open(hos
 
 def test_banner_fallbacks_restated():
     assert banner.render(Depth.OFF, width=200) is None
-    assert banner.render(Depth.TRUECOLOR, width=41) is None, "narrower than 38 + 4: omitted"
+    assert banner.render(Depth.TRUECOLOR, width=banner.load().width + banner.MARGIN - 1) is None, "narrower than the art + its margin: omitted"
     truecolor = banner.render_lines(Depth.TRUECOLOR, width=100)
     basic = banner.render_lines(Depth.BASIC, width=100)
     extended = banner.render_lines(Depth.EXTENDED, width=100)

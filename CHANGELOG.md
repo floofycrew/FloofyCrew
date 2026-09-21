@@ -11,6 +11,18 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Changed
+
+- The terminal banner is now the fox itself (Requirement 15.5): `branding/build_ascii.py`
+  rasterises the new `branding/logo-nobg.svg` (the mark without its card) to a
+  34×15-cell art in the sunset palette instead of parsing a hand-made HTML export.
+  `floofy doctor` and `floofy --version` print it as a **left column**: the
+  `floofy doctor — FloofyCrew …` header sits on the art's top row, the host,
+  gateway and loader lines follow beside it, and the detail sections continue
+  flush-left below (`Console.open_banner_column` / `close_banner_column`;
+  `show_banner` still prints it on its own). Transparent cells carry no colour
+  sequence; the transcript and `--json` are unchanged.
+
 ### Added
 
 - The FloofyCrew App has a **sidebar page** (task 11.8; Requirement 16.1). `app.json`

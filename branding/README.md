@@ -5,6 +5,16 @@
 - `logo.svg` — the mark (512×512 viewBox, pink→orange card, peach fox, white tail tip).
 - `logo-mono.svg` — single-colour silhouette using `currentColor`, no card
   (inline in docs / README badges / anywhere it must follow text colour).
+- `logo-nobg.svg` — the fox alone in full colour, transparent background, for
+  coloured surfaces; also the source of the terminal banner below.
+- `ascii/` — the terminal banner: `floofy.json` (cells with colours, the
+  document `floofy_core/cli/banner.json` must equal byte for byte), `floofy.ans`
+  (24-bit ANSI, `cat` it), `floofy.txt` (glyphs). Built by `build_ascii.py`,
+  which rasterises `logo-nobg.svg` at 34×30 px with headless Chromium (one cell =
+  1×2 px), decodes the PNG with the stdlib and snaps each cell to the sunset
+  palette; eyes use a lifted maroon so they survive dark terminals. `floofy
+  doctor` and `floofy --version` print it as a left column with their header
+  lines beside it.
 - `icons/` — PNGs at 16, 32, 48, 64, 128, 180, 192, 256, 512 (`icon-N.png`),
   plus `apple-touch-icon.png` (180), `favicon-16.png`, `favicon-32.png`, and a
   multi-size `favicon.ico` (16/32/48/64/256, PNG-in-ICO). Transparent corners.

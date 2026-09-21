@@ -1,11 +1,17 @@
 """The FloofyCrew terminal banner (Requirement 15.5).
 
 The art is ``branding/ascii/floofy.json`` — built by ``branding/build_ascii.py``
-from the coloured ASCII-art export — shipped as the package data file
+from the mark itself (``branding/logo-nobg.svg`` rasterised and quantised to the
+branding palette) — shipped as the package data file
 ``floofy_core/cli/banner.json`` (a byte-identical copy, pinned by a test) and
 read through :func:`floofy_core.resources.read_package_text` so the zipapp can
 read it too. The document is ``{"name", "width", "height", "source", "rows":
-[[[char, [r, g, b]], …], …]}``: one entry per cell.
+[[[char, [r, g, b]], …], …]}``: one entry per cell; a space is a transparent
+cell and carries no colour of its own.
+
+The art is printed either on its own (:meth:`Console.show_banner`) or as a
+left column with text beside it (:meth:`Console.open_banner_column`): ``floofy
+doctor`` puts its header block to the right of the fox.
 
 :func:`render` produces the banner for a colour depth:
 
@@ -96,6 +102,9 @@ def render_lines(depth: Depth, width: int | None = None, *, banner: Banner | Non
         parts: list[str] = [pad]
         last: tuple[int, int, int] | None = None
         for ch, rgb in row:
+            if ch == " ":  # transparent cell: no colour of its own
+                parts.append(" ")
+                continue
             if rgb != last:
                 parts.append(_colour_sequence(depth, rgb))
                 last = rgb
