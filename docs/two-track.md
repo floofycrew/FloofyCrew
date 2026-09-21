@@ -24,8 +24,8 @@ Measured at 1.3.0 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` p
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 218 | 244 | 89.3 % |
-| bytes | 2 598 561 | 2 690 835 | 96.6 % |
+| files | 224 | 250 | 89.6 % |
+| bytes | 2 629 113 | 2 721 387 | 96.6 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:
@@ -40,13 +40,13 @@ python scripts/artifact_identity_report.py --keep /tmp/trees   # keep both trees
 
 `scripts/install_both_editions.py` builds each first-party mod into one
 deterministic archive — `custom-themes-1.0.1.zip` (sha256
-`9268e929a258d7524cc82fb7ff0974c49d0fb1095b8cb03652f4dbf0e432a1a3`, 41 956
+`36e1c5eed82571ae0f1777787cce31c57d58787a7ecc8a95c2e108def3a90f2a`, 41 967
 bytes: a `ui` editor, a `python-hook` backend, `spa` runtime + boot parts and the
 theme-reset `patch`), `rimuru-branding-2.0.0.zip` (sha256
-`935153d0e1b5192cba8d5b2262525388b729d71baacf3ee06f0c30c586cfc2b8`, 57 587
+`af46e27a3953a9b4686658651222d3a60813f91a8fa7a373a652851f64a6111e`, 57 596
 bytes: a pure `theme` part depending on it) and `settings-demo-1.0.0.zip` (sha256
-`342f31df96d83864792994d506afc32c9570f650a8a0fb32ea16d34b17486402`,
-7 324 bytes: a `ui` settings page + a `python-hook` backend route, task 11.6) —
+`62bd60b3bb238d988a86a141e575d22d3e28abe09997a84fa853f2c8a212d579`,
+7 332 bytes: a `ui` settings page + a `python-hook` backend route, task 11.6) —
 and installs those bytes on two scratch hosts — one that declares itself
 the internal edition (a `BUILD_VERSION` stamp, `X.Y.Z.N`) and one that does not
 (the public edition) — each with its own scratch data home and a payload copied

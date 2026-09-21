@@ -69,6 +69,25 @@ def test_binary_and_skip_dirs_are_ignored(tmp_path: Path) -> None:
     assert checker.scan(root, ("core",)) == []
 
 
+def test_legal_notice_files_are_not_scanned(tmp_path: Path) -> None:
+    """A LICENSE/NOTICE file (or anything under licenses/) reproduces upstream attribution
+    verbatim, as the upstream license requires — public attribution, not an internal
+    identifier. Everything else still is scanned, including a name that merely contains
+    the words."""
+    root = _tree(
+        tmp_path,
+        {
+            "core/NOTICE.md": TOKEN.encode(),
+            "core/LICENSE": TOKEN.encode(),
+            "core/LICENSES/Apache-2.0.txt": TOKEN.encode(),
+            "core/dist-info/licenses/NOTICE.md": TOKEN.encode(),
+            "core/licensing.py": TOKEN.encode(),
+        },
+    )
+    hits = checker.scan(root, ("core",))
+    assert [hit.path for hit in hits] == ["core/licensing.py"]
+
+
 def test_allowlist_covers_exact_file_and_subtree(tmp_path: Path) -> None:
     root = _tree(
         tmp_path,

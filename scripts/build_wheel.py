@@ -88,6 +88,7 @@ def _metadata(meta: dict[str, str]) -> str:
         f"Version: {meta['version']}",
         f"Summary: {meta['summary']}",
         f"License: {meta['license']}",
+        *(f"License-File: {name}" for name in build_zipapp.NOTICE_FILES),
         f"Requires-Python: {meta['requires_python']}",
         "Classifier: Programming Language :: Python :: 3 :: Only",
         "Classifier: Programming Language :: Python :: 3.12",
@@ -113,6 +114,9 @@ def build_bytes(editions: list[str]) -> bytes:
         top_level.append(package_dir.name)
         for name, path in build_zipapp._members(package_dir):
             members.append((name, path.read_bytes()))
+    # the license and notice files ride in dist-info/licenses/ (Metadata 2.4 License-File)
+    for name, data in build_zipapp.notice_members():
+        members.append((f"{dist_info}/licenses/{name}", data))
     members.append((f"{dist_info}/METADATA", _metadata(meta).encode("utf-8")))
     members.append((f"{dist_info}/WHEEL", f"Wheel-Version: 1.0\nGenerator: {GENERATOR}\nRoot-Is-Purelib: true\nTag: {TAG}\n".encode("utf-8")))
     members.append((f"{dist_info}/entry_points.txt", b"[console_scripts]\nfloofy = floofy_core.cli.main:main\n"))

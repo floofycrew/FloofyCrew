@@ -100,4 +100,7 @@ consent outranks host governance (governance is a warning, never a gate); mod
 network traffic is HTTPS-only, loopback excepted; the Loader is a KiroCrew App
 through the App Kit seam, never the host's plugin entry point.
 
-Author: Oscar Tseng. Licensed under the MIT License.
+Author: Oscar Tseng. Licensed under the [MIT License](LICENSE); the theme-pack
+validation is ported from KiroCrew (Apache License 2.0) — attribution and the
+license text are in [NOTICE.md](NOTICE.md) and `LICENSES/`, and every built
+artifact carries them.

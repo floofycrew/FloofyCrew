@@ -86,6 +86,18 @@ BINARY_SUFFIXES: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".zip", ".gz", ".br", ".tar", ".whl", ".pyc", ".so", ".pdf"}
 )
 
+#: Legal notices are reproduced verbatim, as their licenses require: a LICENSE/NOTICE
+#: file (or anything under a licenses/ directory, as in a wheel's dist-info) may carry
+#: an upstream copyright line naming a company. That is public attribution from a
+#: public repository, not an internal identifier, so these files are not scanned —
+#: including in the release workflow's ``--allowlist /dev/null`` passes, which a
+#: path allowlist could not cover.
+def is_legal_notice(path: Path) -> bool:
+    stem = path.name.upper()
+    if stem.startswith(("LICENSE", "NOTICE", "COPYING")):
+        return True
+    return any(part.lower() in ("licenses", "license-files") for part in path.parts[:-1])
+
 
 @dataclass(frozen=True)
 class Hit:
@@ -151,7 +163,7 @@ def iter_text_files(root: Path, scan_paths: Iterable[str]) -> Iterator[Path]:
             dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
             for name in sorted(filenames):
                 path = Path(dirpath) / name
-                if path.suffix.lower() in BINARY_SUFFIXES or path.is_symlink():
+                if path.suffix.lower() in BINARY_SUFFIXES or path.is_symlink() or is_legal_notice(path):
                     continue
                 yield path
 

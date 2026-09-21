@@ -44,6 +44,10 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+import build_zipapp  # noqa: E402  (shares NOTICE_FILES / notice_members with the other builders)
+
 LOADER_APP = REPO_ROOT / "loader-app"
 SPA_HOST_SRC = REPO_ROOT / "spa-host" / "src"
 DEFAULT_OUT = LOADER_APP / "build" / "floofycrew"
@@ -113,6 +117,11 @@ def build(out: Path, editions: list[str]) -> Path:
     for edition in editions:
         package = EDITIONS[edition]
         shutil.copytree(REPO_ROOT / "editions" / edition / package, out / package, ignore=_ignore)
+    # the app tree vendors floofy_core (the themes.py port among it): the notices ride along
+    for name, data in build_zipapp.notice_members():
+        target = out / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
     return out
 
 

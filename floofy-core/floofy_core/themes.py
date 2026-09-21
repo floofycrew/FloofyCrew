@@ -1,5 +1,14 @@
 """Theme packs: the host's install-time validation, ported, and the byte-equivalent direct write.
 
+License note (Apache-2.0 §4(b): this file states its changes). The validation
+logic in this module is derived from KiroCrew's theme validator
+(``kiro_crew/dashboard/theme_validate.py``), licensed under the Apache License,
+Version 2.0 — the upstream copyright attribution and the license text are in
+``NOTICE.md`` and ``LICENSES/Apache-2.0.txt`` in the distribution root. It is a
+hand-written Python port, restructured for FloofyCrew (dataclasses,
+:class:`ThemeValidationError`, the direct-write path); the section below and the
+in-line ``L…`` references say exactly what was ported and what was left out.
+
 Requirement 2.1 / 2.8: kind ``theme`` installs through the host's own route
 (``POST /api/themes/install``) when it is open, and through a **byte-equivalent
 direct write** when the route is closed by governance (``capabilities.theme_install``

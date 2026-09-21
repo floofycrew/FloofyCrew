@@ -44,6 +44,17 @@ if __name__ == "__main__":
 '''
 
 
+#: The legal files every distribution carries (Apache-2.0 §4: the themes.py port
+#: and the quoted anchors derive from KiroCrew — see NOTICE.md).
+NOTICE_FILES: tuple[str, ...] = ("LICENSE", "NOTICE.md", "LICENSES/Apache-2.0.txt")
+
+
+def notice_members(prefix: str = "") -> list[tuple[str, bytes]]:
+    """``(archive name, bytes)`` for the license and notice files, sorted by name."""
+    root = Path(__file__).resolve().parent.parent
+    return sorted((f"{prefix}{name}", (root / name).read_bytes()) for name in NOTICE_FILES)
+
+
 def _members(package_dir: Path) -> list[tuple[str, Path]]:
     """``(archive name, source path)`` for every runtime file of a package, sorted."""
     out: list[tuple[str, Path]] = []
@@ -66,6 +77,8 @@ def build_bytes(editions: list[str], interpreter: str) -> bytes:
             archive.writestr(info, data)
 
         add("__main__.py", MAIN_PY.encode("utf-8"))
+        for name, data in notice_members():
+            add(name, data)
         for name, path in _members(CORE):
             add(name, path.read_bytes())
         for edition in editions:

@@ -11,6 +11,18 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- **License and third-party notices.** The repository gains its `LICENSE` (MIT)
+  and `NOTICE.md`: the theme-pack validation (`floofy_core/themes.py`) is a port
+  of KiroCrew's theme validator, and patch anchors/fingerprints quote short
+  verbatim excerpts of KiroCrew source — KiroCrew is Apache License 2.0, so the
+  attribution from its NOTICE and the full license text (`LICENSES/Apache-2.0.txt`)
+  now ship in **every** artifact: the zipapp, the wheel (`dist-info/licenses/` +
+  `License-File` metadata), the Loader app tree and both release trees. The
+  de-Amazon check skips LICENSE/NOTICE files (legal notices are reproduced
+  verbatim; upstream's public attribution is not an internal identifier).
+
 ## 1.3.0 — 2026-09-22
 
 A minor on 1.2.0: `floofy.api_version` rises to 1.2.0 with one additive API,
@@ -369,7 +381,7 @@ same `supports` list as 1.1.1.
 
 - **Interactive `floofy` without curses** (task 10.10; Requirement 15.6, 15.4,
   15.3, 14.2). Bare `floofy` on a terminal now opens the interface on every
-  interpreter FloofyCrew runs on: the KiroCrew ***REMOVED*** bundle's `python3.12`,
+  interpreter FloofyCrew runs on: the internal KiroCrew bundle's `python3.12`,
   which the internal installer selects, ships without `_curses`, so until now
   bare `floofy` always printed the fallback hint there while `kiro-cli` ran its
   own interface in the same terminal. The curses backend is gone: the screens are
@@ -744,15 +756,15 @@ independent reasons fixed here. Same `supports` list as 1.0.0;
   wheel, a checkout) were unaffected, which is why the release verification
   passed. `test_internal_package.py` now runs the built pyz on a bare
   interpreter and reads every bundled file through the CLI's code paths.
-- internal edition: the ***REMOVED*** adapter's ***REMOVED*** opener now presents a
+- internal edition: the adapter's SSO opener now presents a
   `curl/8 FloofyCrew (unofficial KiroCrew mod manager)` User-Agent on every hop
-  of the redirect chain (configurable as `identity.userAgent`). Sentry selects
-  the login flow by agent: a `curl/…` agent receives the cookie-based SSO
-  redirect the `***REMOVED***` jar satisfies, while any other non-browser agent is
-  given a Kerberos Negotiate challenge the standard library cannot answer, so
-  `floofy registry defaults` failed with HTTP 401 at `sentry.***REMOVED***`
-  although `curl -b ~/.***REMOVED***/cookie` fetched the same URL. Verified against
-  the pushed `FloofyCrewRegistry` with the pinned key `bf253dc3e34a0a1b`.
+  of the redirect chain (configurable as `identity.userAgent`). The SSO gateway
+  selects the login flow by agent: a `curl/…` agent receives the cookie-based
+  redirect the adapter's cookie jar satisfies, while any other non-browser agent
+  is given a Kerberos Negotiate challenge the standard library cannot answer, so
+  `floofy registry defaults` failed with HTTP 401 at the gateway although `curl`
+  with the same jar fetched the same URL. Verified against the pushed internal
+  registry with the pinned key `bf253dc3e34a0a1b`.
 - `registry-tools`: `index.schema.json` now accepts the same host-version
   shapes as `compat.schema.json` (PEP 440 pre-releases such as `0.7.0rc5`
   were refused as compat cell keys, so a public insider row could not be
