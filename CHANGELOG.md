@@ -11,6 +11,16 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- The FloofyCrew App has a **sidebar page** (task 11.8; Requirement 16.1). `app.json`
+  now declares `ui.pages[0]` (`/apps/floofycrew`, label `FloofyCrew`, a lucide
+  fallback icon; the row's image stays `iconPath`, the branding mark) and
+  `ui.sidebar` (Apps, order 10). The host lists an enabled app in the sidebar
+  only when `ui.pages[0]` exists, so until now the App was reachable only through
+  Library → FloofyCrew → details; one click on the sidebar row now opens the
+  manager (the `ui.entry` AppHost, no per-page bundle).
+
 ## 1.1.1 — 2026-09-21
 
 A patch on 1.1.0: the last three items of the terminal-experience package, which

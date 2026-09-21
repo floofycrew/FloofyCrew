@@ -37,3 +37,19 @@ def test_build_ships_the_icon_and_the_display_name(tmp_path: Path):
     built = json.loads((out / "app.json").read_text(encoding="utf-8"))
     assert built["displayName"] == "FloofyCrew" and built["iconPath"] == "art/icon.svg"
     assert (out / "ui" / "index.mjs").is_file() and (out / "ui" / "app" / "palette.mjs").is_file(), "the shell and its page modules ship under ui/"
+
+
+
+def test_the_app_has_a_sidebar_page():
+    """The host's sidebar lists an enabled app only when ``ui.pages[0]`` exists (dashboard
+    ``appNav``: for a non-builtin app the row routes to ``/apps/<name>``, the AppHost with
+    ``ui.entry``; ``label`` is the row text, ``iconPath`` its image, ``pages[0].icon`` the
+    lucide fallback). Without it the App is reachable only through Library → details."""
+    manifest = json.loads((LOADER_APP_DIR / "app.json").read_text(encoding="utf-8"))
+    pages = manifest["ui"]["pages"]
+    assert len(pages) == 1
+    page = pages[0]
+    assert page["route"] == "/apps/floofycrew" and page["label"] == "FloofyCrew"
+    assert page["icon"] and page["icon"][0].isupper(), "a lucide icon name, the fallback when the branding image cannot load"
+    assert "entryPoint" not in page, "the page is the manager (ui.entry); a per-page bundle would split the App in two"
+    assert manifest["ui"]["sidebar"] == {"section": "Apps", "order": 10}

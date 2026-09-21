@@ -12,7 +12,18 @@
     "floofycrew"
   ],
   "ui": {
-    "entry": "index.mjs"
+    "entry": "index.mjs",
+    "pages": [
+      {
+        "route": "/apps/floofycrew",
+        "label": "FloofyCrew",
+        "icon": "Puzzle"
+      }
+    ],
+    "sidebar": {
+      "section": "Apps",
+      "order": 10
+    }
   },
   "backend": {
     "hooks": {
