@@ -31,6 +31,7 @@ from ..compat import CompatCache
 from ..consent import read_consent
 from ..governance import LOADER_APP_NAME, warnings_for
 from ..loaderapp import early_install_module, installed_meta
+from ..selfupdate import Release, up_to_date_reason
 from ..semver import InvalidRange, Range
 from ..triggers import loader_startup_status, trigger_managers
 from .context import CliContext
@@ -347,7 +348,8 @@ def _say_self_update(ctx: CliContext, summary: dict[str, Any], *, always: bool =
     elif always:
         latest = summary.get("latest") or {}
         if summary.get("status") == "ok" and latest:
-            why = "this is the newest release" if latest.get("version") == summary.get("running") else f"{latest.get('version')} does not list host {summary.get('hostVersion')} ({summary.get('edition')}/{summary.get('channel')}) as supported"
+            # the same reason `self-update` prints (task 10.12): judged by version order, not by equality with the running version
+            why = up_to_date_reason(Release.from_dict(latest), running=str(summary.get("running") or ""), edition=summary.get("edition"), channel=summary.get("channel"), host_version=summary.get("hostVersion"))
             ctx.say(f"{ctx.paint('update:', 'accent')} FloofyCrew {summary.get('running')} is up to date for this host ({why}; checked {summary.get('checkedAt')})")
         else:
             ctx.say(f"{ctx.paint('update:', 'accent')} {ctx.paint('check ' + str(summary.get('status')), 'muted')} — {summary.get('detail')}")

@@ -30,7 +30,7 @@ from typing import Any
 from .. import __version__ as FRAMEWORK_VERSION
 from ..deploy import utc_now
 from ..loaderapp import installed_meta
-from ..selfupdate import CACHE_NAME, Release, ReleaseFeed, SelfUpdateError, StagePlan, UpdateCheck, check, download_release, read_stage, supports_host, swap, write_stage
+from ..selfupdate import CACHE_NAME, Release, ReleaseFeed, SelfUpdateError, StagePlan, UpdateCheck, check, download_release, is_newer, read_stage, swap, write_stage
 from ..settings import KNOWN_SETTINGS, SettingsError
 from . import cmd_init
 from .context import CliContext, CliError, _running_from_zipapp
@@ -100,15 +100,11 @@ def summary_for(ctx: CliContext, *, force: bool = False, explicit: bool = False)
 
 
 def describe(ctx: CliContext, outcome: UpdateCheck) -> str:
-    """One line for ``doctor`` (always) and ``status``/the home screen (when there is something to say)."""
+    """One line for ``self-update``: the notice, else why there is nothing to install (the reason ``doctor`` prints too), else the check's state."""
     if outcome.notice:
         return outcome.notice
     if outcome.status == "ok" and outcome.latest is not None:
-        if outcome.latest.version == FRAMEWORK_VERSION or not supports_host(outcome.latest, outcome.edition, outcome.channel, outcome.host_version):
-            newer = outcome.latest.version != FRAMEWORK_VERSION
-            why = f"{outcome.latest.version} does not list host {outcome.host_version} ({outcome.edition}/{outcome.channel}) as supported" if newer else "this is the newest release"
-            return f"FloofyCrew {FRAMEWORK_VERSION}: up to date for this host ({why}; checked {outcome.checked_at})"
-        return f"FloofyCrew {FRAMEWORK_VERSION}: newest release {outcome.latest.version} (checked {outcome.checked_at})"
+        return f"FloofyCrew {FRAMEWORK_VERSION}: up to date for this host ({outcome.reason}; checked {outcome.checked_at})"
     return f"FloofyCrew {FRAMEWORK_VERSION}: update check {outcome.status} — {outcome.detail}"
 
 
@@ -145,7 +141,8 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
         say_stage(ctx)
         return 0
     if not outcome.available and not args.force:
-        if release.version == FRAMEWORK_VERSION:
+        if not is_newer(release.version, FRAMEWORK_VERSION):
+            # the running version is the newest release, or ahead of the feed: nothing to install (describe said which)
             say_stage(ctx)
             return 0
         raise CliError(f"FloofyCrew {release.version} does not list your host {outcome.host_version} ({outcome.edition}/{outcome.channel}) as supported; `floofy self-update --force` installs it anyway, at your own risk")

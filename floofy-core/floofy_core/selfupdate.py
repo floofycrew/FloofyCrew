@@ -42,7 +42,11 @@ with ``--offline`` and when ``updates.check`` is ``false``.
 
 **Notice rule** — ``latest.version > running`` **and** ``latest.supports[edition]
 [channel]`` contains the running host version; anything else (no feed, no
-support claim for this host, unreachable) is silent.
+support claim for this host, unreachable) is silent. The quiet line ``doctor``
+and ``self-update --check`` print instead explains why there is nothing to
+install (:func:`up_to_date_reason`): the newest release is newer but does not
+list this host, it is the running version, or the running version is ahead of
+it (a checkout, a release cut before its publish).
 
 **Staged swap** — the zipapp is downloaded to ``<target>.new`` beside the
 installed ``floofy.pyz`` (the file the ``~/.local/bin/floofy`` wrapper runs; the
@@ -86,6 +90,7 @@ __all__ = [
     "check",
     "download_release",
     "fetch_release",
+    "is_newer",
     "loader_archive_name",
     "notice_text",
     "parse_release_notes",
@@ -93,6 +98,7 @@ __all__ = [
     "read_stage",
     "supports_host",
     "swap",
+    "up_to_date_reason",
     "write_stage",
 ]
 
@@ -392,7 +398,10 @@ def fetch_release(feed: ReleaseFeed, *, opener: Callable[..., Any] | None = None
 # --- the rule --------------------------------------------------------------------------------------------------------
 
 
-def _newer(candidate: str, running: str) -> bool:
+def is_newer(candidate: str | None, running: str | None) -> bool:
+    """Whether ``candidate`` is a strictly newer version than ``running`` (an unparsable side is never newer)."""
+    if not candidate or not running:
+        return False
     try:
         return Version.parse(candidate) > Version.parse(running)
     except InvalidVersion:
@@ -408,10 +417,32 @@ def supports_host(release: Release | None, edition: str | None, channel: str | N
 
 def notice_text(release: Release | None, *, running: str, edition: str | None, channel: str | None, host_version: str | None) -> str | None:
     """The one-line notice, or ``None`` (Requirement 7.7: only a newer release that supports the running host)."""
-    if release is None or not _newer(release.version, running) or not supports_host(release, edition, channel, host_version):
+    if release is None or not is_newer(release.version, running) or not supports_host(release, edition, channel, host_version):
         return None
     where = f" — release notes: {release.url}" if release.url else ""
     return f"FloofyCrew {release.version} is available and supports your host {host_version} ({edition}/{channel}); you run {running}: `floofy self-update`{where}"
+
+
+def up_to_date_reason(release: Release | None, *, running: str, edition: str | None, channel: str | None, host_version: str | None) -> str | None:
+    """Why there is nothing to install — the parenthesis of the quiet "up to date for this host" line.
+
+    ``None`` when the notice applies (or there is no release to judge). Otherwise:
+    the feed's newest release is newer but its ``supports`` list does not name this
+    host; the running version *is* the newest release; or the running version is
+    ahead of the feed's newest release — a development checkout, a release cut
+    before its publish — where whether that older release lists the host is beside
+    the point. ``doctor``, ``status`` and ``self-update`` all take the reason from
+    here, so they agree.
+    """
+    if release is None:
+        return None
+    if is_newer(release.version, running):
+        if supports_host(release, edition, channel, host_version):
+            return None
+        return f"{release.version} does not list host {host_version} ({edition}/{channel}) as supported"
+    if is_newer(running, release.version):
+        return f"this is newer than the newest published release ({release.version})"
+    return "this is the newest release"
 
 
 # --- the cache record ------------------------------------------------------------------------------------------------
@@ -438,6 +469,11 @@ class UpdateCheck:
     @property
     def available(self) -> bool:
         return self.notice is not None
+
+    @property
+    def reason(self) -> str | None:
+        """Why there is nothing to install (``None`` when :attr:`notice` applies or no release is known); see :func:`up_to_date_reason`."""
+        return up_to_date_reason(self.latest, running=self.running, edition=self.edition, channel=self.channel, host_version=self.host_version)
 
     def to_dict(self) -> dict[str, Any]:
         return {

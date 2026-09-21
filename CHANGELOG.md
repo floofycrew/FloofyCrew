@@ -11,6 +11,30 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- `floofy doctor` and `floofy self-update` explained the quiet "up to date" line
+  wrongly when the running FloofyCrew is *newer* than the feed's newest release
+  (task 10.12; Requirement 7.7, 7.4). Found verifying 7.5 against the live
+  internal registry: on the 1.1.2 checkout `doctor` printed "1.1.1 does not list
+  host 0.7.0.5 (internal/stable) as supported" although the `FloofyCrew` package's
+  `RELEASE.md` on `mainline` lists exactly that host — the explanation was chosen
+  by *equality* with the running version (`doctor`) or by *inequality*
+  (`self-update`), so a development checkout, or a release cut locally before
+  its publish, always landed in the "does not list host" branch, and the plain
+  `floofy self-update` refused with the same false reason. The version order now
+  decides, in one place both commands call
+  (`floofy_core.selfupdate.up_to_date_reason`, `UpdateCheck.reason`): "X does not
+  list host … as supported" only for a release that is newer yet unsupported here;
+  "this is the newest release" for the running version; and "this is newer than
+  the newest published release (X)" when the running version is ahead — whether or
+  not that older release lists the host. `doctor`, `status`, `self-update --check`
+  and the plain `self-update` (which now exits 0 with the line instead of
+  refusing) agree; the `--json` documents are unchanged. Tests with the fake
+  release endpoint, in both feed shapes: running ahead of a release that lists the
+  host and of one that does not, and the newer-but-unsupported counter-case on
+  every surface.
+
 ## 1.1.2 — 2026-09-21
 
 A patch on 1.1.1: bare `floofy` opens its interface on every interpreter FloofyCrew

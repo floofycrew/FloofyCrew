@@ -45,12 +45,14 @@ from floofy_core.selfupdate import (
     check,
     download_release,
     fetch_release,
+    is_newer,
     notice_text,
     parse_release_notes,
     parse_sums,
     read_stage,
     supports_host,
     swap,
+    up_to_date_reason,
     write_stage,
 )
 from floofy_core.semver import Version
@@ -75,6 +77,14 @@ def sha(data: bytes) -> str:
 def newer(version: str = FRAMEWORK_VERSION) -> str:
     major, minor, patch = (int(p) for p in version.split(".")[:3])
     return f"{major}.{minor + 1}.0"
+
+
+def older(version: str = FRAMEWORK_VERSION) -> str:
+    """The release just below ``version`` — the feed's newest when the running FloofyCrew is ahead of it (task 10.12)."""
+    major, minor, patch = (int(p) for p in version.split(".")[:3])
+    if patch:
+        return f"{major}.{minor}.{patch - 1}"
+    return f"{major}.{minor - 1}.99" if minor else f"{major - 1}.99.99"
 
 
 # --- a fake release in both shapes -------------------------------------------------------------------------------------
@@ -328,6 +338,23 @@ def test_notice_only_for_a_newer_release_that_supports_the_running_host() -> Non
     assert notice_text(Release("not-a-version", "x", SUPPORTS), running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version=HOST) is None
 
 
+def test_the_up_to_date_reason_is_judged_by_version_order_not_equality() -> None:
+    """Task 10.12: the quiet line's explanation blames the supports list only for a release that is newer yet unsupported."""
+    judged = dict(running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version=HOST)
+    assert is_newer(newer(), FRAMEWORK_VERSION) and not is_newer(older(), FRAMEWORK_VERSION) and not is_newer(FRAMEWORK_VERSION, FRAMEWORK_VERSION)
+    assert not is_newer("not-a-version", FRAMEWORK_VERSION) and not is_newer(None, FRAMEWORK_VERSION) and not is_newer(newer(), "")
+    assert up_to_date_reason(Release(newer(), "v", SUPPORTS), **judged) is None, "newer and supported: the notice speaks, not the reason"
+    assert up_to_date_reason(Release(newer(), "v", SUPPORTS), **{**judged, "host_version": "0.7.0.4"}) == f"{newer()} does not list host 0.7.0.4 (internal/beta) as supported"
+    assert up_to_date_reason(Release(FRAMEWORK_VERSION, "v", SUPPORTS), **judged) == "this is the newest release"
+    ahead = f"this is newer than the newest published release ({older()})"
+    assert up_to_date_reason(Release(older(), "v", SUPPORTS), **judged) == ahead, "the running version is ahead of the feed: that is the reason"
+    assert up_to_date_reason(Release(older(), "v", {}), **judged) == ahead, "…whether or not the older release lists this host"
+    assert up_to_date_reason(None, **judged) is None
+    outcome = UpdateCheck("ok", "2026-09-21T12:00:00Z", "internal", "beta", FRAMEWORK_VERSION, HOST, Release(older(), f"v{older()}", SUPPORTS))
+    assert outcome.notice is None and outcome.available is False and outcome.reason == ahead
+    assert UpdateCheck("ok", None, "internal", "beta", FRAMEWORK_VERSION, HOST, Release(newer(), "v", SUPPORTS)).reason is None
+
+
 # --- the staged swap on a scratch prefix ------------------------------------------------------------------------------------
 
 
@@ -519,6 +546,54 @@ def test_doctor_stays_quiet_when_up_to_date_unsupported_disabled_or_unreachable(
         failed = cli.run("self-update")
         assert failed.exit == 1 and "cannot check" in failed.stderr
     assert cli.run("--offline", "self-update").exit == 1
+
+
+@pytest.mark.parametrize("shape", ["notes", "github"])
+def test_a_floofy_ahead_of_the_feed_is_up_to_date_without_blaming_the_supports_list(cli, tmp_path: Path, shape: str) -> None:
+    """Task 10.12 (Requirement 7.7, 7.4): found on the 1.1.2 checkout against the internal package's `RELEASE.md` (1.1.1, which lists
+    the host) — `doctor` said "1.1.1 does not list host 0.7.0.5 (internal/stable) as supported". The reason is the version order."""
+    behind = older()
+    ahead = f"this is newer than the newest published release ({behind})"
+    target, _pending = scratch_prefix(tmp_path)
+    with FakeReleaseServer(FakeRelease(behind)) as server:  # SUPPORTS lists HOST for internal/stable: the older release supports this host
+        cli.feed(server, shape)
+        doctor = cli.run("--json", "doctor")
+        assert doctor.exit == 0, doctor.stderr
+        summary = doctor.json["selfUpdate"]
+        assert summary["status"] == "ok" and summary["running"] == FRAMEWORK_VERSION and summary["version"] == behind
+        assert summary["available"] is False and summary["notice"] is None and summary["supportsHost"] is True
+        text = cli.run("doctor").stdout
+        assert f"update: FloofyCrew {FRAMEWORK_VERSION} is up to date for this host ({ahead}; checked " in text
+        assert "does not list host" not in text and "is available" not in text
+        status = cli.run("status")
+        assert status.exit == 0 and "update:" not in status.stdout, "status stays quiet: nothing to say"
+        assert cli.run("--json", "status").json["selfUpdate"]["available"] is False
+        checked = cli.run("self-update", "--check")
+        assert checked.exit == 0, checked.stderr
+        assert f"FloofyCrew {FRAMEWORK_VERSION}: up to date for this host ({ahead}; checked " in checked.stdout and "does not list" not in checked.stdout
+        # the plain command decides the same way: nothing to install, no false refusal, the target untouched
+        plain = cli.run("--yes", "self-update", "--target", str(target))
+        assert plain.exit == 0, plain.stderr
+        assert ahead in plain.stdout and "does not list your host" not in plain.stderr and target.read_bytes().startswith(b"#!/usr/bin/env python3\n# old")
+    cli.paths.self_update_cache.unlink()
+    with FakeReleaseServer(FakeRelease(behind, supports={"internal": {CHANNEL: ["0.7.0.4"]}})) as server:
+        cli.feed(server, shape)
+        text = cli.run("doctor").stdout
+        assert ahead in text and "does not list host" not in text, "an older release's supports list is beside the point"
+    cli.paths.self_update_cache.unlink()
+    # the counter-case: a newer release that does not list this host is still explained by its supports list, on every surface
+    with FakeReleaseServer(FakeRelease(newer(), supports={"internal": {CHANNEL: ["0.7.0.4"]}})) as server:
+        cli.feed(server, shape)
+        blamed = f"{newer()} does not list host {HOST} (internal/{CHANNEL}) as supported"
+        doctor = cli.run("--json", "doctor")
+        assert doctor.json["selfUpdate"]["available"] is False and doctor.json["selfUpdate"]["supportsHost"] is False
+        text = cli.run("doctor").stdout
+        assert f"update: FloofyCrew {FRAMEWORK_VERSION} is up to date for this host ({blamed}; checked " in text and "newest published" not in text
+        assert "update:" not in cli.run("status").stdout
+        checked = cli.run("self-update", "--check")
+        assert checked.exit == 0 and f"up to date for this host ({blamed}; checked " in checked.stdout
+        refused = cli.run("--yes", "self-update", "--target", str(target))
+        assert refused.exit == 1 and "does not list your host" in refused.stderr
 
 
 def test_self_update_swaps_a_scratch_target_stages_and_installs_the_loader_app_and_audits(cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
