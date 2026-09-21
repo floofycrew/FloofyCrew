@@ -135,10 +135,22 @@ def _loader_app_step(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any
                 ctx.console.lines(MANUAL_STEPS)
                 outcome["manual"] = True
                 return outcome
+            granted_before = LOADER_APP_NAME in ctx.governance().apps_trusted
             if meta["installed"]:
                 removed = run_host_cli(launcher, ["app", "uninstall", LOADER_APP_NAME], host_home=ctx.host_home, extra_env=ctx.host_cli_env())
                 outcome["uninstall"] = removed.to_dict()
                 ctx.say(f"loader app: uninstalled the previous copy ({'ok' if removed.ok else removed.output[-200:]})")
+                # `kirocrew app uninstall` also drops the app from agent.apps_trusted (seen on a live 0.7.0.5:
+                # every reinstall came back ungranted, and the self-update path, which never offers the grant,
+                # left the new Loader installed but disabled). Restoring a grant the user already gave is not a
+                # new decision, so it is re-recorded without asking and audited as a restore.
+                ctx._governance = None  # noqa: SLF001 - re-read after the host CLI edited config.json
+                if granted_before and LOADER_APP_NAME not in ctx.governance().apps_trusted:
+                    restored = grant_app_trust(ctx.host_home / "config.json", LOADER_APP_NAME)
+                    outcome["grantRestored"] = restored.to_dict()
+                    ctx.audit.record("grant-apps-trusted", result="restored" if restored.written else "unchanged", files=[str(restored.path)], detail=f"re-recorded after `kirocrew app uninstall` dropped it: {restored.detail}", governanceFlags=["ThirdPartyAppsDisabled"])
+                    ctx.say(f"grant: restored — `kirocrew app uninstall` had dropped 'floofycrew' from agent.apps_trusted; {restored.detail}")
+                    ctx._governance = None  # noqa: SLF001
             installed = run_host_cli(launcher, ["app", "install", str(build)], host_home=ctx.host_home, extra_env=ctx.host_cli_env())
             outcome["install"] = installed.to_dict()
             if not installed.ok:

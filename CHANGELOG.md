@@ -13,6 +13,16 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Fixed
 
+- Reinstalling the Loader app left it **installed but disabled** on a host that
+  had granted it: `kirocrew app uninstall` also removes the app from
+  `agent.apps_trusted` (host `apps/manager.py`, "Remove *name* from
+  agent.apps_trusted"), so every `floofy init --reinstall-loader` came back
+  ungranted and the self-update Loader install — which never offers the grant —
+  ended with `kirocrew app enable` refused. A grant that was in place before the
+  uninstall is now restored right after it, without asking (restoring the user's
+  earlier decision is not a new one), audited as `grant-apps-trusted: restored`;
+  a host that never granted the app is left as it was. The test double's
+  uninstall now revokes the grant like the real host.
 - `floofy self-update --now` did nothing when the zipapp was already current
   (found on the test box: the TUI's self-update swapped the zipapp to 1.1.3 while
   the gateway ran and staged the Loader app, as designed; the later `floofy

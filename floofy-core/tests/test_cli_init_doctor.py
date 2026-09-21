@@ -51,6 +51,21 @@ case "$1 $2" in
     ;;
   "app uninstall")
     rm -rf "$KIROCREW_HOME/apps/$3"
+    # the host revokes the per-app grant on uninstall (apps/manager.py L1452 "Remove *name* from agent.apps_trusted")
+    python3 - "$KIROCREW_HOME/config.json" "$3" <<'PY' 2>/dev/null
+import json, sys
+path, name = sys.argv[1], sys.argv[2]
+try:
+    doc = json.load(open(path))
+except (OSError, ValueError):
+    sys.exit(0)
+agent = doc.get("agent") or {}
+trusted = agent.get("apps_trusted")
+if isinstance(trusted, list) and name in trusted:
+    agent["apps_trusted"] = [n for n in trusted if n != name]
+    doc["agent"] = agent
+    json.dump(doc, open(path, "w"), indent=2)
+PY
     echo "uninstalled $3"
     ;;
   *)
@@ -160,6 +175,38 @@ def test_init_installs_the_loader_app_offers_the_grant_and_enables(fake_host):
     rows = read_audit(fake_host.data.audit)
     assert all(row["actor"] == "test" and row["consentRef"] for row in rows[1:]), "every row after the consent carries the consent reference"
     assert (fake_host.data.data_home / "registries.json").is_file()
+
+
+def test_reinstall_restores_the_grant_the_host_drops_on_uninstall(fake_host):
+    """Seen on a live 0.7.0.5: `kirocrew app uninstall` removes the app from agent.apps_trusted, so every
+    `--reinstall-loader` (and the self-update Loader install, which never offers the grant) came back
+    ungranted and the Loader was left installed but disabled. A grant the user gave earlier is restored
+    without asking; a first install still has to be granted."""
+    first = fake_host.run("--yes", "init", "--i-accept-the-risk", "--no-trigger")
+    assert first.exit == 0, first.stderr + first.stdout
+    config = json.loads((fake_host.home_dir / "config.json").read_text(encoding="utf-8"))
+    assert config["agent"]["apps_trusted"] == ["floofycrew"]
+    # the reinstall path self-update takes: no grant offered
+    again = fake_host.run("init", "--reinstall-loader", "--no-grant", "--no-trigger")
+    assert again.exit == 0, again.stderr + again.stdout
+    calls = fake_host.called()
+    assert calls.count("app uninstall floofycrew") == 1
+    config = json.loads((fake_host.home_dir / "config.json").read_text(encoding="utf-8"))
+    assert config["agent"]["apps_trusted"] == ["floofycrew"], "the grant the uninstall dropped is back"
+    assert again.json["loaderApp"]["grantRestored"]["written"] is True
+    assert "grant" not in again.json["loaderApp"] and again.json["loaderApp"]["hostVerdict"]["appExecutionAllowed"] is True, "with the grant back the host verdict is allowed and no grant question arises"
+    assert "grant: restored" in again.stdout
+    installed = json.loads((fake_host.home_dir / "apps" / "floofycrew" / "installed.json").read_text(encoding="utf-8"))
+    assert installed["enabled"] is True, "the new Loader runs: enable was not refused"
+    rows = [r for r in read_audit(fake_host.data.audit) if r["op"] == "grant-apps-trusted"]
+    assert rows[-1]["result"] == "restored" and "kirocrew app uninstall" in rows[-1]["detail"]
+    # never granted: a reinstall does not invent a grant (simulate a host whose grant was removed by hand)
+    doc = json.loads((fake_host.home_dir / "config.json").read_text(encoding="utf-8"))
+    doc["agent"]["apps_trusted"] = []
+    (fake_host.home_dir / "config.json").write_text(json.dumps(doc), encoding="utf-8")
+    third = fake_host.run("init", "--reinstall-loader", "--no-grant", "--no-trigger")
+    assert third.exit == 0 and "grantRestored" not in third.json["loaderApp"]
+    assert json.loads((fake_host.home_dir / "config.json").read_text(encoding="utf-8"))["agent"]["apps_trusted"] == []
 
 
 def test_init_declined_grant_leaves_the_loader_disabled_with_a_warning(fake_host):
