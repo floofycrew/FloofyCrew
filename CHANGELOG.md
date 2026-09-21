@@ -11,6 +11,27 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.2.0 — 2026-09-21
+
+A minor on 1.1.5: a `patch` descriptor may now target `electron:<member>` — one
+file inside the desktop shell's `app.asar` — the new descriptor target form that
+makes this release a minor, and `mochi-pet-zoom-fix` 1.0.0 is the first mod to use
+it. Also new: the `custom-themes` mod (a theme editor inside the FloofyCrew App and
+the layer theme mods build on; `rimuru-branding` 2.0.0 is now a pure theme pack on
+top of it), Restart KiroCrew and Update & restart from the App, and fixes for the
+early-activation list (`early.json` is now written), the early shim on a symlinked
+home, the Loader app grant's local-source shape and the post-swap Loader step. No
+API change (`floofy.api_version` stays 1.1.0); same `supports` list as 1.1.5.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Added
 
 - **`custom-themes`**, a new first-party mod: a theme editor for KiroCrew inside
@@ -36,18 +57,18 @@ KiroCrew; it never ships a rebuilt host.
   under the mod's api root: `themes` CRUD, `install`/`uninstall`, `export`/`import`
   (one JSON file, `format: floofy-theme/1`, assets base64), `assets` uploads within
   the host's caps, `presets`, `css`, `preview`, `refresh`, `status`.
-- **Electron shell patches** (Requirement 5.11, for the next minor): a `patch`
-  descriptor may target `electron:<member>` — one file inside the desktop shell's
-  `app.asar`. The Patcher finds the shell by walking up from the payload's
-  `kiro_crew` package (`floofy_core.electron`), reads the member, applies the ops,
-  re-lays the archive with the member's integrity record recomputed
-  (`floofy_core.asar`, standard library only) and commits `app.asar` as one file
-  through the usual backup, manifest, drift and restore path (the lost-manifest
-  sweep now covers the shell's resources directory). A gateway-only payload skips it
-  as `NotApplicable`; a shell whose Electron fuses enforce asar integrity is skipped
-  as `IntegrityLocked` rather than left unable to launch. Declare such parts with
-  `side: electron`; `floofy validate` warns on a mismatch (`SideMismatch`).
-  Docs: `patching.md` → "Electron shell targets".
+- **Electron shell patches** (Requirement 5.11 — the new target form this minor
+  carries): a `patch` descriptor may target `electron:<member>` — one file inside
+  the desktop shell's `app.asar`. The Patcher finds the shell by walking up from
+  the payload's `kiro_crew` package (`floofy_core.electron`), reads the member,
+  applies the ops, re-lays the archive with the member's integrity record
+  recomputed (`floofy_core.asar`, standard library only) and commits `app.asar` as
+  one file through the usual backup, manifest, drift and restore path (the
+  lost-manifest sweep now covers the shell's resources directory). A gateway-only
+  payload skips it as `NotApplicable`; a shell whose Electron fuses enforce asar
+  integrity is skipped as `IntegrityLocked` rather than left unable to launch.
+  Declare such parts with `side: electron`; `floofy validate` warns on a mismatch
+  (`SideMismatch`). Docs: `patching.md` → "Electron shell targets".
 - **`mochi-pet-zoom-fix` 1.0.0**, the first desktop-shell mod: gives the Mochi pet
   overlay its own session partition and pins its zoom to 100 %, so the pet no longer
   inherits the dashboard's Zoom Level (scaled, off-screen, undraggable at any zoom
@@ -80,9 +101,6 @@ KiroCrew; it never ships a rebuilt host.
   CLI's own "Install FloofyCrew X over Y?" question in the modal; no `--force`,
   `--check` or `--target` reachable) and then the restart above. A staged Loader
   app update gets an "Install the staged update & restart" button.
-
-### Changed
-
 - Manager App polish: pages are columns of cards with a 1.25 rem gap and 4 rem of
   room under the last one; a tab clicked once no longer keeps a grey frame after
   another tab is selected (the tab border is spelled as longhands in both states,

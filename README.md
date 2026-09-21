@@ -39,11 +39,17 @@ you stand, and `floofy restore --all` takes everything back out.
 > every mod you install is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md)
 > before `floofy init`.
 
-Status: **1.1.5** (patch on 1.1.4: `self-update` fails cleanly when a release's
-package tag is not pushed yet and reports a refused Loader enable as
-installed-but-disabled; 1.1.4 the Loader reinstall keeps the host's
-`apps_trusted` grant, `self-update --now` installs a pending Loader stage, the boot
-template ships inside the zipapp; 1.1.3 the mark reframed for the circular sidebar mask,
+Status: **1.2.0** (minor on 1.1.5: `patch` descriptors may target `electron:<member>`
+inside the desktop shell's `app.asar`, and `mochi-pet-zoom-fix` is the first mod to
+use it; the `custom-themes` mod with its theme editor in the App (`rimuru-branding`
+2.0.0 is a theme pack on it), Restart KiroCrew and Update & restart from the App,
+the early-activation list written by the manager and the early shim shared on a
+symlinked home, the Loader app grant in the host's local-source shape; 1.1.5
+`self-update` fails cleanly when a release's package tag is not pushed yet and
+reports a refused Loader enable as installed-but-disabled; 1.1.4 the Loader
+reinstall keeps the host's `apps_trusted` grant, `self-update --now` installs a
+pending Loader stage, the boot template ships inside the zipapp; 1.1.3 the mark
+reframed for the circular sidebar mask,
 the "FloofyCrew" wordmark beside the fox banner, a `doctor` update-notice fix; 1.1.2
 brought the interactive `floofy` without curses, the App in the dashboard sidebar and
 the fox banner; 1.1.1 FloofyCrew self-update and two `doctor` probe fixes; 1.1.0 the
