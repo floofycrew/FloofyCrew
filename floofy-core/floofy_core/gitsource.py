@@ -321,7 +321,14 @@ def clone_into(ref: GitRef, destination: Path, *, timeout: int = CLONE_TIMEOUT, 
         done = _run([*git, "clone", "-q", "--depth", "1", "--branch", ref.commitish, "--single-branch", ref.url, str(destination)], cwd=None, env=env, timeout=timeout)
         if done.returncode != 0:
             shutil.rmtree(destination, ignore_errors=True)
-            raise GitCloneError(f"cannot clone {ref.url} at {ref.commitish}: {_tail(done.stderr)}")
+            detail = _tail(done.stderr)
+            if "Remote branch" in detail and "not found" in detail:
+                # git says "Remote branch X not found" for a missing TAG too. For a registry link record that
+                # means the publisher pushed the package but not the tag the record names (seen with the
+                # first-party mods: `rimuru-branding-1.0.0` and `settings-demo-1.0.0` existed only in the
+                # publisher's clone). Say what is missing and whose step it is instead of relaying git's wording.
+                raise GitCloneError(f"cannot clone {ref.url} at {ref.commitish}: the repository has no tag or branch named {ref.commitish!r} — the record names a tag the publisher has not pushed yet (git: {detail})")
+            raise GitCloneError(f"cannot clone {ref.url} at {ref.commitish}: {detail}")
     head = _run([*git, "-C", str(destination), "rev-parse", "HEAD"], cwd=None, env=env, timeout=60)
     if head.returncode != 0 or not _HEX40.match(head.stdout.strip()):
         shutil.rmtree(destination, ignore_errors=True)

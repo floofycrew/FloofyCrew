@@ -305,3 +305,14 @@ def test_link_record_refuses_a_moved_tag_a_changed_manifest_and_changed_files(en
     # and the intact record still installs
     _merged_cache(env, good)
     assert env.run("--yes", "install", "example-theme").exit == 0
+
+
+
+def test_a_reference_to_a_tag_the_publisher_never_pushed_names_the_missing_tag(env):
+    """The first internal registry install: the records named `rimuru-branding-1.0.0` and `settings-demo-1.0.0`,
+    tags that existed only in the publisher's clone of the package. git reports a missing tag as
+    "Remote branch X not found"; the manager says what is missing and whose step it is."""
+    url, _commit = make_bare_repo(env.scratch, tag="1.0.0")
+    refused = env.run("install", f"{url}@rimuru-branding-1.0.0", "--accept-unlisted-source")
+    assert refused.exit == 1
+    assert "no tag or branch named 'rimuru-branding-1.0.0'" in refused.stderr and "publisher has not pushed" in refused.stderr
