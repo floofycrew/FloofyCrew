@@ -20,7 +20,7 @@ tree counts as different). Every differing file must be an adapter module
 edition stamp; a difference anywhere else fails the report, as does a share of
 identical files below 80 %.
 
-Measured at 1.1.0 (main: the terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work):
+Measured at 1.1.1 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, plus self-update and the two `doctor` probe fixes; the figures are unchanged from 1.1.0):
 
 | | identical | total | share |
 |---|---|---|---|

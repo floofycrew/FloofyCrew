@@ -11,6 +11,22 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.1.1 — 2026-09-21
+
+A patch on 1.1.0: the last three items of the terminal-experience package, which
+landed after the 1.1.0 tag was cut — FloofyCrew's self-update and two `floofy
+doctor` fixes found on a live 0.7.0.5 install. No API change (`floofy.api_version`
+stays 1.1.0); same `supports` list as 1.1.0.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Added
 
 - **FloofyCrew updates itself** (task 10.7; Requirement 7.7, 11.6). At most once a
@@ -42,6 +58,12 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Fixed
 
+- `registry_tools.bootstrap` read a `__pycache__/*.pyc` beside the internal
+  adapter's `registry-package/setup.py` (left by whatever imported the file in
+  place) as a UTF-8 template and the internal registry render failed with
+  `UnicodeDecodeError`. Every tree walk that renders or archives files now goes
+  through `source_files()`, which skips byte-code caches (the mod archiver already
+  did); a test plants such a cache and renders the gated package.
 - `floofy doctor` printed "early shim: Loader app not installed" on an install
   where the app was present and enabled (task 10.9; Requirement 3.2, 7.4).
   `floofy_core.loaderapp.early_install_module` executed the installed
