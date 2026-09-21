@@ -20,7 +20,7 @@ tree counts as different). Every differing file must be an adapter module
 edition stamp; a difference anywhere else fails the report, as does a share of
 identical files below 80 %.
 
-Measured after 1.2.0 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.1.1's self-update and `doctor` probe fixes, 1.1.2's curses-free interface driver, sidebar page and fox banner, 1.1.3's wordmark, the boot template shipped as package data, 1.2.0's `electron:` target support (`floofy_core.asar`, `floofy_core.electron`) and the early-list sync; up from 211 of 237 files at 1.1.5 — every new module is shared core, identical in both trees):
+Measured at 1.3.0 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.2.0's `electron:` target support (`floofy_core.asar`, `floofy_core.electron`) and the `custom-themes` editor, 1.3.0's `floofy.mod(id).dialog` and commit-pinned link records — every new module is shared core, identical in both trees):
 
 | | identical | total | share |
 |---|---|---|---|

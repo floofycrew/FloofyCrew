@@ -11,7 +11,27 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
-`floofy.api_version` 1.2.0 (additive: `floofy.mod(id).dialog`).
+## 1.3.0 — 2026-09-22
+
+A minor on 1.2.0: `floofy.api_version` rises to 1.2.0 with one additive API,
+`floofy.mod(id).dialog` — in-document confirm/prompt/alert/form dialogs for a
+mod's page (the KiroCrew desktop shell has no `window.alert`/`confirm`/`prompt`,
+so pages that used them did nothing there), and `custom-themes` 1.0.1 asks every
+question through it. Registry link records are now pinned by **commit** instead
+of a git tag (`tag` stays as legacy), with `registry_tools record` to write and
+refresh them. The manager App gets squared corners on one 2 px radius, a footer
+with the author, a dismissable unofficial banner (a per-browser preference; the
+footer keeps the statement), and both READMEs now lead with what FloofyCrew does
+and how to install it. Same `supports` list as 1.2.0.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
 
 ### Added
 
