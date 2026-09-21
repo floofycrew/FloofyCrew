@@ -36,6 +36,24 @@ KiroCrew; it never ships a rebuilt host.
   under the mod's api root: `themes` CRUD, `install`/`uninstall`, `export`/`import`
   (one JSON file, `format: floofy-theme/1`, assets base64), `assets` uploads within
   the host's caps, `presets`, `css`, `preview`, `refresh`, `status`.
+- **Electron shell patches** (Requirement 5.11, for the next minor): a `patch`
+  descriptor may target `electron:<member>` — one file inside the desktop shell's
+  `app.asar`. The Patcher finds the shell by walking up from the payload's
+  `kiro_crew` package (`floofy_core.electron`), reads the member, applies the ops,
+  re-lays the archive with the member's integrity record recomputed
+  (`floofy_core.asar`, standard library only) and commits `app.asar` as one file
+  through the usual backup, manifest, drift and restore path (the lost-manifest
+  sweep now covers the shell's resources directory). A gateway-only payload skips it
+  as `NotApplicable`; a shell whose Electron fuses enforce asar integrity is skipped
+  as `IntegrityLocked` rather than left unable to launch. Declare such parts with
+  `side: electron`; `floofy validate` warns on a mismatch (`SideMismatch`).
+  Docs: `patching.md` → "Electron shell targets".
+- **`mochi-pet-zoom-fix` 1.0.0**, the first desktop-shell mod: gives the Mochi pet
+  overlay its own session partition and pins its zoom to 100 %, so the pet no longer
+  inherits the dashboard's Zoom Level (scaled, off-screen, undraggable at any zoom
+  other than 100 %). Two `electron:` patches (`mochi/petOverlays.js` and the older
+  `crew-companion/petOverlay.js`), fingerprints verified once each against the
+  upstream sources.
 
 ### Changed
 
