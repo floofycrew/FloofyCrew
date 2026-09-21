@@ -11,6 +11,24 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.1.2 — 2026-09-21
+
+A patch on 1.1.1: bare `floofy` opens its interface on every interpreter FloofyCrew
+runs on — the host bundle's `python3.12` that the internal installer selects has no
+curses, so the screens are now drawn by a standard-library terminal driver shared
+with the consent screen — the FloofyCrew App is listed in the dashboard sidebar, and
+the terminal banner is the fox. No API change (`floofy.api_version` stays 1.1.0);
+same `supports` list as 1.1.1.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Fixed
 
 - **Interactive `floofy` without curses** (task 10.10; Requirement 15.6, 15.4,
@@ -49,7 +67,10 @@ KiroCrew; it never ships a rebuilt host.
   gateway and loader lines follow beside it, and the detail sections continue
   flush-left below (`Console.open_banner_column` / `close_banner_column`;
   `show_banner` still prints it on its own). Transparent cells carry no colour
-  sequence; the transcript and `--json` are unchanged.
+  sequence; the transcript and `--json` are unchanged. The copies the installers
+  carry — the `BANNER_TXT`/`BANNER_ANS` literals of the public `install.sh` and the
+  internal package's `banner/` files — are refreshed from the same
+  `branding/ascii/` art (their tests hold them byte-identical to it).
 
 ### Added
 
