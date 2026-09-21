@@ -53,7 +53,18 @@ and push the result yourself:
 ```bash
 python scripts/export_public.py --check        # what CI runs: temp dir, scan, delete
 python scripts/export_public.py --out <public-clone> --force
+python packaging/internal/review_public_export.py --clone <public-clone>   # pre-push AI review
+# exit 0: push when ready — exit 1: judge each finding first
 ```
 
 `floofy-core/tests/test_public_export.py` pins the boundary (include and
 exclude sets, the scan, the refusals) in the test suite.
+
+The third step is the **advisory second net** (internal-only tooling, never
+exported): a language model reads exactly the delta a `git push` would publish
+(the clone's uncommitted state) and flags what a substring denylist cannot —
+unknown hostnames, people, codenames, ticket-shaped ids, secret-shaped
+strings. The deterministic scan stays the blocking gate (the reviewer re-runs
+it first); a model pass is never proof, and findings are printed for a human
+to judge, never auto-fixed. The review record lands in the clone's
+`.git/floofycrew-ai-review.json` (never pushed).

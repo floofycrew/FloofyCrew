@@ -36,6 +36,20 @@ KiroCrew; it never ships a rebuilt host.
   `floofy-core/tests/test_public_export.py` proves the boundary: the include
   and exclude sets, the row pruning, a planted leak failing the scan, the
   internal-remote and non-empty-target refusals.
+- **Pre-push AI review of the public export**
+  (`packaging/internal/review_public_export.py`; internal-only, never
+  exported). The advisory second net over the deterministic gate: a language
+  model reads exactly the delta a `git push` of the public clone would publish
+  (uncommitted state; new files in full, tracked changes as diffs, binaries by
+  name) and flags what a substring denylist structurally cannot — unknown
+  hostnames, people, codenames, ticket-shaped ids, secret-shaped strings. The
+  deterministic scan is re-run first and stays the blocking gate; a marker-less
+  or malformed model answer is an ERROR, never a pass; findings are printed
+  for a human to judge and recorded in the clone's
+  `.git/floofycrew-ai-review.json`. Runs `kiro-cli` headless (v3 engine, model
+  pinned, prompt on stdin so argv size caps never truncate a delta), chunks
+  large deltas on line boundaries, and refuses clones with internal remotes.
+  `export_public.py --out` now prints the review command as the next step.
 
 ### Changed
 

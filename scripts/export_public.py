@@ -227,7 +227,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         report = export(Path(args.out), force=args.force)
         print(f"OK: exported to {report['target']} and the full-tree scan is clean")
-        print("next: review `git status` there, commit, and push to the PUBLIC remote yourself")
+        print("next: run the pre-push review, then inspect `git status` there and push yourself")
+        print(f"  python packaging/internal/review_public_export.py --clone {report['target']}")
         return 0
     except ExportError as exc:
         print(f"error: {exc}", file=sys.stderr)
