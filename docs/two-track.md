@@ -25,7 +25,7 @@ Measured after 1.1.3 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui
 | | identical | total | share |
 |---|---|---|---|
 | files | 211 | 237 | 89.0 % |
-| bytes | 2 476 802 | 2 569 076 | 96.4 % |
+| bytes | 2 479 476 | 2 571 750 | 96.4 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:
