@@ -215,6 +215,26 @@ def fox_tail(p: Palette, base, ctrl, tip_pt, width: float = 108, tip_from: float
     return f'<path d="{body}" fill="{p.body}"/><path d="{tip_poly}" fill="{tip}"/>'
 
 
+#: Smallest circle enclosing the tailed fox as drawn below — (centre x, centre y, radius),
+#: measured on a 512 px raster of the no-background mark (branding/build_ascii.py's decoder).
+#: Re-measure if the fox geometry changes.
+FOX_CIRCLE = (239.0, 282.0, 278.8)
+#: Framing on the card. KiroCrew's sidebar masks app icons to a CIRCLE, so the fox is fitted
+#: inside the card's inscribed circle with a margin (radius 240 of 256), not to the square.
+CARD_FIT_RADIUS = 240.0
+#: Where the fox's circle centre lands on the card: dead centre horizontally, a touch above
+#: the middle vertically (reads better than centred; still inside the mask: 240 + 4 < 256).
+CARD_FIT_CENTER = (256.0, 252.0)
+
+
+def card_fit_transform() -> str:
+    """SVG transform that fits the drawn fox's enclosing circle into the card's circle."""
+    fx, fy, fr = FOX_CIRCLE
+    scale = CARD_FIT_RADIUS / fr
+    tx, ty = CARD_FIT_CENTER[0] - scale * fx, CARD_FIT_CENTER[1] - scale * fy
+    return f"translate({fmt(tx)} {fmt(ty)}) scale({fmt(scale)})"
+
+
 def fox_mark(p: Palette, bg: bool = True, tail: bool = True) -> str:
     # body shifted left when the tail is on so the tail has room on the right
     cx, r, top, bot = (210, 152, 342, 490) if tail else (256, 172, 328, 490)
@@ -222,6 +242,9 @@ def fox_mark(p: Palette, bg: bool = True, tail: bool = True) -> str:
     if tail:
         body += fox_tail(p, (cx + 70, 472), (cx + 312, 452), (cx + 222, 168))
     body += fox_ears(p, cx, 102, 276, h=216, w=136) + fluffy_ghost(p, cx, r, top, bot, n=9, bulge=0.54) + eyes(p, cx, 388)
+    if bg and tail:
+        # on the card the fox is framed for the circular sidebar mask; the bare (no-bg) mark stays tight
+        body = f'<g transform="{card_fit_transform()}">{body}</g>'
     return svg(p, body, bg=bg, title="FloofyCrew - fox")
 
 

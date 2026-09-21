@@ -3,6 +3,10 @@
 ## Chosen mark: `fox-sunset`
 
 - `logo.svg` — the mark (512×512 viewBox, pink→orange card, peach fox, white tail tip).
+  The fox is fitted to the card's **inscribed circle** (radius 240 of 256, centre 4 px
+  above the middle) because KiroCrew's sidebar masks app icons to a circle; nothing is
+  cropped there and the square card keeps even margins (`gen_logos.card_fit_transform`,
+  driven by the measured `FOX_CIRCLE`).
 - `logo-mono.svg` — single-colour silhouette using `currentColor`, no card
   (inline in docs / README badges / anywhere it must follow text colour).
 - `logo-nobg.svg` — the fox alone in full colour, transparent background, for
