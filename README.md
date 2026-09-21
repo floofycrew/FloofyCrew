@@ -39,7 +39,9 @@ you stand, and `floofy restore --all` takes everything back out.
 > every mod you install is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md)
 > before `floofy init`.
 
-Status: **1.1.4** (patch on 1.1.3: the Loader reinstall keeps the host's
+Status: **1.1.5** (patch on 1.1.4: `self-update` fails cleanly when a release's
+package tag is not pushed yet and reports a refused Loader enable as
+installed-but-disabled; 1.1.4 the Loader reinstall keeps the host's
 `apps_trusted` grant, `self-update --now` installs a pending Loader stage, the boot
 template ships inside the zipapp; 1.1.3 the mark reframed for the circular sidebar mask,
 the "FloofyCrew" wordmark beside the fox banner, a `doctor` update-notice fix; 1.1.2

@@ -11,6 +11,24 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.1.5 — 2026-09-21
+
+A patch on 1.1.4 closing the two `self-update` reporting gaps found while updating
+the test box through it: a release whose package tag is not pushed yet fails
+cleanly before any change instead of with a traceback, and a Loader whose enable
+the host refused is reported as installed-but-disabled (with what to run) rather
+than as updated. No API change (`floofy.api_version` stays 1.1.0); same `supports`
+list as 1.1.4.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Fixed
 
 - After installing a staged Loader app, `self-update` reported "Loader app updated
