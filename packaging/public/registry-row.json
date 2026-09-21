@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "appRegistryRow": {
+    "name": "floofycrew",
+    "gitUrl": "https://github.com/floofycrew/FloofyCrew",
+    "repo": "https://github.com/floofycrew/FloofyCrew",
+    "branch": "loader-app",
+    "subdirectory": "app/floofycrew"
+  },
+  "registriesSource": {
+    "name": "floofycrew",
+    "url": "https://raw.githubusercontent.com/floofycrew/floofycrew-registry/main/",
+    "trust": "index",
+    "allowUnsigned": false,
+    "keyId": "31ddb18e6ffafef2",
+    "publicKey": "fJUsf7aIJM0P2xFCnxFDIM6HzrKuiIhzH/BUKON9M0c=",
+    "hostRegistry": {
+      "repo": "https://github.com/floofycrew/floofycrew-registry",
+      "branch": "main",
+      "name": "floofycrew"
+    }
+  },
+  "notes": "appRegistryRow: the KiroCrew federated app-registry row for the FloofyCrew Loader — the generated `loader-app` branch of the FloofyCrew repository holds app/floofycrew and its own app-registry.json (the public twin of the internal data package); the release workflow pins a copy to `loader-app-<tag>`. registriesSource: the row `floofy registry defaults` writes to ~/.kiro/crew/floofy/registries.json for the public mod registry, with the public key the public edition adapter pins (editions/public/floofy_edition_public/registry.json, key 31ddb18e6ffafef2). The GitHub organisation `floofycrew` is the placeholder of the 7.5 owner item: change it here and in the adapter together."
+}

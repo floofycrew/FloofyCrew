@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "id": "settings-demo",
+  "name": "Settings demo",
+  "version": "1.0.0",
+  "description": "The example of a mod with its own settings page inside the FloofyCrew App (Requirement 16.4): a text field and a toggle persisted through floofy.mod(id).config, and a button calling the mod's own backend route, which the python-hook part registers with ctx.routes and which echoes the stored config. Unofficial; the second first-party mod.",
+  "authors": [
+    "Oscar Tseng"
+  ],
+  "license": "MIT",
+  "tags": [
+    "example",
+    "settings",
+    "ui"
+  ],
+  "kirocrew": {
+    "version": ">=0.7.0 <0.9.0",
+    "editions": [
+      "internal",
+      "external"
+    ],
+    "strict": false
+  },
+  "dependsOn": {
+    "floofycrew": ">=1.1.0 <2.0.0"
+  },
+  "network": {
+    "hosts": [],
+    "credentials": false
+  },
+  "parts": [
+    {
+      "kind": "ui",
+      "side": "spa",
+      "path": "ui/",
+      "entry": "ui/page.mjs",
+      "title": "Settings demo",
+      "icon": "ui/icon.svg",
+      "description": "the settings page the App mounts under Mods: greeting + toggle persisted with floofy.mod(id).config, a button calling the mod's echo route"
+    },
+    {
+      "kind": "python-hook",
+      "side": "gateway",
+      "path": "hook/",
+      "module": "hook",
+      "early": false,
+      "description": "registers the echo route (GET/POST) with ctx.routes; answers with the stored config"
+    }
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "d1bfb4457ffee829154280b75e7559b6ca4d23269b4a36bfab76eec6cf78d232"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "80e39cc2df99c96f5f61a44e4e1b54ffa85c45d1c2d12bff7313cc638e164454"
+    },
+    {
+      "path": "hook/__init__.py",
+      "sha256": "a054921b9df63ec6cb52c93a693448cfb78a419c0aead3e84360006fb2cf392d"
+    },
+    {
+      "path": "ui/page.mjs",
+      "sha256": "91fa872f3a830bc3b3edd87106a8a737d9adc04ca6199716ffef0ed3e424741d"
+    },
+    {
+      "path": "ui/icon.svg",
+      "sha256": "bf595efa1d8188cce5c22893a917333545c83997d19be72356202758fc53ceb1"
+    }
+  ]
+}

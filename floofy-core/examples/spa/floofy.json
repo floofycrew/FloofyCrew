@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "id": "example-spa",
+  "name": "Example SPA module",
+  "version": "1.0.0",
+  "description": "An ES module loaded into the dashboard by the SPA host after the host bundle (Requirement 2.5). Lands disabled after install until the user enables it.",
+  "authors": ["FloofyCrew examples"],
+  "license": "MIT",
+  "tags": ["example", "spa"],
+  "kirocrew": { "version": ">=0.7.0 <0.9.0", "editions": ["internal", "external"] },
+  "dependsOn": { "floofycrew": "^1.0" },
+  "loadAfter": ["example-theme"],
+  "network": { "hosts": [], "credentials": false },
+  "parts": [
+    { "kind": "spa", "side": "spa", "path": "spa/main.js", "activation": "runtime" }
+  ],
+  "files": [
+    { "path": "spa/main.js", "sha256": "2e0770f69bd6626ae964587add887c4b12a6576a6b22097719a4a54111890269" }
+  ]
+}

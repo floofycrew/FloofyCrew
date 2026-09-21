@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "example-config",
+  "name": "Example config",
+  "version": "1.0.0",
+  "description": "A zero-code mod: host config.json keys applied with 'kirocrew config set' semantics; the previous values are recorded for uninstall (Requirement 2.2). Keys come from the values.json file and the inline 'values' block.",
+  "authors": ["FloofyCrew examples"],
+  "license": "MIT",
+  "tags": ["example", "config"],
+  "kirocrew": { "version": ">=0.7.0 <0.9.0" },
+  "dependsOn": { "floofycrew": "^1.0" },
+  "recommends": { "example-theme": { "range": "^1.0.0", "reason": "the theme_color this mod selects belongs to the example theme" } },
+  "parts": [
+    {
+      "kind": "config",
+      "side": "gateway",
+      "path": "config/values.json",
+      "values": { "dashboard.compact": true }
+    }
+  ],
+  "files": [
+    { "path": "config/values.json", "sha256": "12f7cfb0d9db50d48638eb02fd43ed1a4cbf0070084c95f00948459574b286af" }
+  ]
+}

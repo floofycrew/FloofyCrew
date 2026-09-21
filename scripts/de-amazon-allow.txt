@@ -1,0 +1,7 @@
+# Documented exceptions for scripts/check_no_internal_identifiers.py.
+# One per line: path:pattern:reason
+#   path    repository-relative POSIX path; a trailing "/" covers the subtree
+#   pattern a denylist entry exactly as printed by `--list`, or * for all
+#   reason  why this occurrence is acceptable in a public-clean directory
+# Every path must exist. Keep this file short: the fix is normally to move the
+# value into the internal edition adapter, not to add a line here.

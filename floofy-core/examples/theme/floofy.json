@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "example-theme",
+  "name": "Example theme",
+  "version": "1.0.0",
+  "description": "A zero-code mod: a KiroCrew theme pack installed through the host's own theme validator (Requirement 1.7, 2.1).",
+  "authors": ["FloofyCrew examples"],
+  "license": "MIT",
+  "tags": ["example", "theme"],
+  "kirocrew": { "version": ">=0.7.0 <0.9.0", "editions": ["internal", "external"], "strict": false },
+  "dependsOn": { "floofycrew": "^1.0" },
+  "parts": [
+    { "kind": "theme", "side": "gateway", "path": "theme/theme.json" }
+  ],
+  "files": [
+    { "path": "theme/theme.json", "sha256": "305caaed53eb8252c8834d873297bdbe64e4583ac7ee9a92e3b078573125b031" },
+    { "path": "theme/variables.json", "sha256": "9004832633f26d8b9f18d329488f31bb1116e8587d22e80b48c2093837a49b7f" }
+  ]
+}

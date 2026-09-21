@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "id": "custom-themes",
+  "name": "Custom themes",
+  "version": "1.0.1",
+  "description": "A theme editor for KiroCrew inside the FloofyCrew App, and the layer theme mods build on. A theme is a host theme pack (palette, branding, fonts, overrides.css — installed through the host's own validator, listed in Settings → Display) plus a FloofyCrew layer of extra CSS that may restyle anything, scoped to the theme and applied by the mod on the first frame and at runtime. Start from the running host's own built-in themes (read from its stylesheet, decorations included), edit every palette token with a live preview, export/import a theme as one file, install it and switch to it. Carries the theme-reset guard every custom theme needs. Unofficial.",
+  "authors": [
+    "Oscar Tseng"
+  ],
+  "license": "MIT",
+  "tags": [
+    "theme",
+    "editor",
+    "branding",
+    "ui",
+    "first-frame"
+  ],
+  "kirocrew": {
+    "version": ">=0.7.0 <0.9.0",
+    "editions": [
+      "internal",
+      "external"
+    ],
+    "strict": false
+  },
+  "dependsOn": {
+    "floofycrew": ">=1.1.0 <2.0.0"
+  },
+  "network": {
+    "hosts": [],
+    "credentials": false
+  },
+  "parts": [
+    {
+      "kind": "ui",
+      "side": "spa",
+      "path": "ui/",
+      "entry": "ui/page.mjs",
+      "title": "Custom themes",
+      "icon": "ui/icon.svg",
+      "description": "the editor: your themes, the host's built-in themes as presets, palette / look / pack / branding tabs, live preview, install, activate, export, import"
+    },
+    {
+      "kind": "python-hook",
+      "side": "gateway",
+      "path": "hook/",
+      "module": "hook",
+      "early": false,
+      "description": "the library under the mod's data dir, the CSS compiler, the presets harvested from the host's stylesheet, install through the ported host validator, the first-frame sheet under the Loader app's ui/boot/custom-themes/, and the routes the page and the runtime part call"
+    },
+    {
+      "kind": "spa",
+      "side": "spa",
+      "path": "spa/runtime.mjs",
+      "activation": "runtime",
+      "description": "keeps the active custom theme's compiled sheet (palette + extra layer) in a <style> on the document; re-fetches when data-theme or the host's custom themes change"
+    },
+    {
+      "kind": "spa",
+      "side": "spa",
+      "path": "spa/boot.js",
+      "activation": "boot",
+      "boot": {},
+      "description": "first frame: when the active colour theme is a custom pack, a render-blocking link to the sheet the hook keeps for every installed custom theme, so cold clients do not flash"
+    },
+    {
+      "kind": "patch",
+      "side": "spa",
+      "path": "patches/theme-reset-guard.json",
+      "description": "import-map patch on the useTheme chunk: the persisting theme reset (a failed per-pack fetch writes the default theme into the workspace config) becomes a no-op — the guard every custom theme needs, moved here from rimuru-branding"
+    }
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "80e39cc2df99c96f5f61a44e4e1b54ffa85c45d1c2d12bff7313cc638e164454"
+    },
+    {
+      "path": "README.md",
+      "sha256": "d606d2763d5c14f34ee3e0c20e81f4d34498d3ec829ab9bc7f5bdcbacfa57ded"
+    },
+    {
+      "path": "hook/__init__.py",
+      "sha256": "e3f769bbb62d3134615aac52a9d57d4d9b75e7462252f0540b2778d2dd3c9839"
+    },
+    {
+      "path": "hook/cssc.py",
+      "sha256": "85a3d966069f95368e265fc5e340c1f851c6656ef96ec6f7eb3083c30a3573f4"
+    },
+    {
+      "path": "hook/hostthemes.py",
+      "sha256": "177da986348f568b70c0aef832bd45595a1255abdfcf08338489f4a763f05401"
+    },
+    {
+      "path": "hook/library.py",
+      "sha256": "ba7cf62385c6e8fac08e5d06f3ff918bd5ed5ade6c370a1717414134ee01eaaa"
+    },
+    {
+      "path": "patches/theme-reset-guard.json",
+      "sha256": "b9d703784571811fc61300b409bcf8ccce7ce0c1185686492b84ffedff415775"
+    },
+    {
+      "path": "spa/boot.js",
+      "sha256": "fc44de11c309331406ae2ce0741cb71deb4cb4780bb031a4792f33cc485efb14"
+    },
+    {
+      "path": "spa/runtime.mjs",
+      "sha256": "c8e0b8f1d2c8feead78e21e5b95e7bb8fc589f7fce371a839ad9957585500678"
+    },
+    {
+      "path": "ui/icon.svg",
+      "sha256": "c59b771ea92a9fb47eeb39bc7eee9302d05f285fdebd297a399d9b246acd0343"
+    },
+    {
+      "path": "ui/page.mjs",
+      "sha256": "653438977d4c0410198940472db8e04c0058e733ec97ca233895779dee6bad0c"
+    }
+  ]
+}

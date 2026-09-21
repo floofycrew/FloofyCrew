@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="settings-demo">
+  <!-- settings-demo: two slider tracks with knobs, drawn for this mod (no third-party artwork) -->
+  <rect x="3" y="7" width="18" height="2" rx="1" fill="#a0a0aa"/>
+  <rect x="3" y="15" width="18" height="2" rx="1" fill="#a0a0aa"/>
+  <circle cx="9" cy="8" r="3" fill="#ff6b8b"/>
+  <circle cx="15" cy="16" r="3" fill="#ff9a3d"/>
+</svg>

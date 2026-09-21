@@ -1,0 +1,92 @@
+# FloofyCrew registry — validate a mod submission (Requirement 8.7).
+#
+# Drop this file into the registry repository as
+# .github/workflows/validate-submission.yml (init_registry_repo.sh does it).
+# On every pull request that touches mods/**, for each changed
+# mods/<id>/<version>/ record it downloads the release asset(s) named in
+# release.json, runs `registry_tools validate-submission` against the archive
+# (schema, `floofy validate`, files[] hashes, licence, host-name masquerade,
+# release tag, record consistency) and finally checks that index.json was
+# regenerated from the records (`build --check`). Nothing here needs a secret:
+# signing happens on merge (see ci-publish-index.yml).
+#
+# The tooling is standard-library Python, so it is used straight from a
+# checkout of the FloofyCrew repository (no pip install). Pin FLOOFYCREW_REF to a
+# release tag once the project publishes them.
+
+name: validate submission
+
+on:
+  pull_request:
+    paths:
+      - "mods/**"
+      - "compat.json"
+      - "index.json"
+      - "app-registry.json"
+
+permissions:
+  contents: read
+
+env:
+  FLOOFYCREW_REPO: floofycrew/FloofyCrew   # the FloofyCrew monorepo (floofy-core + registry-tools)
+  FLOOFYCREW_REF: main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the registry
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check out FloofyCrew (registry-tools + floofy-core)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FLOOFYCREW_REPO }}
+          ref: ${{ env.FLOOFYCREW_REF }}
+          path: .floofycrew
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate every changed record against its release asset
+        shell: bash
+        env:
+          PYTHONPATH: .floofycrew/floofy-core:.floofycrew/registry-tools
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          changed=$(git diff --name-only "$base"...HEAD -- 'mods/*/*/release.json' 'mods/*/*/floofy.json' | sed -E 's#^(mods/[^/]+/[^/]+)/.*#\1#' | sort -u)
+          if [ -z "$changed" ]; then
+            echo "no version records changed"; exit 0
+          fi
+          status=0
+          for record in $changed; do
+            [ -d "$record" ] || { echo "$record was removed"; continue; }
+            id=$(basename "$(dirname "$record")"); version=$(basename "$record")
+            tag=$(python -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r.get("tag") or sys.argv[2])' "$record/release.json" "$version")
+            mkdir -p .assets/"$id-$version"
+            python - "$record/release.json" .assets/"$id-$version" <<'PY'
+          import json, sys, urllib.request
+          record, out = json.load(open(sys.argv[1])), sys.argv[2]
+          for f in record["files"]:
+              url = f["url"]
+              assert url.startswith("https://"), url
+              name = f.get("name") or url.rsplit("/", 1)[-1]
+              with urllib.request.urlopen(url, timeout=120) as r, open(f"{out}/{name}", "wb") as w:
+                  w.write(r.read())
+              print("downloaded", url)
+          PY
+          for archive in .assets/"$id-$version"/*; do
+              echo "== $id@$version: $archive (tag $tag)"
+              python -m registry_tools validate-submission "$archive" --registry . --tag "$tag" || status=1
+            done
+          done
+          exit $status
+
+      - name: index.json (and app-registry.json) must be regenerated from the records
+        env:
+          PYTHONPATH: .floofycrew/floofy-core:.floofycrew/registry-tools
+        run: python -m registry_tools build . --check --app-registry

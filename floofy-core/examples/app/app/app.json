@@ -1,0 +1,7 @@
+{
+  "name": "example-app",
+  "version": "1.0.0",
+  "description": "An illustrative KiroCrew App manifest shipped by a FloofyCrew mod.",
+  "ui": { "entry": "ui/panel.mjs" },
+  "permissions": []
+}

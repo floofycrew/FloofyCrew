@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="FloofyCrew - round puff with bear ears">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7C55F5"/><stop offset="1" stop-color="#6A3BEA"/></linearGradient>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<circle cx="130" cy="154" r="68" fill="#FFFFFF"/><circle cx="382" cy="154" r="68" fill="#FFFFFF"/><path d="M212.05,142.32 A49.22,49.22 0 0 1 299.95,142.32 A49.22,49.22 0 0 1 373.9,189.84 A49.22,49.22 0 0 1 410.41,269.8 A49.22,49.22 0 0 1 397.9,356.8 A49.22,49.22 0 0 1 340.34,423.24 A49.22,49.22 0 0 1 256,448 A49.22,49.22 0 0 1 171.66,423.24 A49.22,49.22 0 0 1 114.1,356.8 A49.22,49.22 0 0 1 101.59,269.8 A49.22,49.22 0 0 1 138.1,189.84 A49.22,49.22 0 0 1 212.05,142.32 Z" fill="#FFFFFF"/><ellipse cx="210" cy="302" rx="20" ry="30" transform="rotate(-6 210 302)" fill="#101010"/><ellipse cx="302" cy="302" rx="20" ry="30" transform="rotate(6 302 302)" fill="#101010"/>
+</svg>

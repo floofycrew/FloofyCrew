@@ -1,0 +1,53 @@
+[project]
+name = "floofycrew"
+version = "1.3.0"
+description = "Unofficial modding ecosystem for KiroCrew: manifest, loader, patcher, manager, registry, Forge."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+# Runtime code is standard-library only (Requirement 7.2): the CLI and the Loader
+# run on the host's own interpreter. Do not add runtime dependencies here.
+dependencies = []
+
+[project.scripts]
+# The manager CLI (task 6.1); `python -m floofy_core.cli` and `dist/floofy.pyz`
+# (scripts/build_zipapp.py) are the same entry point.
+floofy = "floofy_core.cli.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "hypothesis",
+    "playwright",
+]
+
+[tool.uv]
+# The repository holds several distributions (floofy-core, the edition adapters);
+# packaging is defined per package later. `uv sync` only manages the dev group.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["floofy-core/tests", "editions/toolbox/tests", "editions/public/tests", "loader-app/tests", "spa-host/tests", "registry-tools/tests", "forge/tests", "packaging/tests"]
+pythonpath = ["floofy-core", "floofy-core/tests", "editions/toolbox", "editions/public", "scripts", "loader-app", "loader-app/tests", "registry-tools", "registry-tools/tests", "forge"]
+addopts = "-ra"
+markers = [
+    "registry: the registry and compatibility-matrix suite (task 7.6, Requirement 13.3); `pytest -m registry`",
+    "slow: a Forge test that clones this repository and builds the artifacts (a few seconds each)",
+    "forge: the Forge suite — ledger, watchers on recorded feeds, provision/check/release with fake commands, runner fallback, notify dry-run (task 8.8, Requirement 13.3); `pytest -m forge`",
+]
+
+
+[tool.floofycrew]
+# The host versions this release supports (Requirement 10.4): every compatibility-
+# matrix row of the Forge with `loader: ok` at release time, per edition and channel.
+# The release stage writes the same list into dist/supports.json and RELEASE.md;
+# CHANGELOG.md repeats it in prose. Keys are the matrix editions.
+api_version = "1.2.0"
+
+[tool.floofycrew.supports.internal]
+beta = ["0.7.0.5"]
+stable = ["0.7.0.5"]
+
+[tool.floofycrew.supports.external]
+insider = ["0.7.0rc5"]
+stable = ["0.6.0"]

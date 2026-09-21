@@ -1,0 +1,141 @@
+name: release
+
+# The public track (task 9.2; Requirement 10.4, 10.5): a `vX.Y.Z` (or `floofycrew-vX.Y.Z`)
+# tag builds the public release tree twice (byte-identical), refuses internal
+# identifiers in the artifacts, measures the byte-identity across editions and
+# installs the same mod archive on both, installs the wheel into a scratch venv,
+# attaches the assets to the GitHub release, publishes the Loader app tree to the generated `loader-app` branch
+# (a federated app registry the host can clone) and, when a registry token is
+# configured, stamps the FloofyCrew version into the public registry's index
+# through registry_tools (a pull request; the compatibility rows themselves come
+# from the Forge). FloofyCrew is unofficial and ships only its own artifacts —
+# the KiroCrew host is never rebuilt or redistributed (design DR-1).
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "floofycrew-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build, verify, publish
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The tag names the checked-out version
+        run: |
+          VERSION=$(python -c 'import re, pathlib; print(re.search(r"^__version__ = \"([^\"]+)\"", pathlib.Path("floofy-core/floofy_core/__init__.py").read_text(), re.M).group(1))')
+          case "$TAG" in
+            "v$VERSION"|"floofycrew-v$VERSION") echo "floofycrew $VERSION ($TAG)" ;;
+            *) echo "tag $TAG does not match floofy_core.__version__ $VERSION" >&2; exit 1 ;;
+          esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build the public release tree (twice, byte-identical)
+        run: |
+          python packaging/public/build.py --check --tag "$TAG"
+          python packaging/public/build.py --out build/public --tag "$TAG"
+          cat build/public/dist/SHA256SUMS
+
+      - name: No internal identifiers in the public artifacts
+        run: |
+          python scripts/check_no_internal_identifiers.py --paths build/public/app build/public/install.sh build/public/README.md build/public/RELEASE.md build/public/app-registry.json
+          rm -rf /tmp/wheel && mkdir /tmp/wheel && (cd /tmp/wheel && unzip -q "$GITHUB_WORKSPACE"/build/public/dist/floofycrew-*.whl)
+          python scripts/check_no_internal_identifiers.py --root /tmp/wheel --allowlist /dev/null --paths floofy_core floofy_edition_public "floofycrew-$VERSION.dist-info"
+
+      - name: Byte-identity across editions (>= 80 % of shipped files) and the same archive on both
+        run: |
+          python scripts/artifact_identity_report.py
+          python scripts/install_both_editions.py
+
+      - name: The wheel installs into a scratch venv and floofy runs
+        run: |
+          python -m venv /tmp/floofy-venv
+          /tmp/floofy-venv/bin/python -m pip install --quiet --no-index --no-deps build/public/dist/floofycrew-*.whl
+          /tmp/floofy-venv/bin/floofy --version
+          /tmp/floofy-venv/bin/floofy --help > /dev/null
+
+      - name: The app-registry row is what the host's reader accepts
+        run: |
+          PYTHONPATH=floofy-core:registry-tools python - <<'EOF'
+          import json
+          from registry_tools.app_registry import BRANCH_RE, is_git_url
+          rows = json.load(open("build/public/app-registry.json", encoding="utf-8"))
+          assert isinstance(rows, list) and len(rows) == 1, rows
+          row = rows[0]
+          assert row["name"] == "floofycrew" and is_git_url(row["gitUrl"]) and row["gitUrl"] == row["repo"], row
+          assert BRANCH_RE.match(row["branch"]) and row["subdirectory"] == "app/floofycrew", row
+          print("app-registry.json row ok:", row)
+          EOF
+
+      - name: Publish the Loader app tree to the loader-app branch
+        # The generated tree (no binaries: those are release assets) on an orphan
+        # branch, force-updated per release, plus an immutable copy under the tag
+        # loader-app-<tag> — the branch app-registry.json pins to.
+        run: |
+          set -eu
+          WORK=$(mktemp -d)
+          cp -r build/public/app build/public/app-registry.json build/public/install.sh build/public/README.md build/public/RELEASE.md build/public/.gitignore "$WORK/"
+          mkdir -p "$WORK/dist" && cp build/public/dist/SHA256SUMS "$WORK/dist/"
+          [ -f build/public/dist/supports.json ] && cp build/public/dist/supports.json "$WORK/dist/" || true
+          cd "$WORK"
+          git init -q -b loader-app
+          git config user.name "floofycrew-release"
+          git config user.email "floofycrew-release@users.noreply.github.com"
+          git add -A
+          git commit -q -m "chore(release): Loader app tree for floofycrew $TAG"
+          git tag "loader-app-$TAG"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" loader-app "loader-app-$TAG"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the GitHub release with the assets
+        run: gh release create "$TAG" build/public/dist/* --repo "$GITHUB_REPOSITORY" --title "floofycrew v$VERSION" --notes-file build/public/RELEASE.md --verify-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stamp the release into the public registry index (registry_tools)
+        # Needs REGISTRY_TOKEN (a fine-grained token with contents + pull requests
+        # on the registry repository) and, optionally, the signing key
+        # FLOOFYCREW_SIGNING_KEY; without the token this step only prints what it
+        # would do. The registry repository is the one the public adapter names.
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          FLOOFYCREW_SIGNING_KEY: ${{ secrets.FLOOFYCREW_SIGNING_KEY }}
+        run: |
+          set -eu
+          REGISTRY=$(python -c 'import json; print(json.load(open("editions/public/floofy_edition_public/registry.json"))["sources"][0]["repo"].removeprefix("https://github.com/"))')
+          if [ -z "${REGISTRY_TOKEN:-}" ]; then
+            echo "REGISTRY_TOKEN not configured: skipping the registry update for $REGISTRY (run locally: python -m registry_tools build <clone> --floofycrew $VERSION --app-registry [--sign KEY])"
+            exit 0
+          fi
+          git clone -q "https://x-access-token:${REGISTRY_TOKEN}@github.com/${REGISTRY}.git" /tmp/registry
+          cd /tmp/registry
+          git config user.name "floofycrew-release"
+          git config user.email "floofycrew-release@users.noreply.github.com"
+          git checkout -q -b "floofycrew-$TAG"
+          if [ -n "${FLOOFYCREW_SIGNING_KEY:-}" ]; then
+            printf '%s' "$FLOOFYCREW_SIGNING_KEY" > /tmp/signing-key.json && chmod 0600 /tmp/signing-key.json
+            PYTHONPATH="$GITHUB_WORKSPACE/floofy-core:$GITHUB_WORKSPACE/registry-tools" python -m registry_tools build . --floofycrew "$VERSION" --app-registry --sign /tmp/signing-key.json
+          else
+            PYTHONPATH="$GITHUB_WORKSPACE/floofy-core:$GITHUB_WORKSPACE/registry-tools" python -m registry_tools build . --floofycrew "$VERSION" --app-registry
+          fi
+          git add -A
+          if git commit -q -m "chore(index): Stamp floofycrew $VERSION"; then
+            git push -q -u origin "floofycrew-$TAG"
+            GH_TOKEN="$REGISTRY_TOKEN" gh pr create --repo "$REGISTRY" --head "floofycrew-$TAG" --title "chore(index): Stamp floofycrew $VERSION" --body "Index rebuilt for floofycrew $TAG by the FloofyCrew release workflow; the compatibility rows come from the Forge."
+          else
+            echo "registry index already current"
+          fi

@@ -1,0 +1,771 @@
+{
+  "closure": [
+    "TunnelQrCard-C7TY_tEZ.js",
+    "TunnelMobileConnectSection-CYBi05WZ.js",
+    "TunnelOverviewPanel-BtJ1eCxf.js",
+    "TunnelPage-BmQOR6XD.js",
+    "main-qB7mk2ul.js"
+  ],
+  "edition": "internal",
+  "entry": "main-qB7mk2ul.js",
+  "excludedAssets": 0,
+  "files": {
+    "assets/AboutPanel-BZW7aH50.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 53017
+    },
+    "assets/AgentSelector-C5r6Onmn.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 8426
+    },
+    "assets/App-9RQJ1adl.css": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3125
+    },
+    "assets/App-B7YcgeIc.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3481385
+    },
+    "assets/AppIcon-DH0pqjGS.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2184
+    },
+    "assets/AppSource-B3LPalrY.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1195
+    },
+    "assets/AwsConsentGate-DdOaBegq.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 133934
+    },
+    "assets/BrandIcon-Y_VntC9W.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3130
+    },
+    "assets/ChatSettings-BWC1w80e.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1700
+    },
+    "assets/Clickable-L8_sXkR9.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 514
+    },
+    "assets/CodeEditor-DcbGDces.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1123
+    },
+    "assets/Combination-CsIYfObh.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 12456
+    },
+    "assets/ConfirmDialog-AVPHTcww.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4682
+    },
+    "assets/ErrorBoundary-Nu5YvFFV.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3319
+    },
+    "assets/ErrorNotice-DSbjoEGe.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4274
+    },
+    "assets/FolderBody-DR44BcW2.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 637
+    },
+    "assets/Highlighted-Bqs3fVbi.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 20763
+    },
+    "assets/ListDetailBack-TxPIzLsZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 547
+    },
+    "assets/LottieRenderer-2HsuP2xu.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2469
+    },
+    "assets/MarkdownRenderer-CvYbladY.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 178837
+    },
+    "assets/MemoryTab-DLda-7g2.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 165787
+    },
+    "assets/Modal-92q94KW1.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2782
+    },
+    "assets/MonitorRadar-CBVSXI8c.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1477
+    },
+    "assets/NavBackBar-LPcqlEM6.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 5526
+    },
+    "assets/NavigationLeaveGuard-BnnAK_fZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4334
+    },
+    "assets/ProjectPicker-CtgSKU4I.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 10810
+    },
+    "assets/PullRequestPanel-Dn4oR0MQ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 38721
+    },
+    "assets/ReadingWidthToggle-DTbIUWZA.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 785
+    },
+    "assets/ResizeHandle-DP8nahk-.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1181
+    },
+    "assets/SegmentedControl-DlNA2nRQ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3672
+    },
+    "assets/SettingsLink-dbNFuanq.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 614
+    },
+    "assets/SimpleSelect-C9K-pRe8.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 47821
+    },
+    "assets/SnipOverlay-B5xhulik.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4296
+    },
+    "assets/SpriteRenderer-jlOcuqAu.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 170887
+    },
+    "assets/Trans-DKP5Oqk0.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 10758
+    },
+    "assets/TrustDropdown-Dj6otwr4.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2498
+    },
+    "assets/TunnelMobileConnectSection-CYBi05WZ.js": {
+      "bytes": 301,
+      "kind": "skeleton",
+      "sourceBytes": 1144
+    },
+    "assets/TunnelMobileConnectSection-CYBi05WZ.js.br": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 593
+    },
+    "assets/TunnelMobileConnectSection-CYBi05WZ.js.gz": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 655
+    },
+    "assets/TunnelOverviewPanel-BtJ1eCxf.js": {
+      "bytes": 294,
+      "kind": "skeleton",
+      "sourceBytes": 1281
+    },
+    "assets/TunnelOverviewPanel-BtJ1eCxf.js.br": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 608
+    },
+    "assets/TunnelOverviewPanel-BtJ1eCxf.js.gz": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 662
+    },
+    "assets/TunnelPage-BmQOR6XD.js": {
+      "bytes": 354,
+      "kind": "skeleton",
+      "sourceBytes": 7565
+    },
+    "assets/TunnelPage-BmQOR6XD.js.br": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 2276
+    },
+    "assets/TunnelPage-BmQOR6XD.js.gz": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 2411
+    },
+    "assets/TunnelQrCard-C7TY_tEZ.js": {
+      "bytes": 3347,
+      "kind": "verbatim",
+      "sourceBytes": 3347
+    },
+    "assets/TunnelQrCard-C7TY_tEZ.js.br": {
+      "bytes": 1442,
+      "kind": "verbatim",
+      "sourceBytes": 1442
+    },
+    "assets/TunnelQrCard-C7TY_tEZ.js.gz": {
+      "bytes": 1575,
+      "kind": "verbatim",
+      "sourceBytes": 1575
+    },
+    "assets/WorkflowsRuns-fEzBp7_y.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 14965
+    },
+    "assets/all-B7oBCLBg.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 11806690
+    },
+    "assets/api-CPDLqlSN.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 210
+    },
+    "assets/apiError-BPAFu3Mi.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 741
+    },
+    "assets/appNav-9i1lmLuZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 707
+    },
+    "assets/appNavHidden-DwPHsreb.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1316
+    },
+    "assets/automation-CrqwrcED.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 10349
+    },
+    "assets/bundle-mjs-DxdGK6Xj.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 26856
+    },
+    "assets/client-BcP-T9OI.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 69933
+    },
+    "assets/clipboard-DLRiFXZZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1014
+    },
+    "assets/commandModifier-hO4dw1CA.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 46
+    },
+    "assets/composerPastePolicy-CLKGfmQe.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2984
+    },
+    "assets/context-DMk8fbYA.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1491
+    },
+    "assets/defaultAgentQuery-DV7UAlgS.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 345
+    },
+    "assets/destinationVars-BBk9xaMc.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 285
+    },
+    "assets/dialog-DV8VQqs9.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 18001
+    },
+    "assets/dist-BfoZ9w90.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 17712
+    },
+    "assets/dist-tyFW-GQv.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 58530
+    },
+    "assets/dropdown-menu-EF-qgO4W.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 8198
+    },
+    "assets/editionApi-BDGKWLaC.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 909
+    },
+    "assets/electron-DFRQJbBi.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 718
+    },
+    "assets/errorReport-C7L0QDWt.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3126
+    },
+    "assets/fileTokens-8GqlM-S2.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 6321
+    },
+    "assets/floating-ui.react-dom-BLSDNTUh.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 21655
+    },
+    "assets/format-CtR_siYE.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3774
+    },
+    "assets/helpers-9fNQOhaP.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 233
+    },
+    "assets/iconContrast-BOy5mHXx.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2526
+    },
+    "assets/isTouchDevice-HCxMVnPj.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 185
+    },
+    "assets/main-C6DbzVEa.css": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 34383
+    },
+    "assets/main-qB7mk2ul.js": {
+      "bytes": 5509,
+      "kind": "skeleton",
+      "sourceBytes": 630222
+    },
+    "assets/main-qB7mk2ul.js.br": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 145079
+    },
+    "assets/main-qB7mk2ul.js.gz": {
+      "bytes": 3,
+      "kind": "stub",
+      "sourceBytes": 164859
+    },
+    "assets/mobileConnectRenderers-Behhqqn9.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 657
+    },
+    "assets/notificationsSlice-CfOJti0T.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3334
+    },
+    "assets/panels-C8txbtWF.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1549
+    },
+    "assets/pasteTokens-Bscwe-3E.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4103
+    },
+    "assets/phoneSubmenu-BEl3yDED.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 39570
+    },
+    "assets/pierre-UiUc-06O.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 9240
+    },
+    "assets/popover-BG4gd1Al.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 20591
+    },
+    "assets/providers-WRNofsHD.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 6450
+    },
+    "assets/renderBudget-Cw3K2yWq.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 280
+    },
+    "assets/rolldown-runtime-C0FnF6B9.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1291
+    },
+    "assets/runModel-Bc0IK-x1.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 891
+    },
+    "assets/safeStorage--aWtkcR6.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1085
+    },
+    "assets/safeUrl-DOsrqqcq.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 318
+    },
+    "assets/sanitize-BgsyzPsv.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1474
+    },
+    "assets/seamCollision-DVf8VB2B.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 67
+    },
+    "assets/secureId-Dkmv36JH.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 441
+    },
+    "assets/sendTurn-DA3ah5Wh.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1001
+    },
+    "assets/sessionOrder-BjbybcuD.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2808
+    },
+    "assets/settings-CyD-G_7G.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 14321
+    },
+    "assets/settingsPath-nYidwDSG.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 400
+    },
+    "assets/shareSupport-DWb35eZF.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 6966
+    },
+    "assets/shim-DV_Pvyua.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 871
+    },
+    "assets/splitOnPlaceholder-ChFmfApo.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 139
+    },
+    "assets/src-CdJBuVPS.css": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 269689
+    },
+    "assets/staleOwnerSignal-Ruoa02k0.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 297
+    },
+    "assets/startupVideoGate-D7s-nnWm.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 365
+    },
+    "assets/store-DcJQ9uDR.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 98922
+    },
+    "assets/subNavParams-B62RDvBZ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 480
+    },
+    "assets/t-7B3VZiaB.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 850397
+    },
+    "assets/tabs-DfBoYqdC.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 26486
+    },
+    "assets/terminalRegistry-C4mghvt3.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 4552
+    },
+    "assets/timeAgo-B7ZFnioL.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 239
+    },
+    "assets/toolPurpose-DkMYvtXo.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 431
+    },
+    "assets/touchActions-9FCzY38a.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 664
+    },
+    "assets/tree-CWalpJpI.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 6661
+    },
+    "assets/trustPatterns-f4MhUv80.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 411
+    },
+    "assets/ui-B6Ynlj5I.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 16220
+    },
+    "assets/urlTransform-BNUZfc6g.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 390
+    },
+    "assets/useAgents-C_fz3OVK.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 870
+    },
+    "assets/useAppsData-B2sEdGNe.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 14050
+    },
+    "assets/useAutoGrowTextarea-Bxo5XZz0.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2196
+    },
+    "assets/useAvailableModels-EjCizG9c.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 428
+    },
+    "assets/useColumnResize-CKXE-lI1.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 2371
+    },
+    "assets/useDialogFocusTrap-DvxNWRIm.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1270
+    },
+    "assets/useHeroArt-CFM_Zppy.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 15323
+    },
+    "assets/useImeGuard-D7PlcO35.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1781
+    },
+    "assets/useIsDark-DtCYROGr.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 498
+    },
+    "assets/useIsMobile-CVmE8oC-.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 916
+    },
+    "assets/useIsTouchDevice-Cgh23pZY.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 508
+    },
+    "assets/useLanguageGeneration-DqxbYYEH.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 353
+    },
+    "assets/useListDetailView-ChaPf7cU.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 400
+    },
+    "assets/useListboxKeyboard-DW_wHDO-.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1932
+    },
+    "assets/useMenuKeyboard-CzKHukvj.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1571
+    },
+    "assets/usePersistedBool-Bez9hn3L.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1075
+    },
+    "assets/usePlainDiff-Dz7MXmRt.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 8220
+    },
+    "assets/usePointerDrag-BoxbdO0y.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 1853
+    },
+    "assets/useReducedMotion-BNdXG5Dz.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 490
+    },
+    "assets/useScrollEdges-Cl-nieoD.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 908
+    },
+    "assets/useTheme-DYOJyrcw.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 17935
+    },
+    "assets/useTranslation-BmA2eTXS.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 3124
+    },
+    "assets/useVisualViewport-C6_uBF4A.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 54606
+    },
+    "assets/utils-C3eKvuTu.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 451
+    },
+    "assets/vendor-dompurify-DrVcFY1Q.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 27122
+    },
+    "assets/vendor-icons-BP3Va5xl.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 95912
+    },
+    "assets/vendor-markdown-CaH0jbfC.css": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 28842
+    },
+    "assets/vendor-markdown-t8Ito-TQ.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 700563
+    },
+    "assets/vendor-react-CDpZySCs.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 391645
+    },
+    "assets/vendor-yaml-CyJt8SAd.js": {
+      "bytes": 0,
+      "kind": "stub",
+      "sourceBytes": 95971
+    },
+    "index.html": {
+      "bytes": 35189,
+      "kind": "verbatim"
+    }
+  },
+  "fixtureBytes": 48035,
+  "schema": 1,
+  "seed": "TunnelQrCard-C7TY_tEZ.js",
+  "seedImporters": [
+    "TunnelMobileConnectSection-CYBi05WZ.js",
+    "TunnelOverviewPanel-BtJ1eCxf.js",
+    "TunnelPage-BmQOR6XD.js",
+    "main-qB7mk2ul.js"
+  ],
+  "sourceChunkCount": 718,
+  "sourceIndexSha256": "ea6d67ccfb5190877c2f10651a20df54b4af7e988048e44e7e8b7fccdda61d38",
+  "sourceSidecarCount": 1234,
+  "sourceVersion": "0.7.0.5"
+}

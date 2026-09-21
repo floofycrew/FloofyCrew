@@ -1,0 +1,284 @@
+{
+  "name": "floofycrew",
+  "version": "1.3.0",
+  "displayName": "FloofyCrew",
+  "description": "FloofyCrew — the unofficial mod manager and loader for KiroCrew. Not affiliated with Kiro or KiroCrew. Runs the mods you chose, on your consent, inside the gateway; the App does everything the floofy CLI does and hosts the mods' own settings pages.",
+  "author": "FloofyCrew contributors",
+  "license": "MIT",
+  "iconPath": "art/icon.svg",
+  "tags": [
+    "mods",
+    "unofficial",
+    "floofycrew"
+  ],
+  "ui": {
+    "entry": "index.mjs",
+    "pages": [
+      {
+        "route": "/apps/floofycrew",
+        "label": "FloofyCrew",
+        "icon": "Puzzle"
+      }
+    ],
+    "sidebar": {
+      "section": "Apps",
+      "order": 10
+    }
+  },
+  "backend": {
+    "hooks": {
+      "routes": "floofy_loader.hooks:register_routes",
+      "on_startup": "floofy_loader.hooks:on_startup",
+      "on_shutdown": "floofy_loader.hooks:on_shutdown"
+    }
+  },
+  "permissions": {},
+  "floofycrew": {
+    "unofficial": true,
+    "dataHome": "<host home>/floofy",
+    "routesMountedAt": "/api/apps/floofycrew",
+    "routes": [
+      {
+        "method": "GET",
+        "path": "/state",
+        "purpose": "LoaderState JSON (+ api_version, unofficial)"
+      },
+      {
+        "method": "GET",
+        "path": "/health",
+        "purpose": "Loader liveness"
+      },
+      {
+        "method": "POST",
+        "path": "/reload",
+        "purpose": "re-run the boot sequence (apply pending/ now) — the manager App's 'apply now'"
+      },
+      {
+        "method": "POST",
+        "path": "/host/restart",
+        "purpose": "restart the KiroCrew gateway through `kirocrew restart` (detached) behind the App's yes-no confirmation — the red 'Restart KiroCrew' button [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/fault",
+        "purpose": "SPA host reports a failed module {message, stack, source}"
+      },
+      {
+        "method": "GET",
+        "path": "/spa/{id}/{file...}",
+        "purpose": "an enabled mod's spa part files (1-4 segments)"
+      },
+      {
+        "method": "POST",
+        "path": "/cli",
+        "purpose": "run one READ-ONLY floofy command in-process {argv} (status, doctor, search, info, list, audit, which)"
+      },
+      {
+        "method": "GET",
+        "path": "/registry",
+        "purpose": "registry cache summary, source verdicts, update availability and source tier per installed mod"
+      },
+      {
+        "method": "GET",
+        "path": "/banner",
+        "purpose": "the FloofyCrew banner cells for the App's About card"
+      },
+      {
+        "method": "GET",
+        "path": "/ui/mods/{id}/{file...}",
+        "purpose": "an ACTIVE mod's ui part files (Requirement 16.4), manifest-listed only, from the installed mod directory (1-4 segments) — what the App imports same-origin"
+      },
+      {
+        "method": "GET",
+        "path": "/mods/{id}/config",
+        "purpose": "the mod's .floofy/config.json (floofy.mod(id).config.get)"
+      },
+      {
+        "method": "PUT",
+        "path": "/mods/{id}/config",
+        "purpose": "merge {patch} into the mod's .floofy/config.json, null deletes a key, 64 KiB cap (floofy.mod(id).config.set)"
+      },
+      {
+        "method": "GET",
+        "path": "/mods/{id}/api/{path...}",
+        "purpose": "the mod's own backend routes registered with ctx.routes.add (1-4 segments; floofy.mod(id).routes.fetch)"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/api/{path...}",
+        "purpose": "the mod's own backend routes (POST)"
+      },
+      {
+        "method": "PUT",
+        "path": "/mods/{id}/api/{path...}",
+        "purpose": "the mod's own backend routes (PUT)"
+      },
+      {
+        "method": "DELETE",
+        "path": "/mods/{id}/api/{path...}",
+        "purpose": "the mod's own backend routes (DELETE)"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/install",
+        "purpose": "floofy install {source, now?, enable?, ref?} — the disclosure and every confirmation through the 409 protocol [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/update-check",
+        "purpose": "floofy update --all --check"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/update-all",
+        "purpose": "floofy update --all {now?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/enable",
+        "purpose": "floofy enable <id> {reload?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/disable",
+        "purpose": "floofy disable <id> {reload?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/uninstall",
+        "purpose": "floofy uninstall <id> {now?, keepConfig?} (asks yes/no) [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/update",
+        "purpose": "floofy update <id> {now?} — the one-click update through the shared update path [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/mods/{id}/yeet",
+        "purpose": "floofy yeet <id> {reason?} [actor: app]"
+      },
+      {
+        "method": "GET",
+        "path": "/mods/{id}/info",
+        "purpose": "floofy info <id>"
+      },
+      {
+        "method": "POST",
+        "path": "/yeet",
+        "purpose": "floofy yeet <ids...> {ids[], reason?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/restore",
+        "purpose": "floofy yeet --restore <version> {version} [actor: app]"
+      },
+      {
+        "method": "GET",
+        "path": "/quarantine",
+        "purpose": "floofy yeet --list"
+      },
+      {
+        "method": "GET",
+        "path": "/status",
+        "purpose": "floofy status"
+      },
+      {
+        "method": "POST",
+        "path": "/doctor",
+        "purpose": "floofy doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/doctor",
+        "purpose": "floofy doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/search",
+        "purpose": "floofy search <q> (?q=)"
+      },
+      {
+        "method": "GET",
+        "path": "/audit",
+        "purpose": "floofy audit (?tail=N&op=OP)"
+      },
+      {
+        "method": "GET",
+        "path": "/registries",
+        "purpose": "floofy registry list"
+      },
+      {
+        "method": "POST",
+        "path": "/registries",
+        "purpose": "floofy registry add {url, trust?, allowUnsigned?, name?, keyId?, publicKey?, refresh?} (--allow-unsigned asks the loosening confirmation) [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/registries/refresh",
+        "purpose": "floofy registry refresh [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/registries/defaults",
+        "purpose": "floofy registry defaults {refresh?, hostRegistry?} [actor: app]"
+      },
+      {
+        "method": "DELETE",
+        "path": "/registries/{key}",
+        "purpose": "floofy registry remove <key> [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/registries/{key}/refresh",
+        "purpose": "floofy registry refresh <key> [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/registries/{key}/trust",
+        "purpose": "floofy registry add <url of key> --trust T [--allow-unsigned] --no-refresh {trust, allowUnsigned?} [actor: app]"
+      },
+      {
+        "method": "GET",
+        "path": "/profiles",
+        "purpose": "floofy profile list"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles",
+        "purpose": "floofy profile save {name} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/import",
+        "purpose": "floofy profile import {file, name?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/{name}/use",
+        "purpose": "floofy profile use <name> {now?, check?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/{name}/export",
+        "purpose": "floofy profile export <name> {file}"
+      },
+      {
+        "method": "POST",
+        "path": "/vanilla",
+        "purpose": "floofy vanilla {cancel?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/self-update",
+        "purpose": "floofy self-update {now?} — the 'Update FloofyCrew' button; the CLI's install question arrives as the yes-no 409 [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/consent",
+        "purpose": "the one-time consent: {agree: true} = the [ I AGREE ] control; runs init --no-loader-app --no-trigger, recorded how=app [actor: app]"
+      }
+    ],
+    "confirmationProtocol": "a route answers 409 {confirmation: {kind, text, expects, targets, detail}} when a confirmation the CLI would ask is missing from the request's `confirmations` object ({consent, yes, governanceTargets[], unlistedSource, unsignedIndex}); nothing changes until the client re-posts with the answer"
+  }
+}

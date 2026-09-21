@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "example-agent",
+  "name": "Example agent",
+  "version": "1.0.0",
+  "description": "A zero-code mod: an agent spec dropped into the host's agents directory (Requirement 1.7, 2.2).",
+  "authors": ["FloofyCrew examples"],
+  "license": "MIT",
+  "tags": ["example", "agent"],
+  "kirocrew": { "version": ">=0.7.0 <0.9.0", "editions": ["internal", "external"] },
+  "dependsOn": { "floofycrew": "^1.0" },
+  "parts": [
+    { "kind": "agent", "side": "gateway", "path": "agents/example-agent.json" }
+  ],
+  "files": [
+    { "path": "agents/example-agent.json", "sha256": "ab6bfaed8606838d39f24b1c8d029ad2eee941836330f3c7895f65741d742717" }
+  ]
+}

@@ -1,0 +1,27 @@
+# Documented exceptions for the FULL-TREE scan of the public export
+# (scripts/export_public.py; scripts/check_no_internal_identifiers.py --paths .).
+# Same format as de-amazon-allow.txt: path:pattern:reason — path is relative to
+# the EXPORTED tree, pattern is a denylist entry (or * for all), reason is
+# mandatory. Every path must exist in the export so stale exceptions are noticed.
+#
+# The bar for a line here: the occurrence must be structural (the scanner's own
+# denylist, this file's own patterns, the internal adapter's directory name, a
+# license attribution reproduced verbatim) — never an internal hostname, system,
+# ticket or account leaking through. When in doubt, fix the file instead.
+
+scripts/check_no_internal_identifiers.py:*:the scanner's denylist has to spell the identifiers it bans
+scripts/public-export-allow.txt:*:this allowlist names the patterns it excepts
+
+# "toolbox" is the internal edition adapter's directory name (editions/toolbox,
+# floofy_edition_toolbox). In these files the word is a path or a CLI choice,
+# not a reference to any internal system.
+README.md:toolbox:the repository-layout table names the editions/toolbox adapter directory
+pyproject.toml:toolbox:testpaths/pythonpath name the editions/toolbox adapter directory
+scripts/build_zipapp.py:toolbox:the --edition choice and adapter map name the adapter directory
+scripts/build_loader_app.py:toolbox:the --edition choice and adapter map name the adapter directory
+scripts/build_wheel.py:toolbox:the --edition choice names the adapter directory
+scripts/artifact_identity_report.py:toolbox:the report builds both editions and names the adapter directory
+editions/public/tests/test_public_package.py:toolbox:asserts the internal adapter is ABSENT from public artifacts
+
+# Apache-2.0 requires the upstream NOTICE attribution reproduced verbatim.
+NOTICE.md:*:the Apache-2.0 NOTICE attribution of upstream KiroCrew, reproduced as the license requires
