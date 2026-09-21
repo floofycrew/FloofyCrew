@@ -11,6 +11,23 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.1.4 — 2026-09-21
+
+A patch on 1.1.3 with three fixes found while updating the test box from 1.1.2 to
+1.1.3 through `floofy self-update` itself: the Loader app reinstall no longer loses
+the host's `apps_trusted` grant, `self-update --now` installs a Loader stage left by
+an earlier run, and the first-frame boot template ships inside the zipapp. No API
+change (`floofy.api_version` stays 1.1.0); same `supports` list as 1.1.3.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Fixed
 
 - Reinstalling the Loader app left it **installed but disabled** on a host that
