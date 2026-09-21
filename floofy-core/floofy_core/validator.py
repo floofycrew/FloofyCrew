@@ -24,6 +24,7 @@ from typing import Any
 
 from .archive import ArchiveError, extracted_archive, is_archive, open_archive_safely
 from .netscan import host_matches, is_loopback_host, scan_credentials, scan_urls
+from .patches import ELECTRON_TARGET_PREFIX
 from .schema import load_schema
 from .schema.check import SchemaError, validate_instance
 from .semver import HostVersion, InvalidRange, InvalidVersion, Range, Version
@@ -341,7 +342,7 @@ def _check_parts(root: Path, manifest: dict[str, Any], report: ValidationReport,
         elif kind != "config":
             continue  # the schema reports the missing path
         if kind == "patch" and target is not None and target.is_file():
-            _check_patch_descriptor(root, rel, target, pointer, report, policy)
+            _check_patch_descriptor(root, rel, target, pointer, report, policy, side=str(part.get("side") or ""))
         elif kind == "python-hook" and target is not None:
             _check_python_hook(part, rel, target, pointer, report)
         elif kind == "ui" and target is not None:
@@ -400,8 +401,8 @@ def _check_ui_part(root: Path, part: dict[str, Any], rel: str, target: Path, poi
             report.error("InvalidPart", f"ui part path {rel} is a file but entry names another file {value}; point path at the page's directory", pointer + "/entry")
 
 
-def _check_patch_descriptor(root: Path, rel: str, target: Path, pointer: str, report: ValidationReport, policy: TargetPolicy) -> None:
-    """Requirement 5.5 shape, 5.10 engineering-rule targets, 11.4 governance flags."""
+def _check_patch_descriptor(root: Path, rel: str, target: Path, pointer: str, report: ValidationReport, policy: TargetPolicy, *, side: str = "") -> None:
+    """Requirement 5.5 shape, 5.10 engineering-rule targets, 5.11 electron targets, 11.4 governance flags."""
     descriptor = _check_json_file(rel, target, pointer, report)
     if descriptor is None:
         return
@@ -429,6 +430,22 @@ def _check_patch_descriptor(root: Path, rel: str, target: Path, pointer: str, re
             except re.error as exc:
                 report.error("InvalidPatch", f"fingerprint is not a valid regular expression: {exc}", f"{where}#/ops/{index}/fingerprint")
     _classify_target(descriptor.get("target"), f"{where}#/target", report, policy, what="patch target")
+    target_text = descriptor.get("target")
+    if isinstance(target_text, str) and target_text.startswith(ELECTRON_TARGET_PREFIX):
+        member = target_text[len(ELECTRON_TARGET_PREFIX) :].strip("/")
+        if not member:
+            report.error("InvalidPatch", "an electron: target must name a member inside app.asar (electron:<path/inside/app.asar>)", f"{where}#/target")
+        if side and side != "electron":
+            report.warn(
+                "SideMismatch",
+                f"the descriptor targets the desktop shell's app.asar ({target_text!r}) but the part declares side {side!r}; declare side \"electron\" so the manager describes it as a desktop-shell change (Requirement 5.11)",
+                pointer,
+                accept=True,
+            )
+        if isinstance(descriptor.get("mode"), str) and descriptor["mode"] != "in-place":
+            report.error("InvalidPatch", f"an electron: target is always rewritten in place; mode {descriptor['mode']!r} does not apply to app.asar members", f"{where}#/mode")
+    elif side == "electron" and isinstance(target_text, str):
+        report.warn("SideMismatch", f"the part declares side \"electron\" but its target {target_text!r} is a payload file, not an electron:<member> of app.asar", pointer, accept=True)
 
 
 def _classify_target(path: Any, pointer: str, report: ValidationReport, policy: TargetPolicy, *, what: str) -> None:

@@ -419,3 +419,56 @@ def test_hash_check_detects_any_byte_flip(tmp_path_factory, payload: bytes, posi
     flipped = payload[:index] + bytes([payload[index] ^ 0xFF]) + payload[index + 1 :]
     target.write_bytes(flipped)
     assert "MissingFiles" in _codes(validate_mod(root).errors)
+
+
+
+# --- electron targets (Requirement 5.11) --------------------------------------------------
+
+
+def _set_patch_side(root: Path, side: str) -> None:
+    manifest = read_manifest(root)
+    for part in manifest["parts"]:
+        if part["kind"] == "patch":
+            part["side"] = side
+    write_manifest(root, manifest)
+    rehash(root)
+
+
+def test_electron_target_validates_with_side_electron(example_mod) -> None:
+    root = example_mod("patch")
+    _set_patch_target(root, "electron:mochi/petOverlays.js")
+    _set_patch_side(root, "electron")
+    report = validate_mod(root)
+    assert report.ok and report.warnings == [], report.format()
+
+
+def test_electron_target_side_mismatch_is_an_accepted_warning(example_mod) -> None:
+    root = example_mod("patch")
+    _set_patch_target(root, "electron:mochi/petOverlays.js")  # the example part declares side spa
+    report = validate_mod(root)
+    assert report.ok
+    assert [(f.code, f.accept) for f in report.warnings] == [("SideMismatch", True)]
+    _set_patch_target(root, "kiro_crew/static/dist/index.html")
+    _set_patch_side(root, "electron")
+    report = validate_mod(root)
+    assert report.ok and _codes(report.warnings) == ["SideMismatch"]
+
+
+def test_electron_target_needs_a_member_and_stays_in_place(example_mod) -> None:
+    root = example_mod("patch")
+    _set_patch_side(root, "electron")
+    _set_patch_target(root, "electron:")
+    assert [(f.code, f.path) for f in validate_mod(root).errors] == [("InvalidPatch", "patches/index-boot.json#/target")]
+    descriptor_path = root / "patches" / "index-boot.json"
+    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+    descriptor.update({"target": "electron:main.js", "mode": "import-map"})
+    descriptor_path.write_text(json.dumps(descriptor), encoding="utf-8")
+    rehash(root)
+    assert [(f.code, f.path) for f in validate_mod(root).errors] == [("InvalidPatch", "patches/index-boot.json#/mode")]
+    # host Python inside the archive is not host Python of the payload: the engineering rule is about the gateway
+    _set_patch_target(root, "electron:node_modules/x/y.js")
+    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+    descriptor.pop("mode", None)
+    descriptor_path.write_text(json.dumps(descriptor), encoding="utf-8")
+    rehash(root)
+    assert validate_mod(root).ok

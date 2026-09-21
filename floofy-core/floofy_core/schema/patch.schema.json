@@ -16,7 +16,7 @@
       "const": 1
     },
     "target": {
-      "description": "Path of the file to patch, relative to the payload root (for example kiro_crew/static/dist/index.html). For a content-hashed chunk the name may carry a glob (kiro_crew/static/dist/assets/useTheme-*.js) that must resolve to exactly one file of the payload — a fingerprint on the name, never a hash. Host Python sources and launcher files are refused as engineering-rule targets (Requirement 5.10); governance files are allowed but flagged governance-altering (Requirement 11.4).",
+      "description": "Path of the file to patch, relative to the payload root (for example kiro_crew/static/dist/index.html). For a content-hashed chunk the name may carry a glob (kiro_crew/static/dist/assets/useTheme-*.js) that must resolve to exactly one file of the payload — a fingerprint on the name, never a hash. Host Python sources and launcher files are refused as engineering-rule targets (Requirement 5.10); governance files are allowed but flagged governance-altering (Requirement 11.4). An `electron:<member>` target names a file INSIDE the desktop shell's app.asar (for example electron:mochi/petOverlays.js): the archive is rewritten as one file with its own backup, on payloads that have a shell and whose fuses do not enforce asar integrity; gateway-only payloads report it NotApplicable (Requirement 5.11).",
       "$ref": "#/$defs/relativePath"
     },
     "mode": {

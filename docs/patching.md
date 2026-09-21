@@ -79,6 +79,54 @@ preferring them would serve stale compressed bytes). One `runtag` (digest of the
 patched bytes) names the set, so re-runs are stable and `restore` sweeps
 `*-floofy.*` and the backups.
 
+## Electron shell targets: `electron:<member>`
+
+The desktop app's main-process code — the pet overlay, the app windows, the
+tray — ships inside the shell's `app.asar` (`KiroCrew.app/Contents/Resources/`
+on macOS, `resources/` on Linux and Windows), where no import map, hook or
+route reaches it. A descriptor whose `target` is `electron:<path inside
+app.asar>` patches one member of that archive:
+
+```json
+{"schema": 1, "target": "electron:mochi/petOverlays.js", "find": "function createOverlayForDisplay(",
+ "ops": [{"op": "insert-after", "fingerprint": "acceptFirstMouse: true,\n    webPreferences: {",
+          "content": "\n      partition: \"persist:mochi-pet\",\n      zoomFactor: 1.0,", "marker": "partition: \"persist:mochi-pet\""}]}
+```
+
+Declare the part with `"side": "electron"` so the manager describes it as a
+desktop-shell change (the validator warns on a mismatch). The ops, fingerprints
+and markers are the ordinary ones; what differs is the container:
+
+- **The archive is the file.** The Patcher reads `app.asar`, applies every
+  `electron:` descriptor to its member's text, re-lays the archive (later offsets
+  move, the member's `integrity` record is recomputed) and commits it through the
+  same path as any other target — `app.asar.floofybak` beside it, original and
+  patched hashes in the deployment manifest, drift classification, revert-then-patch,
+  `floofy restore --all` (the lost-manifest sweep covers the shell's `Resources/`
+  directory too). An archive that no descriptor changes is never re-serialised.
+- **The shell is found by walking up** from the payload's `kiro_crew` package to
+  the nearest `Resources`/`resources` directory holding an `app.asar` — never
+  sideways, never by searching the disk. A gateway-only payload (a version
+  directory on Linux, a pipx venv) has no shell: every `electron:` descriptor is
+  `NotApplicable` there and the mod changes nothing.
+- **Fuses are read before writing.** Electron validates asar integrity only when
+  the fuse `EnableEmbeddedAsarIntegrityValidation` is on; the Patcher reads the
+  fuse wire from the shell's Electron binary and skips a locked shell with
+  `IntegrityLocked` rather than leave an app that refuses to launch. A shell whose
+  wire cannot be read is patched (the state is unknown, not locked).
+- **A missing member** (an older or newer shell layout) is `NotApplicable` for
+  that descriptor alone; a corrupt archive is an error and nothing is written.
+- **Relaunch the desktop app** after `apply`: main-process code loads once per
+  process. `floofy verify` cannot fetch the archive from the dashboard, so it
+  reports the shell as checked by hash only; `floofy status` shows the drift
+  class of `app.asar` like any patched file.
+
+The archive is sealed by the bundle's code signature: rewriting it changes a
+signed resource, exactly as the hand-verified fix a shell patch usually ports
+did. That is a consented, logged and reversible change to the user's own install
+([consent-and-trust.md](consent-and-trust.md)); nothing here touches the
+signature of the main executable, and `restore` puts the sealed bytes back.
+
 ## What the Patcher records and how it stays honest
 
 - **Deployment manifest** per payload at `<data home>/deploy/<payload-id>.json`:
@@ -138,4 +186,4 @@ bump `fromBuild`, and let the smoke test in your mod (scaffolded by `floofy
 new`) assert the op applies exactly once on the fixture bundle you commit.
 
 ---
-Covers Requirements 4.4, 4.5, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.10, 14.3.
+Covers Requirements 4.4, 4.5, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.10, 5.11, 14.3.

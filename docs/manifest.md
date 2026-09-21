@@ -93,7 +93,7 @@ through is the subject of [seams.md](seams.md).
 | `config` | optional JSON file of key/value pairs | `values` (wins over the file) |
 | `python-hook` | a Python package directory | `module` (dotted name, imported under `floofy_mods.<id>.<module>`), `early` (also run before the host's platform bootstrap through the early shim) |
 | `spa` | an ES module | `activation`: `runtime` (default; loaded by the SPA host after the host bundle) or `boot` (first-frame effects baked into `index.html` by the Patcher) plus the `boot` object |
-| `patch` | a patch descriptor | — ([patching.md](patching.md)); the only kind that modifies payload files |
+| `patch` | a patch descriptor | — ([patching.md](patching.md)); the only kind that modifies payload files. A descriptor whose `target` is `electron:<member>` rewrites one file inside the desktop shell's `app.asar` (`side: electron`) |
 | `ui` | the directory holding the mod's own page (or the entry file) | `entry` (the ES module the FloofyCrew App imports, `.mjs`/`.js`, listed in `files[]`), `title` (the entry in the App's Mods section, 1–80 characters), optional `icon` (`.svg`/`.png`); `side` is `spa` |
 
 The zero-code kinds (`theme`, `agent`, `skill`, `appearance`, `app`) let an

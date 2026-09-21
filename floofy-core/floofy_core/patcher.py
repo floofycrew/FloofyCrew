@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .aliasgraph import republish, sideline_sidecars
+from .asar import AsarArchive, AsarError
 from .audit import AuditLog
 from .deploy import (
     Backups,
@@ -53,6 +54,7 @@ from .deploy import (
     sha256_file,
     utc_now,
 )
+from .electron import ElectronShell, find_electron_shell
 from .gateway import GatewayEndpoint, find_endpoints, probe_version, served_version
 from .governance import AlwaysConfirm, Confirmer, GovernanceSnapshot, GovernanceWarning, survival_check, survival_prompt
 from .patches import PatchDescriptor, PatchResult, Skip, apply_descriptor
@@ -254,6 +256,8 @@ class _TargetWork:
     relative: str
     patches: list[PlannedPatch]
     cache_bust: bool = False
+    #: The target is the desktop shell's ``app.asar``; each patch names a member inside it (Requirement 5.11).
+    asar: bool = False
 
 
 class Patcher:
@@ -292,6 +296,8 @@ class Patcher:
         self.confirmer: Confirmer = confirmer or AlwaysConfirm()
         #: Whether a re-apply trigger exists; ``None`` = unknown (no warning either way).
         self.triggers_installed = triggers_installed
+        #: Desktop shells by payload id, looked up on first use (Requirement 5.11).
+        self._shells: dict[str, ElectronShell | None] = {}
 
     # -- gateway ------------------------------------------------------------------------
 
@@ -466,6 +472,19 @@ class Patcher:
             if planned.descriptor.is_import_map:
                 import_maps.append(planned)
                 continue
+            if planned.descriptor.is_electron:
+                shell = self._electron_shell(payload)
+                if shell is None:
+                    result.skipped.append({"mod": planned.mod, "part": planned.part, "target": relative, "op": None, "code": "NotApplicable", "message": f"{planned.label}: this payload has no Electron shell (no app.asar above {payload.package_dir}); electron targets apply to desktop bundles only"})
+                    self.say(f"SKIP {relative}: no Electron shell on payload {payload.id}")
+                    continue
+                if shell.integrity_locked:
+                    result.skipped.append({"mod": planned.mod, "part": planned.part, "target": relative, "op": None, "code": "IntegrityLocked", "message": f"{planned.label}: {shell.describe()} enforces asar integrity (fuse EnableEmbeddedAsarIntegrityValidation); a rewritten app.asar would be refused at launch, so it is left untouched"})
+                    self.say(f"SKIP {relative}: {shell.asar} is integrity-locked by the shell's fuses")
+                    continue
+                item = by_target.setdefault(shell.asar, _TargetWork(shell.asar, str(shell.asar), [], asar=True))
+                item.patches.append(planned)
+                continue
             if planned.descriptor.target_is_glob:
                 resolved, skip = resolve_chunk_target(payload, relative)
                 if resolved is None:
@@ -512,6 +531,12 @@ class Patcher:
         if original is None:
             result.errors.append(f"{item.relative}: target file is missing and no backup exists")
             return None
+        if item.asar:
+            patched = self._patch_asar(payload, item, original, result)
+            if patched is None:
+                return None
+            self._commit_target(payload, item, original, patched, old, new, result)
+            return None
         text = original.decode("utf-8", "surrogateescape")
         for planned in item.patches:
             outcome = apply_descriptor(text, planned.descriptor, payload.host_version)
@@ -524,6 +549,42 @@ class Patcher:
         if item.cache_bust and patched != original:
             seeds.append(item.path)
         return None
+
+    def _electron_shell(self, payload: Payload) -> ElectronShell | None:
+        """The payload's desktop shell, looked up once per payload (``None`` on a gateway-only install)."""
+        if payload.id not in self._shells:
+            self._shells[payload.id] = find_electron_shell(payload.package_dir)
+        return self._shells[payload.id]
+
+    def _patch_asar(self, payload: Payload, item: _TargetWork, original: bytes, result: PayloadApply) -> bytes | None:
+        """Apply every ``electron:`` descriptor of ``item`` to its member inside the archive (Requirement 5.11).
+
+        Returns the archive bytes to commit — ``original`` itself when nothing
+        changed, so an unchanged archive is never re-serialised — or ``None`` on an
+        unreadable archive (recorded as an error, nothing written).
+        """
+        try:
+            archive = AsarArchive.parse(original)
+        except AsarError as exc:
+            result.errors.append(f"{item.relative}: not an asar archive ({exc}); left untouched")
+            return None
+        changed = False
+        for planned in item.patches:
+            member = planned.descriptor.asar_member
+            label = planned.descriptor.target
+            try:
+                data = archive.read(member)
+            except AsarError as exc:
+                result.skipped.append({"mod": planned.mod, "part": planned.part, "target": label, "op": None, "code": "NotApplicable", "message": f"{planned.label}: {exc}"})
+                self.say(f"SKIP {label}: {exc}")
+                continue
+            text = data.decode("utf-8", "surrogateescape")
+            outcome = apply_descriptor(text, planned.descriptor, payload.host_version)
+            self._record_outcome(result, planned, outcome)
+            if outcome.text != text:
+                archive = archive.with_member(member, outcome.text.encode("utf-8", "surrogateescape"))
+                changed = True
+        return archive.pack() if changed else original
 
     def _apply_import_maps(
         self,
@@ -723,6 +784,11 @@ class Patcher:
                         restored.append(side.path)
             if sweep:
                 more_restored, more_removed = self._sweep(payload.package_dir)
+                shell = self._electron_shell(payload)
+                if shell is not None:
+                    shell_restored, shell_removed = self._sweep(shell.resources_dir, recursive=False)
+                    more_restored += shell_restored
+                    more_removed += shell_removed
                 restored.extend(more_restored)
                 removed.extend(more_removed)
             if path.exists():
@@ -764,13 +830,13 @@ class Patcher:
                     pass
         return removed
 
-    def _sweep(self, root: Path) -> tuple[list[str], list[str]]:
+    def _sweep(self, root: Path, *, recursive: bool = True) -> tuple[list[str], list[str]]:
         """Every backup under ``root`` goes back over its original; every added file goes away."""
         restored: list[str] = []
         removed: list[str] = []
         if not root.is_dir():
             return restored, removed
-        for path in sorted(root.rglob("*")):
+        for path in sorted(root.rglob("*") if recursive else root.glob("*")):
             if not path.is_file() or path.is_symlink():
                 continue
             if self.backups.is_backup(path):
@@ -841,7 +907,8 @@ class Patcher:
                 expectations.append((url, added.sha256, "added"))
         if not expectations:
             report.status = VerifyStatus.NOTHING
-            report.detail = "no patched file is served by the dashboard"
+            unserved = [Path(r.path).name for r in manifest.files if url_for(payload, Path(r.path)) is None]
+            report.detail = "no patched file is served by the dashboard" + (f" ({', '.join(unserved)} live outside it — the Electron shell — and are checked by hash in `floofy status`)" if unserved else "")
             return report
         statuses: list[int] = []
         failures = 0

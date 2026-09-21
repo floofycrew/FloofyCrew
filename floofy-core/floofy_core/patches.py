@@ -41,6 +41,7 @@ from .semver import HostVersion, InvalidRange, InvalidVersion, Range
 
 __all__ = [
     "Applied",
+    "ELECTRON_TARGET_PREFIX",
     "FingerprintReport",
     "PatchDescriptor",
     "PatchDescriptorError",
@@ -57,7 +58,10 @@ __all__ = [
     "merge_import_map",
 ]
 
-SKIP_CODES = ("NotApplicable", "AlreadyApplied", "FingerprintMiss", "FingerprintAmbiguous")
+SKIP_CODES = ("NotApplicable", "AlreadyApplied", "FingerprintMiss", "FingerprintAmbiguous", "IntegrityLocked")
+
+#: ``target: "electron:<member>"`` — a member of the desktop shell's ``app.asar`` (Requirement 5.11).
+ELECTRON_TARGET_PREFIX = "electron:"
 
 _HEAD_CLOSE = "</head>"
 _IMPORT_MAP_RE = re.compile(r'<script\s+type=(["\'])importmap\1[^>]*>(?P<json>.*?)</script>', re.S | re.I)
@@ -136,8 +140,18 @@ class PatchDescriptor:
         return self.mode == "import-map"
 
     @property
+    def is_electron(self) -> bool:
+        """``target`` names a member of the desktop shell's ``app.asar`` (``electron:<member>``, Requirement 5.11)."""
+        return self.target.startswith(ELECTRON_TARGET_PREFIX)
+
+    @property
+    def asar_member(self) -> str:
+        """The member path inside ``app.asar`` for an electron target (POSIX, no leading slash)."""
+        return self.target[len(ELECTRON_TARGET_PREFIX) :].lstrip("/") if self.is_electron else ""
+
+    @property
     def target_is_glob(self) -> bool:
-        return any(ch in self.target for ch in "*?[")
+        return not self.is_electron and any(ch in self.target for ch in "*?[")
 
     @classmethod
     def load(cls, path: Path | str) -> "PatchDescriptor":
