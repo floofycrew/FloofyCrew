@@ -19,11 +19,12 @@
   palette; eyes use a lifted maroon so they survive dark terminals. `floofy
   doctor` and `floofy --version` print it as a left column with their header
   lines beside it. The same script also writes `wordmark.{json,ans,txt}`: the
-  "FloofyCrew" of `wordmark-text.svg` rasterised to 7 rows (84 cells wide),
+  "FloofyCrew" of `wordmark-text.svg` rasterised to 6 rows (71 cells wide),
   "Floofy" in the peach of `wordmark-dark.svg`, "Crew" keeping the pink→orange
   gradient per cell. The interactive `floofy` draws it to the right of the fox,
   centred on the fox's height; a terminal too narrow for the block letters gets
-  the plain word in the same two colours instead.
+  the plain word in the same two colours instead. `floofy doctor` and `--version`
+  print the block over their header lines when the terminal has 110 columns.
 - `icons/` — PNGs at 16, 32, 48, 64, 128, 180, 192, 256, 512 (`icon-N.png`),
   plus `apple-touch-icon.png` (180), `favicon-16.png`, `favicon-32.png`, and a
   multi-size `favicon.ico` (16/32/48/64/256, PNG-in-ICO). Transparent corners.

@@ -52,14 +52,15 @@ def test_wordmark_package_data_is_a_byte_identical_copy_and_sits_beside_the_fox(
     """The interactive banner draws "FloofyCrew" right of the fox, centred on its height (wordmark-text.svg rasterised)."""
     assert WORDMARK_DATA.read_bytes() == (BRANDING / "wordmark.json").read_bytes(), "floofy_core/cli/wordmark.json must equal branding/ascii/wordmark.json (source: branding/build_ascii.py)"
     mark = banner.load_wordmark()
-    assert mark.name == "floofycrew-wordmark" and mark.source == "wordmark-text.svg" and mark.height == 7 and 70 <= mark.width <= 100
+    assert mark.name == "floofycrew-wordmark" and mark.source == "wordmark-text.svg" and mark.height == 6 and mark.width <= 71, "six rows, at most 71 columns: fox + gap + wordmark fit a 110-column terminal"
     assert "\n".join(mark.text_rows) + "\n" == (BRANDING / "wordmark.txt").read_text(encoding="utf-8")
     colours = {rgb for row in mark.rows for ch, rgb in row if ch != " "}
     assert banner.WORDMARK_NAME_RGB in colours, '"Floofy" is the peach of wordmark-dark.svg'
     assert len(colours) > 20 and all(r == 255 and 90 <= g <= 240 for r, g, _ in colours), '"Crew" carries the pink→orange gradient: every colour is a sunset tint'
     art = banner.load()
     assert banner.wordmark_top(art, mark) == (art.height - mark.height) // 2 == 4, "centred on the fox's 15 rows"
-    needed = banner.MARGIN + art.width + banner.WORDMARK_GAP + mark.width
+    needed = banner.wordmark_columns(art, mark)
+    assert needed == banner.MARGIN // 2 + art.width + banner.WORDMARK_GAP + mark.width <= 110, "the wordmark may end on the last column; 110 columns is enough"
     assert banner.wordmark_fits(needed) and not banner.wordmark_fits(needed - 1)
 
 
@@ -204,3 +205,17 @@ def test_version_on_a_terminal_prints_the_banner_at_the_terminals_depth(tmp_path
     assert strip_ansi(doctor_lines[1][2 + len(ans[1]) + 2 :]).startswith("host:")
     plain = [strip_ansi(line) for line in doctor_lines]
     assert any(line.startswith("consent:") for line in plain), "sections after the header block print flush-left, below the art"
+    assert not any("#" in strip_ansi(line)[2 + len(strip_ansi(ans[0])) :] for line in doctor_lines[:6]), "at 100 columns the block wordmark does not fit and is not drawn"
+    # wide enough for the block wordmark: it takes the art's top rows, the header follows right under it
+    mark = banner.load_wordmark()
+    wide = banner.wordmark_columns()
+    code_wide, wide_out = _run_on_pty(["--home", str(tmp_path / "h"), "doctor"], env=truecolor, columns=wide)
+    wide_lines = wide_out.decode("utf-8").splitlines()
+    mark_ans = (BRANDING / "wordmark.ans").read_text(encoding="utf-8").splitlines()
+    assert code_wide == 0
+    for i in range(mark.height):
+        assert wide_lines[i] == "  " + ans[i] + " " * banner.WORDMARK_GAP + mark_ans[i], f"row {i}: fox, gap, wordmark"
+    assert wide_lines[mark.height].startswith("  " + ans[mark.height] + "  ") and strip_ansi(wide_lines[mark.height][2 + len(ans[mark.height]) + 2 :]).startswith("floofy doctor"), "the header sits right under the wordmark"
+    code_v, version_wide = _run_on_pty(["--version"], env=truecolor, columns=wide)
+    v_lines = version_wide.decode("utf-8").splitlines()
+    assert code_v == 0 and v_lines[0].endswith(mark_ans[0]) and strip_ansi(v_lines[mark.height][2 + len(ans[mark.height]) + 2 :]).startswith("floofy "), "--version: wordmark first, then the version line beside the art"

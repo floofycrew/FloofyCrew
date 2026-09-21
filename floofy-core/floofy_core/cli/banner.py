@@ -40,7 +40,7 @@ from .style import RESET, Depth, cube_index
 
 __all__ = [
     "BASIC_COLOR", "Banner", "MARGIN", "WORDMARK_GAP", "WORDMARK_NAME_RGB", "WORDMARK_CREW_RGB",
-    "fits", "load", "load_wordmark", "render", "render_lines", "wordmark_fits", "wordmark_top",
+    "fits", "load", "load_wordmark", "render", "render_lines", "wordmark_columns", "wordmark_fits", "wordmark_top",
 ]
 
 #: Columns the banner needs beyond the art's width (half on each side).
@@ -103,11 +103,17 @@ def fits(width: int | None = None, *, banner: Banner | None = None) -> bool:
     return columns >= art.width + MARGIN
 
 
-def wordmark_fits(width: int | None = None, *, banner: Banner | None = None, wordmark: Banner | None = None) -> bool:
-    """Whether the block wordmark fits to the right of the art (art + gap + wordmark + margins)."""
+def wordmark_columns(banner: Banner | None = None, wordmark: Banner | None = None) -> int:
+    """Columns the fox + gap + block wordmark occupy, including the left margin only: the wordmark's
+    last column may be the terminal's last column (110 with the shipped arts)."""
     art, mark = banner or load(), wordmark or load_wordmark()
+    return MARGIN // 2 + art.width + WORDMARK_GAP + mark.width
+
+
+def wordmark_fits(width: int | None = None, *, banner: Banner | None = None, wordmark: Banner | None = None) -> bool:
+    """Whether the block wordmark fits to the right of the art."""
     columns = shutil.get_terminal_size().columns if width is None else width
-    return columns >= MARGIN + art.width + WORDMARK_GAP + mark.width
+    return columns >= wordmark_columns(banner, wordmark)
 
 
 def wordmark_top(banner: Banner | None = None, wordmark: Banner | None = None) -> int:

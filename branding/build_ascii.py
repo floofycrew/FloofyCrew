@@ -194,7 +194,7 @@ def to_ansi(rows: list[list[tuple[str, RGB]]]) -> str:
 # the wordmark ("FloofyCrew" from wordmark-text.svg), for the interactive banner
 # --------------------------------------------------------------------------
 WORDMARK_SOURCE = HERE / "wordmark-text.svg"
-DEFAULT_WORDMARK_ROWS = 7
+DEFAULT_WORDMARK_ROWS = 6
 #: "Floofy" on a terminal: the peach of the dark wordmark (the ink of the light one is near-black).
 WORDMARK_NAME_COLOR: RGB = _hex("#FFE4CF")
 

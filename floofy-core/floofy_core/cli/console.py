@@ -193,23 +193,32 @@ class Console:
         self.out.flush()
         return True
 
-    def open_banner_column(self, width: int | None = None) -> bool:
+    def open_banner_column(self, width: int | None = None, *, wordmark: bool = True) -> bool:
         """Print the banner *beside* the lines that follow (Requirement 15.5).
 
-        Until :meth:`close_banner_column`, every :meth:`say` line is prefixed with
-        the next row of the art (then with blank padding once the art is used up),
-        so the first line — ``floofy doctor — FloofyCrew …`` — sits on the art's
-        top row and the block reads like a card. Rows the text did not reach are
-        flushed by ``close``, so the art is always whole. Same gates as
-        :meth:`show_banner`; when it returns ``False`` nothing changes and the
+        When the terminal is wide enough the block wordmark ("FloofyCrew", from
+        ``branding/wordmark-text.svg``) is printed first, to the right of the art's
+        top rows. Then, until :meth:`close_banner_column`, every :meth:`say` line is
+        prefixed with the next row of the art (blank padding once the art is used
+        up), so the header — ``floofy doctor — FloofyCrew …`` — sits right under the
+        wordmark, beside the fox, and the block reads like a card. Rows the text did
+        not reach are flushed by ``close``, so the art is always whole. Same gates
+        as :meth:`show_banner`; when it returns ``False`` nothing changes and the
         lines print flush-left as usual. The transcript never sees the art.
         """
         lines = self._banner_lines(width)
         if lines is None:
             return False
-        from .banner import MARGIN, load  # noqa: PLC0415
+        from .banner import MARGIN, WORDMARK_GAP, load, load_wordmark, render_lines, wordmark_fits  # noqa: PLC0415
 
-        self._banner_rows = list(lines)
+        rows = list(lines)
+        if wordmark and wordmark_fits(width):
+            mark = load_wordmark()
+            mark_rows = render_lines(self.styling.depth, width, banner=mark, indent=0) or []
+            for mark_row in mark_rows:
+                art_row = rows.pop(0) if rows else " " * (MARGIN // 2 + load().width)
+                print(art_row + " " * WORDMARK_GAP + mark_row, file=self.out)
+        self._banner_rows = rows
         self._banner_pad = " " * (MARGIN // 2 + load().width) + BANNER_GAP
         return True
 

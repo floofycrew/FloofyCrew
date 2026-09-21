@@ -93,10 +93,12 @@ same `supports` list as 1.1.1.
   `show_banner` still prints it on its own). Transparent cells carry no colour
   sequence; the transcript and `--json` are unchanged.
 - The interactive `floofy` shows the **wordmark** beside the fox: "FloofyCrew" from
-  `branding/wordmark-text.svg` rasterised to 7 rows (`floofy_core/cli/wordmark.json`),
+  `branding/wordmark-text.svg` rasterised to 6 rows (`floofy_core/cli/wordmark.json`),
   "Floofy" in peach and "Crew" in the pink→orange gradient, drawn to the right of the
   art and centred on its height; when the terminal is narrower than fox + gap + block
-  letters (123 columns) the plain word is drawn in the same two colours instead. The copies the installers
+  letters (110 columns) the plain word is drawn in the same two colours instead.
+  `floofy doctor` and `floofy --version` print the block over their header lines
+  on a terminal of 110 columns or more. The copies the installers
   carry — the `BANNER_TXT`/`BANNER_ANS` literals of the public `install.sh` and the
   internal package's `banner/` files — are refreshed from the same
   `branding/ascii/` art (their tests hold them byte-identical to it).

@@ -434,7 +434,8 @@ def test_the_wordmark_sits_right_of_the_fox_centred_on_its_height(host):
     """Block "FloofyCrew" (7 rows) beside the 15-row fox on a wide terminal; the plain two-colour word when it does not fit."""
     art, mark = banner.load(), banner.load_wordmark()
     left = banner.MARGIN // 2 + art.width + banner.WORDMARK_GAP
-    wide = banner.MARGIN + art.width + banner.WORDMARK_GAP + mark.width + 2
+    wide = banner.wordmark_columns(art, mark)
+    assert wide <= 110, "the block letters fit a 110-column terminal"
     _, out = drive(host.argv(), _env(host, COLORTERM="truecolor"), [("Quit", "q")], columns=wide)
     frame = _first_frame(out)
     for index, text in enumerate(art.text_rows):
@@ -444,8 +445,7 @@ def test_the_wordmark_sits_right_of_the_fox_centred_on_its_height(host):
         assert frame[top + index][left : left + mark.width].rstrip() == text.rstrip(), f"wordmark row {index} at column {left}, row {top + index}"
     assert all(not frame[i][left:].strip() for i in range(art.height) if not top <= i < top + mark.height), "only the wordmark shares the fox's rows"
     assert "\x1b[38;2;255;228;207m" in out, '"Floofy" in the peach of wordmark-dark.svg'
-    needed = banner.MARGIN + art.width + banner.WORDMARK_GAP + mark.width
-    _, narrow = drive(host.argv(), _env(host, COLORTERM="truecolor"), [("Quit", "q")], columns=needed - 1)
+    _, narrow = drive(host.argv(), _env(host, COLORTERM="truecolor"), [("Quit", "q")], columns=wide - 1)
     frame = _first_frame(narrow)
     middle = art.height // 2
     assert frame[middle][left : left + len("FloofyCrew")] == "FloofyCrew", "one column short of the block letters: the plain word, on the fox's middle row"
