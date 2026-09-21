@@ -9,6 +9,28 @@ reports `loader: ok` per edition and channel — repeated here, in
 `supports.json`. FloofyCrew is unofficial and not affiliated with Kiro or
 KiroCrew; it never ships a rebuilt host.
 
+## Unreleased
+
+### Fixed
+
+- `floofy self-update --now` did nothing when the zipapp was already current
+  (found on the test box: the TUI's self-update swapped the zipapp to 1.1.3 while
+  the gateway ran and staged the Loader app, as designed; the later `floofy
+  self-update --now` then only *described* the stage again, and the dashboard kept
+  showing the old Loader). The up-to-date branch now installs a pending stage with
+  `--now`, or when no gateway runs, through the same App Kit reinstall path the
+  swap uses (`install_stage_now`), and says the new Loader runs at the next gateway
+  start. A running gateway without `--now` is still never disturbed.
+- `floofy apply` from the installed zipapp warned "boot.mjs template not found"
+  and dropped the first-frame boot part, so themed installs flashed the stock look
+  at first paint. The lookup was relative to `__file__` — a checkout's
+  `spa-host/src` or the Loader app's `ui/`, neither of which exists beside
+  `~/.local/lib/floofycrew/floofy.pyz`. The template now ships as package data
+  (`floofy_core/boot.mjs`, a byte-identical copy of `spa-host/src/boot.mjs`
+  pinned by a test, read through `read_package_text` like the banner), with the
+  filesystem candidates as fallbacks; a test builds the zipapp into a bare
+  directory and renders the boot part from it.
+
 ## 1.1.3 — 2026-09-21
 
 A patch on 1.1.2: the mark is reframed for the dashboard's circular sidebar mask (the

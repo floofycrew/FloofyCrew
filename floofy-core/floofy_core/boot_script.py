@@ -34,6 +34,7 @@ from typing import Any
 
 from .governance import LOADER_APP_NAME
 from .patches import PatchDescriptor, UiAsset
+from .resources import read_package_text
 
 __all__ = [
     "BOOT_CSS_ID_PREFIX",
@@ -124,6 +125,7 @@ def read_theme_defaults(host_home: Path) -> dict[str, str]:
 
 
 def _template_path() -> Path | None:
+    """A filesystem ``boot.mjs`` next to this checkout or inside the Loader app the core is embedded in, if any."""
     here = Path(__file__).resolve()
     for candidate in (here.parents[2] / "spa-host" / "src" / "boot.mjs", here.parents[1] / "ui" / "boot.mjs"):
         if candidate.is_file():
@@ -131,17 +133,37 @@ def _template_path() -> Path | None:
     return None
 
 
+def _template_text() -> tuple[str, str]:
+    """``(text, origin)`` of the template: the package-data copy first, so the zipapp `floofy` has it too.
+
+    ``floofy_core/boot.mjs`` is a byte-identical copy of ``spa-host/src/boot.mjs`` (pinned
+    by a test, like the banner data). Before, only the two filesystem candidates were tried,
+    both relative to ``__file__`` — fine for a checkout and for the Loader app (where the core
+    sits beside ``ui/``), but ``~/.local/lib/floofycrew/floofy.pyz`` has neither, so every
+    ``floofy apply`` from the installed CLI dropped the boot part with a warning and the first
+    frame flashed the stock theme.
+    """
+    try:
+        return read_package_text(__package__, "boot.mjs"), f"{__package__}/boot.mjs"
+    except (FileNotFoundError, ModuleNotFoundError, TypeError, OSError):
+        pass
+    fallback = _template_path()
+    if fallback is None:
+        raise BootScriptError("boot.mjs template not found (floofy_core package data, spa-host/src or the Loader app's ui/)")
+    return fallback.read_text(encoding="utf-8"), str(fallback)
+
+
 def boot_template(path: Path | None = None) -> str:
     """The ``floofyBoot`` function source between the template markers of ``boot.mjs``."""
-    target = path or _template_path()
-    if target is None:
-        raise BootScriptError("boot.mjs template not found (spa-host/src or the Loader app's ui/)")
-    text = Path(target).read_text(encoding="utf-8")
+    if path is not None:
+        text, origin = Path(path).read_text(encoding="utf-8"), str(path)
+    else:
+        text, origin = _template_text()
     start, end = text.find(_TEMPLATE_START), text.find(_TEMPLATE_END)
     if start < 0 or end < 0:
-        raise BootScriptError(f"{target}: template markers missing")
+        raise BootScriptError(f"{origin}: template markers missing")
     body = text[start + len(_TEMPLATE_START) : end].strip()
-    _refuse_script_close(body, str(target))
+    _refuse_script_close(body, origin)
     return body
 
 

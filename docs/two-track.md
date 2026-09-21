@@ -20,12 +20,12 @@ tree counts as different). Every differing file must be an adapter module
 edition stamp; a difference anywhere else fails the report, as does a share of
 identical files below 80 %.
 
-Measured at 1.1.3 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.1.1's self-update and `doctor` probe fixes, 1.1.2's curses-free interface driver, sidebar page and fox banner, plus the wordmark beside the banner; up from 207 of 233 files at 1.1.2 — the shared `floofy_core/cli/wordmark.json` is one more identical file in each tree):
+Measured after 1.1.3 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.1.1's self-update and `doctor` probe fixes, 1.1.2's curses-free interface driver, sidebar page and fox banner, 1.1.3's wordmark, plus the boot template shipped as package data; up from 209 of 235 files at 1.1.3 — the shared `floofy_core/boot.mjs` is one more identical file in each tree):
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 209 | 235 | 88.9 % |
-| bytes | 2 458 314 | 2 550 588 | 96.4 % |
+| files | 211 | 237 | 89.0 % |
+| bytes | 2 476 802 | 2 569 076 | 96.4 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:

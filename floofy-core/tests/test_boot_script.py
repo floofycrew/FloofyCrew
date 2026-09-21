@@ -171,3 +171,41 @@ def test_boot_mod_objects_expose_boot_and_label(tmp_path: Path):
     [mod] = boot_mods_from_manifests([(mod_id, mod_dir, manifest)])
     assert isinstance(mod, BootMod) and mod.label == "gamma#0" and mod.boot["css"] == "spa/boot.css"
     assert boot_mods_from_manifests([("plain", tmp_path, {"parts": [{"kind": "spa", "path": "x.js"}]})]) == []
+
+
+
+# --- the template ships inside the package, so the installed zipapp `floofy` has it -----------------------------------
+
+
+def test_the_package_data_template_is_the_spa_host_boot_module_byte_for_byte():
+    """``floofy_core/boot.mjs`` is a copy of ``spa-host/src/boot.mjs`` (the SPA host owns it; regenerate the copy, never edit it)."""
+    package_copy = REPO_ROOT / "floofy-core" / "floofy_core" / "boot.mjs"
+    source = REPO_ROOT / "spa-host" / "src" / "boot.mjs"
+    assert package_copy.is_file() and package_copy.read_bytes() == source.read_bytes()
+
+
+def test_the_template_is_found_without_any_filesystem_neighbour(monkeypatch: pytest.MonkeyPatch):
+    """Found on the test box: ``floofy apply`` from ``~/.local/lib/floofycrew/floofy.pyz`` warned "boot.mjs template not
+    found" and dropped the boot part, because the lookup was relative to ``__file__`` (a checkout's ``spa-host/src`` or
+    the Loader app's ``ui/``), neither of which exists beside the installed zipapp. The package-data copy is read first."""
+    from floofy_core import boot_script
+
+    monkeypatch.setattr(boot_script, "_template_path", lambda: None)
+    body = boot_template()
+    assert body.startswith("function floofyBoot(") and "</script" not in body.lower()
+
+
+def test_the_zipapp_floofy_renders_the_boot_part(tmp_path: Path):
+    """End to end: build the zipapp into a scratch directory with no checkout around it and render a boot descriptor from it."""
+    import subprocess
+    import sys
+
+    out = tmp_path / "elsewhere" / "floofy.pyz"
+    out.parent.mkdir()
+    build = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "build_zipapp.py"), "--out", str(out)], capture_output=True, text=True, check=False)
+    assert build.returncode == 0, build.stderr
+    probe = "import floofy_core.boot_script as b; body = b.boot_template(); print(body.splitlines()[0]); print(b._template_text()[1])"
+    run = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(out)!r}); {probe}"], capture_output=True, text=True, check=False, cwd=str(tmp_path))
+    assert run.returncode == 0, run.stderr
+    first, origin = run.stdout.strip().splitlines()
+    assert first.startswith("function floofyBoot(") and origin == "floofy_core/boot.mjs", "the zipapp read its own package data, not a checkout"
