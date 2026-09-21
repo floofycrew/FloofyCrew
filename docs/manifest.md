@@ -137,7 +137,9 @@ is active, manifest-listed files only) and calls its default export
 `mount(container, api)` with `api = floofy.mod(id)` — `config.get()/set(patch)`
 persisted in the mod's `.floofy/config.json`, `routes.list()/fetch(path)` for
 the routes the mod's `python-hook` registered with `ctx.routes.add`, `theme.tokens()`
-/ `theme.current()`, `state()`; see [spa-api.md](spa-api.md). `mount` may return
+/ `theme.current()`, `state()`, `dialog.confirm()/prompt()/alert()/form()` (in-document
+dialogs — never the browser's pop-ups, which the desktop shell lacks); see
+[spa-api.md](spa-api.md). `mount` may return
 a cleanup function (or an object with `unmount()`). The page runs inside an
 error boundary: an import or mount that throws is shown with the message and a
 *Disable* button and never takes the manager page down. A `ui` part is inert

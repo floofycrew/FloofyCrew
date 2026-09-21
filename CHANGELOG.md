@@ -11,6 +11,27 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+`floofy.api_version` 1.2.0 (additive: `floofy.mod(id).dialog`).
+
+### Added
+
+- **`floofy.mod(id).dialog`** — `confirm(text, opts)`, `prompt(text, opts)`,
+  `alert(text)` and `form({title, text, fields})`: in-document dialogs for a mod's
+  page, rendered as the same overlay the App uses for its install confirmations
+  (Enter answers, Escape or the backdrop cancels, fields validate, one dialog at a
+  time). The dashboard also runs inside the KiroCrew desktop shell, which has no
+  `window.alert` / `confirm` / `prompt`: a page that used them did nothing there.
+
+### Fixed
+
+- **`custom-themes` 1.0.1**: New blank theme, adopting or starting from a preset,
+  Import, Delete, Uninstall, the unsaved-changes and copy-palette questions all
+  asked through the browser's pop-ups and so did nothing in the KiroCrew app;
+  they now use `api.dialog` (name and slug in one dialog, the slug following the
+  name until edited). On an older Loader the page says it needs `api_version`
+  1.2.0 instead of silently failing. The App's own Yeet button asks through its
+  modal too, no longer `window.confirm`.
+
 ### Changed
 
 - **Link records no longer need a git tag.** A registry link record now pins

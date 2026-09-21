@@ -24,8 +24,8 @@ Measured after 1.2.0 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 217 | 243 | 89.3 % |
-| bytes | 2 583 084 | 2 675 358 | 96.6 % |
+| files | 218 | 244 | 89.3 % |
+| bytes | 2 594 528 | 2 686 802 | 96.6 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:
@@ -39,8 +39,8 @@ python scripts/artifact_identity_report.py --keep /tmp/trees   # keep both trees
 ## The same mod archives on both editions
 
 `scripts/install_both_editions.py` builds each first-party mod into one
-deterministic archive — `custom-themes-1.0.0.zip` (sha256
-`6ead6eff86601e2dac0613bd90b62a8f3aee40a6265fd576bfe10ae57b145b3b`, 41 207
+deterministic archive — `custom-themes-1.0.1.zip` (sha256
+`9268e929a258d7524cc82fb7ff0974c49d0fb1095b8cb03652f4dbf0e432a1a3`, 41 956
 bytes: a `ui` editor, a `python-hook` backend, `spa` runtime + boot parts and the
 theme-reset `patch`), `rimuru-branding-2.0.0.zip` (sha256
 `935153d0e1b5192cba8d5b2262525388b729d71baacf3ee06f0c30c586cfc2b8`, 57 587

@@ -348,7 +348,7 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
         assert "rimuru-branding 2.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" not in row, row
         themes_row = page.inner_text('[data-testid="floofycrew-mod-row-custom-themes"]')
-        assert "custom-themes 1.0.0" in themes_row and "active" in themes_row and "modifies payload files" in themes_row, themes_row
+        assert "custom-themes 1.0.1" in themes_row and "active" in themes_row and "modifies payload files" in themes_row, themes_row
         assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
         assert page.inner_text('[data-testid="floofycrew-tier-rimuru-branding"]') == "tier: unlisted", "copied in without a registry record: the source tier badge says so (Requirement 8.11)"
         assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')
@@ -950,3 +950,70 @@ def test_7_ui_polish_and_the_restart_button(harness: Harness):
         if registry is not None:
             registry.close()
             client.request("DELETE", f"{API}/registries/polish")
+
+
+
+def test_8_mod_page_dialogs_are_in_document(harness: Harness):
+    """A mod page never uses the browser's pop-ups (the desktop shell has none): custom-themes' New blank theme asks
+    for the name and slug through `api.dialog` — the App's own overlay — Escape cancels, Enter creates, the slug follows
+    the name, and Delete confirms the same way. window.prompt/confirm/alert are poisoned for the whole run."""
+    client = harness.gw.client()
+    poison = "for (const name of ['alert', 'confirm', 'prompt']) window[name] = () => { throw new Error('browser pop-up ' + name + ' used'); };"
+    context, page = harness.page(init=poison)
+    modal = '[data-testid="floofycrew-modal"][data-mod="custom-themes"]'
+    try:
+        page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-open-page-custom-themes"]', timeout=60000)
+        page.click('[data-testid="floofycrew-open-page-custom-themes"]')
+        page.wait_for_selector('[data-testid="custom-themes-new-blank"]', timeout=60000)
+        library_before = client.get(f"{API}/mods/custom-themes/api/themes").json()["library"]
+        assert not any(t["slug"] == "dialog-smoke" for t in library_before)
+
+        # Escape cancels: nothing created
+        page.click('[data-testid="custom-themes-new-blank"]')
+        page.wait_for_selector(modal, timeout=30000)
+        assert page.get_attribute(modal, "data-kind") == "mod-prompt"
+        assert page.evaluate("() => document.activeElement?.dataset.testid") == "floofycrew-mod-dialog-field-name", "focus lands in the first field"
+        page.keyboard.press("Escape")
+        page.wait_for_selector(modal, state="detached", timeout=30000)
+        assert len(client.get(f"{API}/mods/custom-themes/api/themes").json()["library"]) == len(library_before)
+
+        # the slug follows the name; an invalid slug disables Create; Enter submits
+        page.click('[data-testid="custom-themes-new-blank"]')
+        page.wait_for_selector(modal, timeout=30000)
+        page.screenshot(path=str(SHOTS / "custom-themes-new-dialog.png"))
+        page.fill('[data-testid="floofycrew-mod-dialog-field-name"]', "Dialog Smoke")
+        assert page.input_value('[data-testid="floofycrew-mod-dialog-field-slug"]') == "dialog-smoke"
+        page.fill('[data-testid="floofycrew-mod-dialog-field-slug"]', "Not Valid!")
+        assert page.is_disabled('[data-testid="floofycrew-mod-dialog-ok"]')
+        assert page.inner_text('[data-testid="floofycrew-mod-dialog-error-slug"]').startswith("lower-case")
+        page.fill('[data-testid="floofycrew-mod-dialog-field-slug"]', "dialog-smoke")
+        page.fill('[data-testid="floofycrew-mod-dialog-field-name"]', "Dialog Smoke Two")
+        assert page.input_value('[data-testid="floofycrew-mod-dialog-field-slug"]') == "dialog-smoke", "an edited slug stops following the name"
+        assert page.is_enabled('[data-testid="floofycrew-mod-dialog-ok"]')
+        page.press('[data-testid="floofycrew-mod-dialog-field-slug"]', "Enter")
+        page.wait_for_selector(modal, state="detached", timeout=30000)
+        page.wait_for_selector('[data-testid="custom-themes-library"] [data-slug="dialog-smoke"]', timeout=30000)
+        created = client.get(f"{API}/mods/custom-themes/api/themes/dialog-smoke").json()["theme"]
+        assert created["manifest"]["name"] == "Dialog Smoke Two" and created["slug"] == "dialog-smoke", created
+
+        # Delete: the confirmation is the same overlay; No keeps it, Yes removes it
+        page.wait_for_selector('[data-testid="custom-themes-delete"]', timeout=30000)
+        page.click('[data-testid="custom-themes-delete"]')
+        page.wait_for_selector(modal, timeout=30000)
+        assert page.get_attribute(modal, "data-kind") == "mod-confirm"
+        assert "Delete dialog-smoke from the library?" in page.inner_text('[data-testid="floofycrew-mod-dialog-text"]')
+        page.click('[data-testid="floofycrew-mod-dialog-cancel"]')
+        page.wait_for_selector(modal, state="detached", timeout=30000)
+        assert client.get(f"{API}/mods/custom-themes/api/themes/dialog-smoke").status == 200
+        page.click('[data-testid="custom-themes-delete"]')
+        page.wait_for_selector(modal, timeout=30000)
+        page.click('[data-testid="floofycrew-mod-dialog-ok"]')
+        page.wait_for_selector(modal, state="detached", timeout=30000)
+        page.wait_for_selector('[data-testid="custom-themes-library"] [data-slug="dialog-smoke"]', state="detached", timeout=30000)
+        assert client.get(f"{API}/mods/custom-themes/api/themes/dialog-smoke").status == 404
+        assert "browser pop-up" not in page.inner_text('[data-testid="floofycrew-modpage-custom-themes"]')
+    finally:
+        context.close()
+        if client.get(f"{API}/mods/custom-themes/api/themes/dialog-smoke").status == 200:
+            client.request("DELETE", f"{API}/mods/custom-themes/api/themes/dialog-smoke")

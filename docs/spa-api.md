@@ -68,6 +68,10 @@ the dashboard auth (Requirement 16.4, 4.6):
 | `theme.current()` → `{theme, mode}` | the active colour theme (`localStorage['mc-color-theme']`, else `data-theme`) and `data-mode` | the document |
 | `state()` → the mod's Loader verdict | `active`, `reason`, `parts`, `exports`, `tier`, `routes` | `GET /state` |
 | `log` | `[floofy:<id>]`-prefixed console logger | — |
+| `dialog.confirm(text, opts)` → `Promise<boolean>` | a yes/no question in the App's own overlay (`title`, `okLabel`, `cancelLabel`, `danger`); Enter answers, Escape cancels | the document (api 1.2.0) |
+| `dialog.prompt(text, opts)` → `Promise<string\|null>` | one text field (`value`, `placeholder`, `label`, `validate(value)` → an error string disables OK) | the document |
+| `dialog.alert(text, opts)` → `Promise<void>` | a notice with one button | the document |
+| `dialog.form({title, text, fields, okLabel, cancelLabel, danger})` → `Promise<object\|null>` | several text fields — `fields[{name, label, value, placeholder, validate(value, values), transform(value, values)}]`, `transform` may return `{otherField: value}` to fill another field; the answer is keyed by `name` | the document |
 
 ```js
 export default async function mount(container, api) {
@@ -81,6 +85,13 @@ export default async function mount(container, api) {
   return () => { container.textContent = ""; };   // cleanup when the user leaves the page
 }
 ```
+
+A page never calls `window.alert`, `window.confirm` or `window.prompt`: the
+dashboard also runs inside the KiroCrew desktop shell, which has none of them (the
+call returns at once and the page appears to do nothing). `api.dialog` renders the
+same overlay the App uses for its install confirmations
+(`data-testid="floofycrew-modal"`, `data-kind="mod-confirm|mod-prompt|mod-alert"`,
+`data-mod="<id>"`), one dialog at a time, and works in both.
 
 The page is served only while the mod is active, from manifest-listed files,
 and runs inside the App's error boundary: a throw during import or mount, or a

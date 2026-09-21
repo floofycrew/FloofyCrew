@@ -159,7 +159,7 @@ export function useManager({ ask } = {}) {
     return restartHost();
   }, [act, restartHost]);
 
-  return { state, rows, statusMeta, registry, busy, output, error, restarting, refresh, act, applyNow, restartHost, selfUpdateAndRestart, setOutput, setError };
+  return { state, rows, statusMeta, registry, busy, output, error, restarting, refresh, act, applyNow, restartHost, selfUpdateAndRestart, setOutput, setError, ask };
 }
 
 

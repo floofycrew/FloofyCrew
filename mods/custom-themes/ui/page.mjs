@@ -162,6 +162,14 @@ export default async function mount(container, api) {
   const state = { list: null, presets: null, selected: null, doc: null, dirty: false, tab: "palette", mode: "dark", preview: false, activeTheme: null, hostVersion: "" };
   const status = el("div", { class: "status", "data-testid": "custom-themes-status" });
 
+  // Every question this page asks goes through api.dialog (floofy.api_version >= 1.2.0): the dashboard also runs in
+  // the KiroCrew desktop shell, which has no window.prompt/confirm/alert. On an older FloofyCrew the page says so
+  // instead of silently doing nothing.
+  if (!api.dialog || typeof api.dialog.form !== "function") {
+    root.append(el("p", { class: "status err", "data-testid": "custom-themes-needs-dialog" }, "This page needs a newer FloofyCrew Loader (floofy.api_version 1.2.0 or later, for its in-app dialogs). Update FloofyCrew with `floofy self-update`, then reload."));
+    return () => root.remove();
+  }
+
   async function call(path, init = {}) {
     // routes.url() encodes each path segment; a query string is appended afterwards
     const [rel, query] = String(path).split("?", 2);
@@ -254,7 +262,7 @@ export default async function mount(container, api) {
     renderSidebar();
   }
   async function open(slug) {
-    if (state.dirty && !window.confirm("Discard the unsaved changes to the current theme?")) return;
+    if (state.dirty && !(await api.dialog.confirm("Discard the unsaved changes to the current theme?", { title: "Unsaved changes", okLabel: "Discard", cancelLabel: "Keep editing", danger: true }))) return;
     const result = await call(`themes/${slug}`);
     state.selected = slug;
     state.doc = result.theme;
@@ -265,13 +273,23 @@ export default async function mount(container, api) {
     renderEditor();
   }
   async function create(from, defaults = {}) {
-    const name = window.prompt("Name of the new theme", defaults.name || "");
-    if (name === null || !name.trim()) return;
-    const slug = window.prompt("Slug (lower-case letters, digits, dashes) — the theme's id on the host", slugify(defaults.slug || name));
-    if (slug === null) return;
-    if (!SLUG_RE.test(slug)) return say(`${slug} is not a valid slug`, "err");
+    // One in-document dialog for both fields (the desktop shell has no window.prompt): the slug follows the
+    // name until the user edits the slug themselves.
+    let slugTouched = Boolean(defaults.slug);
+    const answer = await api.dialog.form({
+      title: from === "blank" ? "New blank theme" : `New theme from ${from.replace(/^(preset|installed):/, "")}`,
+      text: "The slug is the theme's id on the host (lower-case letters, digits and dashes); it names the pack under the host's themes directory.",
+      okLabel: "Create",
+      fields: [
+        { name: "name", label: "Name", value: defaults.name || "", placeholder: "My theme", validate: (v) => (v.trim() ? null : "a name is required"), transform: (v) => (slugTouched ? null : { slug: slugify(v) }) },
+        { name: "slug", label: "Slug", value: slugify(defaults.slug || defaults.name || ""), placeholder: "my-theme", validate: (v) => (SLUG_RE.test(v) ? null : "lower-case letters, digits and dashes, starting with a letter or digit, at most 40 characters"), transform: () => { slugTouched = true; return null; } },
+      ],
+    });
+    if (answer === null) return;
+    const name = answer.name.trim();
+    const slug = answer.slug;
     try {
-      const result = await call("themes", { method: "POST", body: JSON.stringify({ slug, name: name.trim(), from, emoji: defaults.emoji }) });
+      const result = await call("themes", { method: "POST", body: JSON.stringify({ slug, name, from, emoji: defaults.emoji }) });
       say(`created ${slug}`, "ok");
       await loadList();
       await open(result.theme.slug);
@@ -288,7 +306,7 @@ export default async function mount(container, api) {
     const list = state.list || { library: [], installed: [] };
     const active = state.activeTheme;
     sidebar.append(
-      el("div", { class: "card" }, el("h3", {}, "Your themes"), el("div", { class: "list", "data-testid": "custom-themes-library" }, list.library.length ? list.library.map((t) => el("button", { type: "button", class: `item${state.selected === t.slug ? " selected" : ""}`, "data-slug": t.slug, onclick: () => open(t.slug) }, el("span", {}, t.emoji), el("span", { class: "name" }, t.name, " ", el("span", { class: "muted" }, t.slug)), t.hasExtraCss ? el("span", { class: "badge", title: "has an extra CSS layer applied by FloofyCrew" }, "look") : null, t.installed ? el("span", { class: `badge${active === `custom-${t.slug}` ? " on" : ""}` }, active === `custom-${t.slug}` ? "active" : "installed") : null, swatch(t.swatch && t.swatch.dark))) : el("p", { class: "hint" }, "Nothing yet. Start from a built-in theme below, adopt an installed one, or import a file.")), el("div", { class: "row", style: { marginTop: ".5rem" } }, el("button", { type: "button", onclick: () => create("blank") }, "New blank theme"), el("button", { type: "button", "data-testid": "custom-themes-import", onclick: importFile }, "Import…"))),
+      el("div", { class: "card" }, el("h3", {}, "Your themes"), el("div", { class: "list", "data-testid": "custom-themes-library" }, list.library.length ? list.library.map((t) => el("button", { type: "button", class: `item${state.selected === t.slug ? " selected" : ""}`, "data-slug": t.slug, onclick: () => open(t.slug) }, el("span", {}, t.emoji), el("span", { class: "name" }, t.name, " ", el("span", { class: "muted" }, t.slug)), t.hasExtraCss ? el("span", { class: "badge", title: "has an extra CSS layer applied by FloofyCrew" }, "look") : null, t.installed ? el("span", { class: `badge${active === `custom-${t.slug}` ? " on" : ""}` }, active === `custom-${t.slug}` ? "active" : "installed") : null, swatch(t.swatch && t.swatch.dark))) : el("p", { class: "hint" }, "Nothing yet. Start from a built-in theme below, adopt an installed one, or import a file.")), el("div", { class: "row", style: { marginTop: ".5rem" } }, el("button", { type: "button", "data-testid": "custom-themes-new-blank", onclick: () => create("blank") }, "New blank theme"), el("button", { type: "button", "data-testid": "custom-themes-import", onclick: importFile }, "Import…"))),
     );
     const foreign = list.installed.filter((t) => !t.inLibrary);
     if (foreign.length) {
@@ -313,13 +331,13 @@ export default async function mount(container, api) {
       const text = await file.text();
       const document_ = JSON.parse(text);
       const proposed = document_.slug || slugify(file.name.replace(/\.floofy-theme\.json$|\.json$/i, ""));
-      const slug = window.prompt("Import as slug", proposed);
+      const slug = await api.dialog.prompt("Import the theme under this slug (its id on the host):", { title: `Import ${file.name}`, label: "Slug", value: proposed, okLabel: "Import", validate: (v) => (SLUG_RE.test(v) ? null : "lower-case letters, digits and dashes, starting with a letter or digit, at most 40 characters") });
       if (slug === null) return;
       let result;
       try {
         result = await call(`import?slug=${slug}`, { method: "POST", body: JSON.stringify(document_) });
       } catch (error) {
-        if (!/already exists/.test(error.message) || !window.confirm(`${error.message}\n\nReplace it?`)) throw error;
+        if (!/already exists/.test(error.message) || !(await api.dialog.confirm(`${error.message}\n\nReplace it?`, { title: "Theme already exists", okLabel: "Replace", cancelLabel: "Cancel", danger: true }))) throw error;
         result = await call(`import?slug=${slug}&overwrite=1`, { method: "POST", body: JSON.stringify(document_) });
       }
       say(`imported ${result.theme.slug}`, "ok");
@@ -366,7 +384,7 @@ export default async function mount(container, api) {
     }
   }
   async function uninstall() {
-    if (!state.doc || !window.confirm(`Remove ${state.doc.slug} from the host's themes? The library copy stays.`)) return;
+    if (!state.doc || !(await api.dialog.confirm(`Remove ${state.doc.slug} from the host's themes? The library copy stays.`, { title: "Uninstall from the host", okLabel: "Uninstall", cancelLabel: "Cancel", danger: true }))) return;
     try {
       await call(`themes/${state.doc.slug}/uninstall`, { method: "POST" });
       window.dispatchEvent(new Event("mc-custom-themes-changed"));
@@ -380,8 +398,10 @@ export default async function mount(container, api) {
   }
   async function remove() {
     if (!state.doc) return;
-    const also = state.doc.installed ? window.confirm(`Also remove ${state.doc.slug} from the host's themes? (Cancel keeps the installed copy.)`) : false;
-    if (!window.confirm(`Delete ${state.doc.slug} from the library?`)) return;
+    const slug = state.doc.slug;
+    const also = state.doc.installed ? await api.dialog.confirm(`Also remove ${slug} from the host's themes? ("Keep" leaves the installed copy in place.)`, { title: "Delete the theme", okLabel: "Remove from the host too", cancelLabel: "Keep the installed copy", danger: true }) : false;
+    if (!(await api.dialog.confirm(`Delete ${slug} from the library?`, { title: "Delete the theme", okLabel: "Delete", cancelLabel: "Cancel", danger: true }))) return;
+    if (!state.doc || state.doc.slug !== slug) return;
     try {
       await call(`themes/${state.doc.slug}${also ? "?uninstall=1" : ""}`, { method: "DELETE" });
       if (also) window.dispatchEvent(new Event("mc-custom-themes-changed"));
@@ -433,7 +453,7 @@ export default async function mount(container, api) {
         el("button", { type: "button", onclick: exportTheme }, "Export"),
         el("button", { type: "button", onclick: duplicate }, "Duplicate"),
         doc.installed ? el("button", { type: "button", onclick: uninstall }, "Uninstall") : null,
-        el("button", { type: "button", class: "danger", onclick: remove }, "Delete"),
+        el("button", { type: "button", class: "danger", "data-testid": "custom-themes-delete", onclick: remove }, "Delete"),
       ),
     );
     const tabs = el("div", { class: "tabs" }, ...[["palette", "Palette"], ["look", "Look (extra CSS)"], ["pack", "Pack"], ["branding", "Branding"]].map(([id, label]) => el("button", { type: "button", class: id === state.tab ? "on" : "", "data-tab": id, onclick: () => { state.tab = id; renderEditor(); } }, label)));
@@ -447,7 +467,7 @@ export default async function mount(container, api) {
 
   function paletteTab(doc) {
     const wrap = el("div", {});
-    const modes = el("div", { class: "row", style: { marginBottom: ".6rem" } }, ...["dark", "light"].map((mode) => el("button", { type: "button", class: state.mode === mode ? "primary" : "", "data-mode": mode, onclick: () => { state.mode = mode; renderEditor(); } }, mode === "dark" ? "Dark" : "Light")), el("span", { class: "muted", style: { fontSize: ".8rem" } }, `${Object.keys(doc.variables[state.mode] || {}).length} of ${ALL_VARS.length} set · unset tokens are derived from --bg / --text / --accent by the host`), el("button", { type: "button", style: { marginLeft: "auto" }, onclick: () => { const other = state.mode === "dark" ? "light" : "dark"; if (window.confirm(`Copy every ${state.mode} value over the ${other} palette?`)) { doc.variables[other] = { ...doc.variables[state.mode] }; touched(); renderEditor(); } } }, `Copy ${state.mode} → ${state.mode === "dark" ? "light" : "dark"}`));
+    const modes = el("div", { class: "row", style: { marginBottom: ".6rem" } }, ...["dark", "light"].map((mode) => el("button", { type: "button", class: state.mode === mode ? "primary" : "", "data-mode": mode, onclick: () => { state.mode = mode; renderEditor(); } }, mode === "dark" ? "Dark" : "Light")), el("span", { class: "muted", style: { fontSize: ".8rem" } }, `${Object.keys(doc.variables[state.mode] || {}).length} of ${ALL_VARS.length} set · unset tokens are derived from --bg / --text / --accent by the host`), el("button", { type: "button", style: { marginLeft: "auto" }, onclick: async () => { const from = state.mode; const other = from === "dark" ? "light" : "dark"; if (await api.dialog.confirm(`Copy every ${from} value over the ${other} palette?`, { title: `Copy ${from} → ${other}`, okLabel: "Copy" })) { doc.variables[other] = { ...doc.variables[from] }; touched(); renderEditor(); } } }, `Copy ${state.mode} → ${state.mode === "dark" ? "light" : "dark"}`));
     wrap.append(modes);
     const block = (doc.variables[state.mode] = doc.variables[state.mode] || {});
     for (const [group, names] of VAR_GROUPS) {

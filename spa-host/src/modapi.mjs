@@ -12,10 +12,14 @@
 //   api.theme.tokens()      → the host's CSS custom properties on :root ({"--bg": "…", …})
 //   api.theme.current()     → {theme, mode} from data-theme/data-mode and localStorage['mc-color-theme']
 //   api.state()             → the mod's Loader verdict (active, reason, parts, exports, tier, routes)
+//   api.dialog.confirm/prompt/alert/form → in-document dialogs (dialog.mjs): the desktop shell has no
+//                             window.alert/confirm/prompt, so a page never uses those
 //   api.baseUrl             → /api/apps/floofycrew/ui/mods/<id>/  (for the page's own assets)
 //
 // Injectable `env` (fetch, document, window, state) keeps it unit-testable under node.
 "use strict";
+
+import { createDialogs } from "./dialog.mjs";
 
 export const API_BASE = "/api/apps/floofycrew";
 
@@ -150,6 +154,8 @@ export function createModApi(modId, env = {}) {
     config,
     routes,
     theme,
+    /** In-document dialogs — `confirm(text)`, `prompt(text, {value, validate})`, `alert(text)`, `form({title, text, fields})`. */
+    dialog: createDialogs(modId, { document: doc }),
     /** The mod's Loader verdict: active, reason, parts, exports, tier, routes, version, title. */
     async state() {
       const state = await fetchState();
