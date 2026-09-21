@@ -78,6 +78,11 @@ files are byte-identical across the two editions (the figures are in
 
 ## Documentation
 
+Want to contribute a mod without reading any of this? Each edition can ship a
+contributor assistant that scaffolds, develops and publishes the mod with you
+(the internal edition's lives in its adapter under `editions/`, with its
+contributing guide); the docs below are the reference it works from.
+
 [docs/README.md](docs/README.md) is the index: writing a mod (manifest, seams,
 the Python and SPA APIs, patches and fingerprints), publishing to a registry,
 the CLI and the interactive terminal, the consent and trust model, surviving

@@ -25,6 +25,15 @@ that way.
 
 ## For mod authors
 
+You do not have to read these pages before writing a mod: an edition can ship
+a **contributor assistant** — an agent (with its skill) that interviews you
+about what the mod should do, picks the right part kind, scaffolds it, keeps
+`floofy validate` clean, drives the dev loop, and walks the publish path with
+you, leaving only `git push` and the review to you. The internal edition ships
+one in its adapter under `editions/`, described in that edition's contributing
+guide. The pages below are the reference the assistant itself works from —
+come here when you want the details.
+
 | Page | What it answers |
 |---|---|
 | [manifest.md](manifest.md) | the `floofy.json` reference: identity, host compatibility, graded dependencies, network, parts, files |

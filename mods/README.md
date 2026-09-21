@@ -19,3 +19,11 @@ Keep a mod honest with `python scripts/hash_example_files.py mods/<id>` (the
 first-frame CSS into a boot part regenerates it with
 `python scripts/bake_theme_css.py mods/<id>`; the first-party theme relies on
 `custom-themes` instead.
+
+
+Want to build one of your own? You do not need to read the API docs first:
+if your edition ships a contributor assistant (the internal edition does —
+see its contributing guide under `editions/`), start there; otherwise
+[docs/publishing.md](../docs/publishing.md) and the author pages in
+[docs/README.md](../docs/README.md) are the by-hand path, with these mods as
+the working examples.

@@ -10,6 +10,11 @@ names it. Users then find your mod with `floofy search`, and the compatibility
 matrix tells them which version works on their exact host version before
 anything is downloaded.
 
+> **Shortcut:** if your edition ships a contributor assistant (the internal
+> edition does — see its contributing guide under `editions/`), it walks this
+> whole page with you, and you only run the final push and open the review
+> yourself. What follows is the by-hand reference.
+
 ## 1. Make the mod releasable
 
 ```bash
