@@ -768,8 +768,8 @@ this release on the build host.
   `gateway.served_version` unix-socket probe fallback (10.8) and the
   `early_install_module` registration fix (10.9) are still open; the App's
   self-update notice renders only once the Loader publishes one.
-- The publish steps of both editions remain the maintainer's
-  (`.kiro/specs/floofycrew-modding-ecosystem/BLOCKERS.md`).
+- The publish steps of both editions remain the maintainer's (tracked in the
+  maintainer's own notes).
 
 ## 1.0.1 — 2026-09-20
 

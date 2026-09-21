@@ -107,13 +107,37 @@ def test_the_delta_reaches_the_model_and_big_deltas_are_chunked(reviewer, tmp_pa
     assert "marker-alpha" in "".join(prompts)
 
 
-def test_a_marker_less_model_answer_is_an_error_not_a_pass(reviewer, tmp_path: Path):
+def test_a_marker_less_model_answer_is_retried_then_an_error_not_a_pass(reviewer, tmp_path: Path):
     clone = _clone(tmp_path, committed={"a.md": "x\n"}, pending={"b.md": "y\n"})
+    counter = tmp_path / "calls"
     script = tmp_path / "chatty.py"
-    script.write_text("print('all good, nothing to see')\n", encoding="utf-8")
+    script.write_text(
+        "import pathlib\n"
+        f"c = pathlib.Path({str(counter)!r})\n"
+        "c.write_text(c.read_text() + 'x' if c.exists() else 'x')\n"
+        "print('all good, nothing to see')\n",
+        encoding="utf-8")
     with pytest.raises(reviewer.ReviewError, match="no FINDINGS_JSON_BEGIN"):
         reviewer.review(clone, model="m", effort="low", max_bytes=90_000, timeout=60,
                         model_cmd=f"{sys.executable} {script}", skip_scan=True)
+    assert counter.read_text() == "xx", "a contract drift is retried exactly once before failing closed"
+
+
+def test_a_drifted_chunk_recovers_on_the_retry(reviewer, tmp_path: Path):
+    clone = _clone(tmp_path, committed={"a.md": "x\n"}, pending={"b.md": "y\n"})
+    state = tmp_path / "state"
+    script = tmp_path / "flaky.py"
+    script.write_text(
+        "import pathlib\n"
+        f"s = pathlib.Path({str(state)!r})\n"
+        "if s.exists():\n"
+        "    print('FINDINGS_JSON_BEGIN'); print('[]'); print('FINDINGS_JSON_END')\n"
+        "else:\n"
+        "    s.write_text('1'); print('let me analyze this diff for you...')\n",
+        encoding="utf-8")
+    record = reviewer.review(clone, model="m", effort="low", max_bytes=90_000, timeout=60,
+                             model_cmd=f"{sys.executable} {script}", skip_scan=True)
+    assert record["verdict"] == "clean"
 
 
 def test_refuses_a_clone_with_an_internal_remote(reviewer, tmp_path: Path):
