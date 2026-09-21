@@ -22,6 +22,27 @@ KiroCrew; it never ships a rebuilt host.
   `License-File` metadata), the Loader app tree and both release trees. The
   de-Amazon check skips LICENSE/NOTICE files (legal notices are reproduced
   verbatim; upstream's public attribution is not an internal identifier).
+- **The public export is a mechanism, not a convention**
+  (`scripts/export_public.py`; Requirement 10.2). The public (GitHub) repository
+  receives a filtered export, and this script is the only sanctioned way to
+  produce it: copy an explicit include list (anything unnamed never leaves),
+  drop the internal-only mods (`mochi-pet-zoom-fix`, `rimuru-branding`) and
+  their `mods/README.md` rows, scan the **whole** exported tree with the
+  de-Amazon checker against a separate justified allowlist
+  (`scripts/public-export-allow.txt`, every line must name an existing exported
+  path), and refuse to write into any git clone with an internal remote (the
+  markers come from the scanner's own denylist). It never pushes. CI's
+  `de-amazon` job now runs `export_public.py --check` beside the core scan, and
+  `floofy-core/tests/test_public_export.py` proves the boundary: the include
+  and exclude sets, the row pruning, a planted leak failing the scan, the
+  internal-remote and non-empty-target refusals.
+
+### Changed
+
+- The first-party mods' `LICENSE` and manifest `authors` credit the author by
+  name instead of an internal account alias; `packaging/README.md` and the
+  changelog no longer name internal systems, so the full public export set
+  scans clean.
 
 ## 1.3.0 — 2026-09-22
 

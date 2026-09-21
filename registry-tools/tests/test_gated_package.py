@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -73,7 +74,9 @@ def rendered(tmp_path_factory: pytest.TempPathFactory):
     os.environ.update(git_env)
     os.environ["FLOOFY_ALLOW_LOCAL_GIT"] = "1"
     try:
-        summary = init_registry_repo(target, edition_config=custom_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel="beta", verdict="tested", link_source=work, sign_key=tmp_path / "key.json")
+        # `contact` is passed explicitly: the manifest's `authors` carry a display
+        # name, which deliberately does NOT fit the internal edition's alias shape
+        summary = init_registry_repo(target, edition_config=custom_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel="beta", verdict="tested", link_source=work, sign_key=tmp_path / "key.json", contact="modauthor")
     finally:
         for key, value in saved.items():
             if value is None:
@@ -104,7 +107,8 @@ def test_the_rendered_package_has_the_documented_layout(rendered):
     # the seeded record names a contact; the key record is the pinned one; the vendored copies are byte copies
     curated = json.loads((target / "mods" / "rimuru-branding" / "mod.json").read_text(encoding="utf-8"))
     manifest = json.loads((REPO_ROOT / "mods" / "rimuru-branding" / "floofy.json").read_text(encoding="utf-8"))
-    assert curated["contact"] == manifest["authors"][0], "the seeded contact is the manifest's first author (it fits the edition's contact shape)"
+    assert curated["contact"] == "modauthor", "the seeded contact is the explicit --contact (the manifest's display-name author does not fit the edition's contact shape)"
+    assert not re.match(str(config["registryPackage"]["contactPattern"]), manifest["authors"][0]), "the manifest's author is a display name, not an alias — seeding needs --contact"
     assert json.loads((target / "schema" / "signing-key.pub.json").read_text(encoding="utf-8"))["keyId"] == config["sources"][0]["keyId"]
     rendered_md = (target / "RENDERED.md").read_text(encoding="utf-8")
     for package in ("floofy_core", "registry_tools"):

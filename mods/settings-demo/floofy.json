@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "The example of a mod with its own settings page inside the FloofyCrew App (Requirement 16.4): a text field and a toggle persisted through floofy.mod(id).config, and a button calling the mod's own backend route, which the python-hook part registers with ctx.routes and which echoes the stored config. Unofficial; the second first-party mod.",
   "authors": [
-    "***REMOVED***"
+    "Oscar Tseng"
   ],
   "license": "MIT",
   "tags": [
@@ -54,7 +54,7 @@
     },
     {
       "path": "LICENSE",
-      "sha256": "692291aeffe4c220eaf7b808ae50fa556c4be6b28d3c26ef6f1eca0af1ec778c"
+      "sha256": "80e39cc2df99c96f5f61a44e4e1b54ffa85c45d1c2d12bff7313cc638e164454"
     },
     {
       "path": "hook/__init__.py",

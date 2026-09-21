@@ -5,7 +5,7 @@
   "version": "1.0.1",
   "description": "A theme editor for KiroCrew inside the FloofyCrew App, and the layer theme mods build on. A theme is a host theme pack (palette, branding, fonts, overrides.css — installed through the host's own validator, listed in Settings → Display) plus a FloofyCrew layer of extra CSS that may restyle anything, scoped to the theme and applied by the mod on the first frame and at runtime. Start from the running host's own built-in themes (read from its stylesheet, decorations included), edit every palette token with a live preview, export/import a theme as one file, install it and switch to it. Carries the theme-reset guard every custom theme needs. Unofficial.",
   "authors": [
-    "***REMOVED***"
+    "Oscar Tseng"
   ],
   "license": "MIT",
   "tags": [
@@ -73,7 +73,7 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "692291aeffe4c220eaf7b808ae50fa556c4be6b28d3c26ef6f1eca0af1ec778c"
+      "sha256": "80e39cc2df99c96f5f61a44e4e1b54ffa85c45d1c2d12bff7313cc638e164454"
     },
     {
       "path": "README.md",

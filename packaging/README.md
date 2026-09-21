@@ -10,7 +10,7 @@ compare every byte).
 
 | Track | Directory | Output | Distribution |
 |---|---|---|---|
-| Internal (***REMOVED*** edition) | `internal/` | `build/FloofyCrew/`: `dist/floofy.pyz`, the Loader app (`app/floofycrew/` + archive), `SHA256SUMS`, `install.sh` (+ `banner/`), `app-registry.json`, `RELEASE.md` | the ***REMOVED*** data package `FloofyCrew` (`build.sh --out <clone>`; the package itself is an operator app-registry row); the community App Store entry is prepared in `internal/community-registry-submission.md` |
+| Internal edition | `internal/` | `build/FloofyCrew/`: `dist/floofy.pyz`, the Loader app (`app/floofycrew/` + archive), `SHA256SUMS`, `install.sh` (+ `banner/`), `app-registry.json`, `RELEASE.md` | the internal data package `FloofyCrew` (`build.sh --out <clone>`; the package itself is an operator app-registry row); the community App Store entry is prepared in `internal/community-registry-submission.md` |
 | Public (GitHub) | `public/` | `build/public/`: `dist/floofy.pyz`, the wheel, the Loader app archive, `SHA256SUMS`, plus the `loader-app` tree (`app/`, `app-registry.json`, `install.sh`, `README.md`, `RELEASE.md`) | GitHub release assets for tag `vX.Y.Z` (`.github/workflows/release.yml`), the generated `loader-app` branch, `curl -fsSL …/packaging/public/install.sh \| sh`; `public/registry-row.json` carries the app-registry row and the `registries.json` source with the pinned public key |
 
 The wheel is written by `scripts/build_wheel.py` (a stdlib wheel writer: the
@@ -38,3 +38,22 @@ pre-answer the menu. The banner is `branding/ascii/floofy.ans` (24-bit, when
 them under `banner/`, the public one-liner embeds them (a piped script has no
 files beside it). `packaging/tests/test_install_scripts.py` runs both scripts
 headless (`setsid`, `</dev/null`) and on a pseudo-terminal.
+
+## The public export
+
+The public repository never receives the source tree as-is:
+`scripts/export_public.py` is the only sanctioned way to produce a tree for the
+public remote. It copies an explicit include list (a path not named never
+leaves), drops the internal-only mods and their `mods/README.md` rows, scans
+**every** exported file with `scripts/check_no_internal_identifiers.py` against
+the justified allowlist `scripts/public-export-allow.txt`, and refuses to write
+into a clone whose remotes include an internal host. It never pushes — review
+and push the result yourself:
+
+```bash
+python scripts/export_public.py --check        # what CI runs: temp dir, scan, delete
+python scripts/export_public.py --out <public-clone> --force
+```
+
+`floofy-core/tests/test_public_export.py` pins the boundary (include and
+exclude sets, the scan, the refusals) in the test suite.

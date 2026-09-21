@@ -8,15 +8,21 @@ on:
 jobs:
   de-amazon:
     # The shared core must be publishable as-is: no internal hostnames, package
-    # names or identifiers outside the edition adapters (Requirement 10.2).
-    name: no internal identifiers in the shared core
+    # names or identifiers outside the edition adapters (Requirement 10.2) —
+    # and the WHOLE public export set must scan clean, not just the core:
+    # export_public.py --check builds the filtered GitHub tree into a temp
+    # directory and scans every exported file against public-export-allow.txt.
+    name: no internal identifiers in the shared core or the public export
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python scripts/check_no_internal_identifiers.py
+      - name: The shared core is clean
+        run: python scripts/check_no_internal_identifiers.py
+      - name: The full public export is clean
+        run: python scripts/export_public.py --check
 
   two-track:
     # One codebase, two editions (design DR-3): the shared core, Loader app and
