@@ -24,8 +24,8 @@ not verify unless its user explicitly loosens that source
 registry.json                     this registry's identity: source label, signing key id, record kind, archive URL template, repository pattern
 mods/<id>/mod.json                curated record: repo, tags, links
 mods/<id>/<version>/floofy.json   the mod's manifest exactly as released
-mods/<id>/<version>/release.json  tag, channel, publishedAt, then EITHER files[]{url, sha256, size} (an archive record)
-                                  OR link{repo, tag, commit, manifestSha256, path} + files[]{path, sha256, size} (a link record)
+mods/<id>/<version>/release.json  channel, publishedAt, then EITHER tag + files[]{url, sha256, size} (an archive record)
+                                  OR link{repo, path, commit, manifestSha256, ref?} + files[]{path, sha256, size} (a link record, pinned by commit)
 compat.json, index.json, app-registry.json   generated / maintained as above
 masquerade-allow.txt              ids the curators cleared of the host-name check
 ```

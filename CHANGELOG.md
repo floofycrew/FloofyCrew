@@ -11,6 +11,24 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Changed
+
+- **Link records no longer need a git tag.** A registry link record now pins
+  `link{repo, path, commit, manifestSha256[, ref]}`: the mod lives under its
+  directory on the repository's default branch, the registry records the commit it
+  curated, and the client fetches exactly that commit (`git fetch --depth 1 origin
+  <sha>`, then a shallow checkout) before comparing the manifest hash and `files[]`
+  with the record. `tag` is optional and legacy: records that carry one and no
+  `commit` still resolve at the tag. The index schema, the gated-package
+  templates, the registry `README` renderer and `validate-submission` follow the
+  new shape.
+- **`registry_tools record REPO ID`** writes or refreshes a link record from a
+  clone of the mod repository's default branch (`--ref` for another branch or
+  commit, `--refresh` to re-pin an existing record); `registry_tools bootstrap`
+  seeds its records from `--link-source` at `--link-ref` (default `HEAD`) instead
+  of `<id>-<version>` tags, and `floofy_core.gitsource.GitRef` gains
+  `at_commit()`, `default_branch()` and `is_default_branch()`.
+
 ## 1.2.0 — 2026-09-21
 
 A minor on 1.1.5: a `patch` descriptor may now target `electron:<member>` — one

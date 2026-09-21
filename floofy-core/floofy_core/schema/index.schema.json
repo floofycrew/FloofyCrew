@@ -171,15 +171,16 @@
       ]
     },
     "link": {
-      "description": "Where a link-based version lives (Requirement 8.9): the repository (ssh:// or https:// only — the transport a client clones over with its own credentials), the tag the version is published under, the commit that tag pointed at when the record was made, the SHA-256 of the canonical floofy.json, and the mod's directory inside the repository when it is not the root. A client refuses a checkout whose commit, canonical-manifest hash or files[] differ.",
+      "description": "Where a link-based version lives (Requirement 8.9): the repository (ssh:// or https:// only — the transport a client fetches over with its own credentials), the commit the version is pinned at (fetched directly by the client, so no tag is needed to locate a version), the SHA-256 of the canonical floofy.json, and the mod's directory inside the repository when it is not the root. Optional: ref, the branch the record was made from (the default branch when absent), and tag, kept by records made before commits were pinned. A client refuses a checkout whose canonical-manifest hash or files[] differ.",
       "type": "object",
-      "required": ["repo", "tag", "commit", "manifestSha256"],
+      "required": ["repo", "commit", "manifestSha256"],
       "properties": {
         "repo": { "type": "string", "pattern": "^(ssh|https)://[^\\s@#?]+$" },
-        "tag": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+-]*$" },
         "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "manifestSha256": { "$ref": "#/$defs/sha256" },
-        "path": { "type": "string", "pattern": "^([A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*)?$" }
+        "path": { "type": "string", "pattern": "^([A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*)?$" },
+        "ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+-]*$" },
+        "tag": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+-]*$" }
       },
       "additionalProperties": false
     },

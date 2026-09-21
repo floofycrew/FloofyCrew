@@ -1,9 +1,11 @@
 # Contributing a mod to {{SOURCE_LABEL}}
 
 This registry holds **records**, not files: a version record names your mod's
-repository and the tag of the release (a *link record*), and the FloofyCrew
-manager clones that tag with the user's own credentials, verifies the commit,
-the manifest hash and every file against the record, and installs. Nothing is
+repository, the mod's directory in it and the **commit** the version is pinned
+at (a *link record*), and the FloofyCrew manager fetches that commit with the
+user's own credentials, verifies the manifest hash and every file against the
+record, and installs. No tag locates a version: keep the mod under its
+directory on your default branch and the registry pins what it curated. Nothing is
 uploaded here; a change to this repository is a reviewed change to what every
 client of the **{{EDITION}}** edition is offered.
 
@@ -11,7 +13,7 @@ client of the **{{EDITION}}** edition is offered.
 
 To be listed here a mod must — and the build gate checks each item it can:
 
-1. **Pass `floofy validate` clean**: zero errors on the tagged tree (schema,
+1. **Pass `floofy validate` clean**: zero errors on the committed tree (schema,
    `files[]` hashes, targets, network scan).
 2. **Carry a licence**: `license` in `floofy.json` **and** a `LICENSE` (or
    `LICENCE` / `COPYING`) file at the mod root, listed in `files[]`, with **no
@@ -30,9 +32,9 @@ To be listed here a mod must — and the build gate checks each item it can:
    flagged at validation.
 5. **Name a `contact`** in `mods/<id>/mod.json` ({{CONTACT_KIND}}): who answers
    for the mod.
-6. **Tag the release with the version**: the tag equals `version` — `1.2.0`,
-   `v1.2.0`, or `<id>-1.2.0` in a repository that holds several mods — and the
-   record names that tag.
+6. **Bump `version` in `floofy.json` for every release**: the record is keyed
+   by that version and pinned at the commit that carries it; a commit with the
+   same version as an existing record is a refresh, not a new release.
 
 That is the whole list; it is deliberately shallow so a useful mod can be shared
 the week it works. The repository must be on this registry's forge
@@ -41,30 +43,38 @@ the week it works. The repository must be on this registry's forge
 
 ## The change
 
-One change per mod version, three small files:
+One change per mod version, three small files — written for you by
+
+```bash
+registry_tools record . <id> --repo <your repository URL> [--path <directory of the mod inside it>] [--ref <branch>]
+```
+
+which reads the mod on your default branch (or `--ref`), takes the version from
+its `floofy.json` and pins the commit it read:
 
 1. `mods/<id>/mod.json` (first submission only):
    ```json
    {"repo": "<your repository URL>", "contact": "<{{CONTACT_KIND}}>", "tags": ["theme"], "links": {"docs": "https://…"}}
    ```
-2. `mods/<id>/<version>/floofy.json` — the manifest **exactly** as in the tagged
-   tree (the gate compares them after canonicalisation).
+2. `mods/<id>/<version>/floofy.json` — the manifest **exactly** as in the
+   committed tree (the gate compares them after canonicalisation).
 3. `mods/<id>/<version>/release.json`:
    ```json
-   {"tag": "<id>-<version>", "channel": "stable", "publishedAt": "2026-09-19T08:00:00Z",
-    "link": {"repo": "<your repository URL>", "tag": "<id>-<version>", "path": "<directory of the mod inside the repository, or omit>"}}
+   {"channel": "stable", "publishedAt": "2026-09-19T08:00:00Z",
+    "link": {"repo": "<your repository URL>", "path": "<directory of the mod inside the repository, or omit>",
+             "commit": "<the 40-hex commit the version was read at>", "manifestSha256": "<sha256 of the canonical floofy.json>"},
+    "files": [{"path": "…", "sha256": "…", "size": 0}]}
    ```
-   then `registry_tools build . --resolve-links` clones your tag once and fills in
-   `commit`, `manifestSha256` and the checkout's `files[]`; for a pure App Kit app
-   (a single `app` part) add `"app": {"name": "<the name in app.json>"}` when it
-   differs from the mod id.
+   (`ref` names a branch other than the default one; for a pure App Kit app — a
+   single `app` part — add `"app": {"name": "<the name in app.json>"}` when it
+   differs from the mod id).
 4. Regenerate the derived files and sign — `registry_tools build . --app-registry --sign <key>`
    (the maintainer holds the key `{{KEY_ID}}`; an unsigned index fails the gate),
    `registry_tools readme .` — and never edit `index.json`, `app-registry.json`,
    `compat.json` or the README's mod table by hand.
 5. Run the gate — `{{GATE_COMMAND}}`, or `PYTHONPATH=src python -m {{GATE_MODULE}}`
-   without the build system — and open the review. The gate clones every link
-   record at its tag with **your** credentials (`{{GATE_ENV_PREFIX}}_SKIP_CLONE=1`
+   without the build system — and open the review. The gate fetches every link
+   record at its pinned commit with **your** credentials (`{{GATE_ENV_PREFIX}}_SKIP_CLONE=1`
    skips that step for an offline run; the merge gate never does).
 
 A reviewer looks at what the manager will disclose to users — the parts, the

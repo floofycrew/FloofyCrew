@@ -88,16 +88,21 @@ def test_a_missing_contact_is_refused(tmp_path: Path):
     assert any("`contact`" in p for p in report.problems), report.format()
 
 
-def test_a_repository_outside_the_forge_pattern_and_a_wrong_tag_are_refused(tmp_path: Path):
+def test_a_repository_outside_the_forge_pattern_and_a_legacy_wrong_tag_are_refused(tmp_path: Path):
     root = _copy(tmp_path)
     directory, release, manifest = _first_record(root)
     if not isinstance(release.get("link"), dict):
         pytest.skip("the first record is an archive record")
     release["link"]["repo"] = "ssh://git.example.evil/pkg/Impostor"
-    release["link"]["tag"] = "nightly"
     (directory / "release.json").write_text(json.dumps(release), encoding="utf-8")
     report = gate.validate_registry(root, clone=False)
     assert any("outside this registry's forge pattern" in p for p in report.problems), report.format()
+    assert not any("is not the version" in p for p in report.problems), "a commit-pinned record carries no tag and no tag rule applies to it"
+    # a record made before commits were pinned is still located by its tag, so a wrong tag on one is refused
+    release["link"].pop("commit", None)
+    release["link"]["tag"] = "nightly"
+    (directory / "release.json").write_text(json.dumps(release), encoding="utf-8")
+    report = gate.validate_registry(root, clone=False)
     assert any("is not the version" in p for p in report.problems), report.format()
 
 

@@ -157,18 +157,23 @@ A version is **one of two record shapes** (`oneOf`; never mixed):
 
 - an **asset record** lists archives in `files[]{url, sha256, size[, name]}`
   (HTTPS only; the manager checks both the hash and the size of every download);
-- a **link record** (Requirement 8.9) carries `link{repo, tag, commit,
-  manifestSha256[, path]}` — the mod's repository (`ssh://` or `https://`, the
-  transport a client clones over with its own credentials), the version tag, the
-  commit that tag pointed at when the record was made, the SHA-256 of the
-  canonical `floofy.json` (`floofy_core.canonical`), and the mod's directory
-  inside the checkout when it is not the root — and lists the checkout's files in
-  `files[]{path, sha256, size}` (no `url`). The manifest's own `files[]` already
-  pins those files; the record's list is the curator's independent statement,
-  lets `floofy which <sha256>` resolve a file of a link-listed mod and gives the
-  client a size to check. A client resolves a link record by shallow-cloning the
-  repository at the tag and refuses the checkout when its commit, canonical-manifest
-  hash or any file differs from the record. The internal registry lists every mod
+- a **link record** (Requirement 8.9) carries `link{repo, commit,
+  manifestSha256[, path][, ref]}` — the mod's repository (`ssh://` or `https://`,
+  the transport a client fetches over with its own credentials), the **commit**
+  the version is pinned at, the SHA-256 of the canonical `floofy.json`
+  (`floofy_core.canonical`), the mod's directory inside the checkout when it is
+  not the root, and optionally the branch the record was made from (`ref`; the
+  repository's default branch when absent) — and lists the checkout's files in
+  `files[]{path, sha256, size}` (no `url`). No tag locates a version: the client
+  fetches exactly `commit` (`git fetch --depth 1 origin <sha>`, which both forges
+  FloofyCrew targets serve), so the mod's repository simply keeps the mod under its
+  directory on its default branch and the registry pins the commit it curated.
+  The manifest's own `files[]` already pins those files; the record's list is the
+  curator's independent statement, lets `floofy which <sha256>` resolve a file of
+  a link-listed mod and gives the client a size to check. The checkout is refused
+  when its canonical-manifest hash or any file differs from the record. Records
+  made before commits were pinned may still carry `tag`, which the client uses
+  only when `commit` is absent. The internal registry lists every mod
   this way (its forge has no release assets); the public one may use either shape.
 
 ## Compatibility matrix (`compat-1.json`, Requirement 9.1)

@@ -222,13 +222,14 @@ def validate_registry(root: Path | None = None, *, clone: bool | None = None) ->
                 link = record.link or {}
                 if not repo_matches_pattern(str(link.get("repo", "")), repo.repo_url_pattern):
                     report.problem(f"{record.mod_id}@{record.version}: link.repo {link.get('repo')!r} is outside this registry's forge pattern {repo.repo_url_pattern!r}")
-                if record.link_tag not in accepted_tags(record.mod_id, record.version):
+                if not record.link_commit and record.link_tag and record.link_tag not in accepted_tags(record.mod_id, record.version):
+                    # a record made before commits were pinned is still located by its tag: the tag rule applies to it alone
                     report.problem(f"{record.mod_id}@{record.version}: tag {record.link_tag!r} is not the version ({record.version}, v{record.version} or {record.mod_id}-{record.version})")
                 ok, why = manifest_hash_matches(record)
                 if not ok:
                     report.problem(why)
                 if not record.link_resolved:
-                    report.problem(f"{record.mod_id}@{record.version}: the link record is unresolved (commit / manifestSha256 / files[]); run `registry_tools build --resolve-links`")
+                    report.problem(f"{record.mod_id}@{record.version}: the link record is unresolved (commit / manifestSha256 / files[]); run `registry_tools record` or `build --resolve-links`")
             else:
                 if repo.record_kind == "link":
                     report.notes.append(f"{record.mod_id}@{record.version} is an archive record in a link registry (transitional)")

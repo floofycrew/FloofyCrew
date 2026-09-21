@@ -2,7 +2,7 @@
 
 Given the mod (a directory or a ``.zip``/``.tar.gz`` archive — the release asset
 the record names) **or** a link record to clone (``--record <id>@<version>``,
-shallow clone of ``link.repo`` at the tag with the operator's own credentials),
+fetch of ``link.repo`` at the pinned commit with the operator's own credentials),
 and optionally the registry repository the PR targets, check:
 
 1. **schema and validator** — ``floofy validate`` (schema, SemVer ranges, every
@@ -18,7 +18,8 @@ and optionally the registry repository the PR targets, check:
 4. **no host-name masquerade** — :mod:`registry_tools.masquerade` on ``id`` and
    ``name``, unless the registry's ``masquerade-allow.txt`` lists the id;
 5. **release tag** — ``--tag`` (the release the assets were published under) or a
-   link record's tag must equal the manifest ``version``, ``v<version>`` or
+   legacy link record's tag (one made before commits were pinned; a commit-pinned
+   link record carries no tag and skips this rule) must equal the manifest ``version``, ``v<version>`` or
    ``<id>-<version>`` (a repository holding several mods), or the record's own
    ``tag``;
 6. **record consistency** — with ``--registry``: ``mods/<id>/<version>/floofy.json``
@@ -172,11 +173,11 @@ def validate_submission(
             for problem in problems:
                 report.error("Link", problem)
             report.mod_id, report.version = mod_id, version
-            report.link = {**(link_record.link or {}), "tag": link_record.link_tag}
+            report.link = dict(link_record.link or {})
             if root is None:
                 return report
-            if tag is None:
-                tag = link_record.link_tag
+            if tag is None and link_record.link_tag and not link_record.link_commit:
+                tag = link_record.link_tag  # a legacy record still located by tag: the tag rule applies to it
         elif mod is not None and is_archive(mod):
             archive_sha, archive_size = _sha256(mod), mod.stat().st_size
             scratch = Path(tempfile.mkdtemp(prefix="floofy-submission-"))
@@ -243,14 +244,17 @@ def validate_submission(
                 link = version_record.link or {}
                 if not str(link.get("repo", "")).startswith(("ssh://", "https://")):
                     report.error("RecordRepoUrl", f"link.repo {link.get('repo')!r} must use ssh:// or https:// (Requirement 11.6)")
-                if version_record.link_tag not in accepted_tags(report.mod_id, report.version):
-                    report.error("ReleaseTag", f"link.tag {version_record.link_tag!r} is not the version {report.version}, v{report.version} or {report.mod_id}-{report.version} (Requirement 8.10)")
+                if not version_record.link_commit:
+                    if not version_record.link_tag:
+                        report.error("Record", "the link record pins no commit (run `registry_tools record` to read the repository and pin one)")
+                    elif version_record.link_tag not in accepted_tags(report.mod_id, report.version):
+                        report.error("ReleaseTag", f"link.tag {version_record.link_tag!r} is not the version {report.version}, v{report.version} or {report.mod_id}-{report.version} (Requirement 8.10)")
                 for entry in files:
                     if "url" in entry or not isinstance(entry.get("path"), str):
                         report.error("RecordFiles", f"a link record lists files by path, not by url: {entry}")
                         break
                 if archive_sha is not None:
-                    report.error("Record", "an archive was submitted against a link record; the record names a repository tag, not an asset")
+                    report.error("Record", "an archive was submitted against a link record; the record pins a repository commit, not an asset")
             else:
                 for entry in files:
                     url = entry.get("url")

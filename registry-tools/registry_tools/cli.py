@@ -3,13 +3,14 @@
 | Command | What it does |
 |---|---|
 | ``keygen --out KEY [--comment TEXT]`` | an Ed25519 key pair: ``KEY`` (private, mode 0600, never committed) and ``KEY.pub.json`` (the public record an edition adapter pins) |
-| ``build REPO [--out index.json] [--compat compat.json] [--sign KEY] [--app-registry] [--check] [--floofycrew VERSION] [--resolve-links]`` | ``index.json`` from ``mods/**`` with the matrix cells folded in; ``--check`` only compares with the committed index (CI); ``--sign`` writes ``index.json.sig``; ``--app-registry`` also emits the KiroCrew-compatible ``app-registry.json``; ``--resolve-links`` clones every unresolved link record at its tag and fills in ``commit``, ``manifestSha256`` and ``files[]`` (Requirement 8.9) |
+| ``build REPO [--out index.json] [--compat compat.json] [--sign KEY] [--app-registry] [--check] [--floofycrew VERSION] [--resolve-links]`` | ``index.json`` from ``mods/**`` with the matrix cells folded in; ``--check`` only compares with the committed index (CI); ``--sign`` writes ``index.json.sig``; ``--app-registry`` also emits the KiroCrew-compatible ``app-registry.json``; ``--resolve-links`` reads every unresolved link record at its branch and pins ``commit``, ``manifestSha256`` and ``files[]`` (Requirement 8.9) |
 | ``sign PAYLOAD --key KEY [--out SIG]`` | the detached signature of any JSON document (``index.json``, ``compat.json``) |
 | ``verify PAYLOAD [--sig SIG] [--public-key RECORD …] [--key-id ID] [--edition-keys]`` | verify a detached signature against the given public records, or the keys pinned by the installed edition adapters |
 | ``validate-submission MOD [--registry REPO] [--tag TAG] [--allowlist FILE] [--terms t,t] [--json]`` | the CI gate for a pull request (schema, ``floofy validate``, hashes, licence, masquerade, tag, record consistency) |
-| ``validate-submission --record ID@VERSION --registry REPO [--json]`` | the same gate for a **link record**: clone ``link.repo`` at the tag, compare commit / manifest hash / ``files[]`` with the record, then every check above on the checkout (Requirement 8.9, 8.10) |
+| ``validate-submission --record ID@VERSION --registry REPO [--json]`` | the same gate for a **link record**: fetch ``link.repo`` at the pinned commit, compare commit / manifest hash / ``files[]`` with the record, then every check above on the checkout (Requirement 8.9, 8.10) |
 | ``compat-merge COMPAT ROW [--sign KEY] [--source LABEL]`` | add/replace a matrix row from a Forge run file; ``--override CELL=VERDICT --reason … --by …`` records a human override instead |
 | ``app-registry REPO [--out app-registry.json]`` | the KiroCrew-compatible ``app-registry.json`` for the app-kind mods of ``index.json`` (task 7.4) |
+| ``record REPO ID [--repo URL] [--path DIR] [--ref BRANCH] [--source CHECKOUT [--source-ref COMMITISH]] [--contact ALIAS] [--refresh] [--json]`` | make (or ``--refresh``) the link record of a mod from its repository: read the mod under ``DIR`` (default ``mods/ID``) on ``BRANCH`` (default the repository's default branch) — or from a local checkout — and pin the **commit** it was read at; no tag is involved (Requirement 8.9). Follow with ``build --sign`` and ``readme`` |
 | ``readme REPO [--check]`` | rewrite the README's mod table (between ``<!-- mods:begin -->`` / ``<!-- mods:end -->``) from ``index.json``; ``--check`` fails when the committed table is stale (Requirement 8.10) |
 
 Exit status: 0 ok, 1 a check failed, 2 usage or an unreadable input.
@@ -28,6 +29,7 @@ from floofy_core.sigverify import SignatureError, verify_detached
 
 from .build import build_index, index_matches, write_index
 from .compat_merge import CompatMergeError, load_compat, merge_row, override_cell
+from .record import RecordError, make_record
 from .repo import RegistryRepo, RepoError
 from .submission import validate_submission
 
@@ -199,6 +201,23 @@ def cmd_app_registry(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_record(args: argparse.Namespace) -> int:
+    try:
+        repo = RegistryRepo.load(Path(args.repo))
+        result = make_record(repo, args.id, repo_url=args.repo_url, path=args.path, ref=args.ref, source=Path(args.source) if args.source else None, source_ref=args.source_ref, channel=args.channel, contact=args.contact, refresh=args.refresh)
+    except (RepoError, RecordError) as exc:
+        return _fail(str(exc))
+    if args.json:
+        _say(json.dumps(result.to_dict(), indent=2))
+        return 0
+    verb = "recorded" if result.created else "re-pinned"
+    _say(f"{verb} {result.mod_id}@{result.version}: {result.repo} {result.path} at {result.ref or 'the default branch'} → commit {result.commit[:12]} ({result.files} file(s), manifest {result.manifest_sha256[:12]}…)")
+    for path in result.written:
+        _say(f"  wrote {path}")
+    _say("next: registry_tools build <repo> --sign <key> [--app-registry] && registry_tools readme <repo>")
+    return 0
+
+
 def cmd_readme(args: argparse.Namespace) -> int:
     from .readme import readme_matches, update_readme  # noqa: PLC0415
 
@@ -237,7 +256,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--app-registry", action="store_true", help="also emit the KiroCrew-compatible app-registry.json")
     build.add_argument("--check", action="store_true", help="do not write; fail when the committed index differs from the rebuilt one")
     build.add_argument("--floofycrew", default=None, help="the FloofyCrew release to stamp into the index")
-    build.add_argument("--resolve-links", action="store_true", help="clone every unresolved link record at its tag and write commit, manifestSha256 and files[] into its release.json")
+    build.add_argument("--resolve-links", action="store_true", help="read every unresolved link record at its branch (default branch unless link.ref) and pin commit, manifestSha256 and files[] into its release.json")
     build.set_defaults(func=cmd_build)
 
     sign = sub.add_parser("sign", help="write the detached signature of a JSON document")
@@ -256,7 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     submission = sub.add_parser("validate-submission", help="the CI gate for a registry pull request")
     submission.add_argument("mod", nargs="?", default=None, help="the mod directory or release archive (omit with --record)")
-    submission.add_argument("--record", default=None, metavar="ID@VERSION", help="validate a link record of --registry: clone link.repo at the tag and compare with the record")
+    submission.add_argument("--record", default=None, metavar="ID@VERSION", help="validate a link record of --registry: fetch link.repo at the pinned commit and compare with the record")
     submission.add_argument("--registry", default=None, help="the registry repository the submission targets")
     submission.add_argument("--tag", default=None, help="the release tag the assets were published under")
     submission.add_argument("--allowlist", default=None, help="masquerade allowlist file (in addition to REPO/masquerade-allow.txt)")
@@ -281,6 +300,20 @@ def build_parser() -> argparse.ArgumentParser:
     app_registry.add_argument("repo")
     app_registry.add_argument("--out", default=None)
     app_registry.set_defaults(func=cmd_app_registry)
+
+    record = sub.add_parser("record", help="make or refresh a mod's link record from its repository (pinned at the commit read; no tag)")
+    record.add_argument("repo", help="the registry repository root")
+    record.add_argument("id", help="the mod id")
+    record.add_argument("--repo", dest="repo_url", default=None, help="the mod's repository (default: mods/<id>/mod.json repo, else registry.json floofycrew)")
+    record.add_argument("--path", default=None, help="the mod's directory inside the repository (default mods/<id>)")
+    record.add_argument("--ref", default=None, help="the branch to read (default: the branch an earlier record names, else the repository's default branch)")
+    record.add_argument("--source", default=None, metavar="CHECKOUT", help="read a local checkout instead of cloning (its committed tree at --source-ref)")
+    record.add_argument("--source-ref", default="HEAD", metavar="COMMITISH", help="with --source: the commit, branch or HEAD to pin (default HEAD)")
+    record.add_argument("--channel", default="stable")
+    record.add_argument("--contact", default=None, help="who answers for the mod (default: the manifest's first author, for a new mod.json)")
+    record.add_argument("--refresh", action="store_true", help="re-pin an already recorded version at the commit read now")
+    record.add_argument("--json", action="store_true")
+    record.set_defaults(func=cmd_record)
 
     readme = sub.add_parser("readme", help="regenerate the README mod table from index.json")
     readme.add_argument("repo")

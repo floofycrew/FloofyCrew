@@ -48,7 +48,9 @@ def _record_cell(version: dict[str, Any] | None) -> str:
         return "—"
     link = version.get("link")
     if isinstance(link, dict):
-        return f"link: `{link.get('repo')}` at `{link.get('tag')}`"
+        where = f" ({link['path']})" if isinstance(link.get("path"), str) and link["path"] else ""
+        point = str(link.get("commit") or "")[:12] or link.get("tag") or "?"
+        return f"link: `{link.get('repo')}`{where} at `{point}`"
     return "archive"
 
 

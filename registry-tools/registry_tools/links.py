@@ -1,24 +1,30 @@
 """Link records: resolving and checking them against the repository they point at (Requirement 8.9, 8.10).
 
-A link record (``mods/<id>/<version>/release.json`` with ``link: {repo, tag?}``)
-is complete for the index only once it carries the **facts a client verifies**:
-the ``commit`` the tag pointed at, the SHA-256 of the canonical ``floofy.json``
-and the checkout's ``files[]`` as ``{path, sha256, size}``. Two ways to get them:
+A link record (``mods/<id>/<version>/release.json`` with ``link: {repo, path?,
+ref?}``) is complete for the index only once it carries the **facts a client
+verifies**: the ``commit`` the version is pinned at, the SHA-256 of the canonical
+``floofy.json`` and the checkout's ``files[]`` as ``{path, sha256, size}``. The
+commit is the pin — a version is located by it, never by a tag: the mod's
+repository keeps the mod under its directory on its default branch (or ``ref``),
+and the registry records the commit it curated. Two ways to get the facts:
 
-* :func:`resolve_record` — shallow-clone ``repo`` at the tag (the same
-  :func:`floofy_core.gitsource.clone_into` a client uses, with the operator's own
-  credentials) into a scratch directory and read them off the checkout
-  (``registry_tools build --resolve-links``, ``bootstrap --record link``);
-* :func:`facts_from_checkout` — read them off a checkout the caller already has
-  (the bootstrap's ``--link-source``: a local clone of the repository whose tag
-  is not pushed yet; the commit comes from ``git rev-list -n 1 <tag>`` there).
+* :func:`resolve_record` — clone ``repo`` (at ``link.ref``, else the default
+  branch; at ``link.commit`` when the record already pins one) with the same
+  :func:`floofy_core.gitsource.clone_into` a client uses and the operator's own
+  credentials, into a scratch directory, and read them off the checkout
+  (``registry_tools record``, ``build --resolve-links``, ``bootstrap --record link``);
+* :func:`facts_from_local_commit` — read them off a **local** checkout at a
+  commitish (``HEAD``, a branch, a commit) exported with ``git archive``, so they
+  describe the committed tree, not the working copy (the bootstrap's
+  ``--link-source``; a commit the owner has not pushed yet).
 
 :func:`check_record` is the verification side (``validate-submission --record``,
-the internal package's build gate): clone at the tag and compare commit,
+the internal package's build gate): fetch the pinned commit and compare the
 manifest hash and every file with the record; any difference is a finding. The
 manifest hash is also checked **without** a clone by :func:`manifest_hash_matches`
 — the record's own ``floofy.json`` must hash to ``manifestSha256`` — which is
-what ``build`` does for every link record on every run.
+what ``build`` does for every link record on every run. A record made before
+commits were pinned (``tag`` but no ``commit``) is still cloned at its tag.
 
 ``repo`` must use ``ssh://`` or ``https://`` (:class:`floofy_core.gitsource.GitRef`
 refuses anything else) and, when the registry pins its forge
@@ -41,7 +47,7 @@ from floofy_core.gitsource import GitRef, GitRefError, clone_into, manifest_sha2
 
 from .repo import RegistryRepo, VersionRecord
 
-__all__ = ["LinkError", "LinkFacts", "check_record", "commit_of_tag", "facts_from_checkout", "facts_from_local_tag", "link_reference", "manifest_hash_matches", "repo_matches_pattern", "resolve_record", "write_resolved"]
+__all__ = ["LinkError", "LinkFacts", "check_record", "commit_of", "commit_of_tag", "facts_from_checkout", "facts_from_local_commit", "facts_from_local_tag", "link_reference", "manifest_hash_matches", "repo_matches_pattern", "resolve_record", "write_resolved"]
 
 _SKIP_DIRS = frozenset({".git", "__pycache__", ".pytest_cache", ".hypothesis"})
 
@@ -52,25 +58,41 @@ class LinkError(ValueError):
 
 @dataclass
 class LinkFacts:
-    """What a resolved link record carries beyond ``repo``/``tag``."""
+    """What a resolved link record carries beyond ``repo``/``path``/``ref``."""
 
     commit: str
     manifest_sha256: str
     files: list[dict[str, Any]] = field(default_factory=list)
 
     def to_link(self, link: dict[str, Any]) -> dict[str, Any]:
-        out = {k: v for k, v in link.items() if k in ("repo", "tag", "path")}
+        """The ``link`` block: ``repo`` (+ ``path``, ``ref`` when given) with the pinned ``commit`` and ``manifestSha256``; no tag."""
+        out = {k: v for k, v in link.items() if k in ("repo", "path", "ref") and v}
         out.update({"commit": self.commit, "manifestSha256": self.manifest_sha256})
         return out
 
 
-def link_reference(record: VersionRecord) -> GitRef:
-    """The :class:`GitRef` a link record is cloned as (repo at the record's tag, the mod's ``path`` inside)."""
+def link_reference(record: VersionRecord, *, pinned: bool = True) -> GitRef:
+    """The :class:`GitRef` a link record is fetched as.
+
+    ``pinned`` (the client's and the gate's view): the repository at ``link.commit``
+    — the pin; a legacy record without a commit is cloned at its tag. Not pinned
+    (making or refreshing a record): the repository at ``link.ref``, else its
+    default branch. Both carry the mod's ``path`` inside the checkout.
+    """
     link = record.link
     if link is None:
         raise LinkError(f"{record.mod_id}@{record.version}: not a link record")
+    path = link["path"] if isinstance(link.get("path"), str) and link["path"] else ""
     try:
-        return GitRef.parse(f"{link['repo']}@{record.link_tag}" + (f"#{link['path']}" if isinstance(link.get("path"), str) and link["path"] else ""))
+        if pinned and record.link_commit:
+            return GitRef.at_commit(str(link["repo"]), record.link_commit, path)
+        if pinned and record.link_tag:
+            return GitRef.parse(f"{link['repo']}@{record.link_tag}" + (f"#{path}" if path else ""))
+        if pinned:
+            raise LinkError(f"{record.mod_id}@{record.version}: the link record pins no commit (run `registry_tools record` or `build --resolve-links`)")
+        if record.link_ref:
+            return GitRef.parse(str(link["repo"]) + (f"#{path}" if path else ""), ref=record.link_ref)
+        return GitRef.default_branch(str(link["repo"]), path)
     except GitRefError as exc:
         raise LinkError(f"{record.mod_id}@{record.version}: link.repo is unusable: {exc}") from exc
 
@@ -111,23 +133,33 @@ def facts_from_checkout(root: Path, *, commit: str) -> LinkFacts:
     return LinkFacts(commit=commit, manifest_sha256=manifest_sha256(root), files=files)
 
 
-def commit_of_tag(checkout: Path, tag: str) -> str:
-    """``git rev-list -n 1 <tag>`` in a local checkout (the bootstrap's ``--link-source``)."""
-    done = subprocess.run(["git", "-C", str(checkout), "rev-list", "-n", "1", tag], capture_output=True, text=True, check=False, timeout=60)
+def commit_of(checkout: Path, commitish: str = "HEAD") -> str:
+    """``git rev-list -n 1 <commitish>`` in a local checkout: the commit a branch, ``HEAD`` or a tag names there."""
+    done = subprocess.run(["git", "-C", str(checkout), "rev-list", "-n", "1", commitish], capture_output=True, text=True, check=False, timeout=60)
     commit = done.stdout.strip()
     if done.returncode != 0 or not re.match(r"^[0-9a-f]{40}$", commit):
-        raise LinkError(f"{checkout}: no tag {tag!r} ({(done.stderr or '').strip() or 'git rev-list failed'})")
+        raise LinkError(f"{checkout}: no commit named {commitish!r} ({(done.stderr or '').strip() or 'git rev-list failed'})")
     return commit
 
 
-def facts_from_local_tag(checkout: Path, tag: str, path: str = "") -> LinkFacts:
-    """The facts of ``path`` inside a **local** checkout at ``tag`` — exported with ``git archive`` so they describe the tagged tree, not the working copy.
+def commit_of_tag(checkout: Path, tag: str) -> str:
+    """:func:`commit_of` for a tag (kept for callers that still name one)."""
+    return commit_of(checkout, tag)
 
-    The bootstrap uses this for a tag that exists in a clone but is not pushed yet
-    (the owner pushes commit and tag together); the record it writes is then
-    exactly what ``check_record`` will find once the tag is reachable.
+
+def facts_from_local_tag(checkout: Path, tag: str, path: str = "") -> LinkFacts:
+    """:func:`facts_from_local_commit` for a tag (kept for callers that still name one)."""
+    return facts_from_local_commit(checkout, tag, path)
+
+
+def facts_from_local_commit(checkout: Path, commitish: str = "HEAD", path: str = "") -> LinkFacts:
+    """The facts of ``path`` inside a **local** checkout at ``commitish`` — exported with ``git archive`` so they describe the committed tree, not the working copy.
+
+    The bootstrap and ``registry_tools record --source`` use this for a commit that
+    exists in a clone but may not be pushed yet; the record they write is then
+    exactly what ``check_record`` will find once the commit is reachable.
     """
-    commit = commit_of_tag(checkout, tag)
+    commit = commit_of(checkout, commitish)
     scratch = Path(tempfile.mkdtemp(prefix="floofy-link-export-"))
     try:
         args = ["git", "-C", str(checkout), "archive", "--format=tar", commit]
@@ -150,9 +182,14 @@ def facts_from_local_tag(checkout: Path, tag: str, path: str = "") -> LinkFacts:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def resolve_record(record: VersionRecord, *, timeout: int = 300, allow_local: bool | None = None) -> LinkFacts:
-    """Clone the record's repository at its tag into a scratch directory and read the facts off the checkout."""
-    reference = link_reference(record)
+def resolve_record(record: VersionRecord, *, timeout: int = 300, allow_local: bool | None = None, refresh: bool = False) -> LinkFacts:
+    """Clone the record's repository into a scratch directory and read the facts off the checkout.
+
+    An unresolved record (no commit yet), or any record with ``refresh``, is read
+    at ``link.ref`` / the default branch — the commit the clone lands on becomes
+    the pin; a resolved record is fetched at its pinned commit.
+    """
+    reference = link_reference(record, pinned=bool(record.link_commit or record.link_tag) and not refresh)
     scratch = Path(tempfile.mkdtemp(prefix="floofy-link-"))
     try:
         try:
@@ -188,7 +225,7 @@ def manifest_hash_matches(record: VersionRecord) -> tuple[bool, str]:
 
 
 def check_record(record: VersionRecord, repo: RegistryRepo | None = None, *, timeout: int = 300, allow_local: bool | None = None) -> tuple[list[str], Path | None, Path | None]:
-    """Clone the link record at its tag and compare it with the record; returns ``(problems, scratch dir, mod root)``.
+    """Fetch the link record's pinned commit and compare the checkout with the record; returns ``(problems, scratch dir, mod root)``.
 
     The caller removes the scratch directory (it holds the checkout so the
     submission validator can run ``floofy validate`` and the other checks on it);
@@ -198,13 +235,14 @@ def check_record(record: VersionRecord, repo: RegistryRepo | None = None, *, tim
     link = record.link or {}
     if repo is not None and not repo_matches_pattern(str(link.get("repo", "")), repo.repo_url_pattern):
         problems.append(f"link.repo {link.get('repo')!r} does not match this registry's repository pattern {repo.repo_url_pattern!r} (Requirement 8.10)")
-    try:
-        reference = link_reference(record)
-    except LinkError as exc:
-        return [*problems, str(exc)], None, None
     ok, why = manifest_hash_matches(record)
     if not ok:
         problems.append(why)
+    try:
+        # an unresolved record (no commit yet) is checked against the branch it is made from
+        reference = link_reference(record, pinned=bool(record.link_commit or record.link_tag))
+    except LinkError as exc:
+        return [*problems, str(exc)], None, None
     scratch = Path(tempfile.mkdtemp(prefix="floofy-link-check-"))
     try:
         commit = clone_into(reference, scratch / "clone", timeout=timeout, allow_local=allow_local)
@@ -214,7 +252,7 @@ def check_record(record: VersionRecord, repo: RegistryRepo | None = None, *, tim
     root = scratch / "clone" / reference.subdirectory if reference.subdirectory else scratch / "clone"
     expected_commit = str(link.get("commit") or "").lower()
     if expected_commit and commit != expected_commit:
-        problems.append(f"tag {reference.tag} points at {commit[:12]} but link.commit says {expected_commit[:12]} — the tag moved")
+        problems.append(f"the fetch resolved to {commit[:12]} but link.commit says {expected_commit[:12]}")
     if not (root / "floofy.json").is_file():
         problems.append(f"no floofy.json at {reference.subdirectory or 'the repository root'} of the checkout")
         return problems, scratch, None

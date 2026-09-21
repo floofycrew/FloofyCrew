@@ -129,7 +129,7 @@ def _placeholders(config: dict[str, Any], *, record_kind: str | None = None) -> 
         "RECORD_KIND": kind,
         "REPO_URL_PATTERN": str(config.get("repoUrlPattern") or ""),
         "RECORD_NOTE": (
-            "Version records are **link-based** (Requirement 8.9): `release.json` names the mod's repository and tag; the index carries the commit, the canonical-manifest hash and the checkout's files, and a client clones at the tag with its own credentials and verifies all three. Nothing is downloaded from this repository but the index."
+            "Version records are **link-based** (Requirement 8.9): `release.json` names the mod's repository and the mod's directory in it, pinned at a commit — no tag locates a version; the index carries the commit, the canonical-manifest hash and the checkout's files, and a client fetches that commit with its own credentials and verifies all three. Nothing is downloaded from this repository but the index."
             if kind == "link"
             else "Version records name **archives**: `release.json` lists them by URL, `sha256` and `size`; a client downloads and verifies each one."
         ),
@@ -314,7 +314,7 @@ def _render_gate(target: Path, config: dict[str, Any], values: dict[str, str], *
     return gate_values, written, vendored
 
 
-def _seed_mod(repo: RegistryRepo, mod_dir: Path, *, floofycrew_repo: str, channel: str, archives_in_repo: bool, record_kind: str = "archive", link_source: Path | None = None, contact: str | None = None, contact_pattern: str | None = None) -> dict[str, Any]:
+def _seed_mod(repo: RegistryRepo, mod_dir: Path, *, floofycrew_repo: str, channel: str, archives_in_repo: bool, record_kind: str = "archive", link_source: Path | None = None, link_ref: str = "HEAD", contact: str | None = None, contact_pattern: str | None = None) -> dict[str, Any]:
     manifest = json.loads((mod_dir / "floofy.json").read_text(encoding="utf-8"))
     mod_id, version = str(manifest["id"]), str(manifest["version"])
     record_dir = repo.version_dir(mod_id, version)
@@ -327,24 +327,23 @@ def _seed_mod(repo: RegistryRepo, mod_dir: Path, *, floofycrew_repo: str, channe
         curated["contact"] = who
     (record_dir.parent / "mod.json").write_text(json.dumps(curated, indent=2) + "\n", encoding="utf-8")
     if record_kind == "link":
-        # a link record (Requirement 8.9): the mod lives at mods/<id> of the FloofyCrew repository, tagged <id>-<version>;
-        # the facts (commit, canonical-manifest hash, files) come from the tagged tree of --link-source, a local checkout
-        # of that repository (the tag may not be pushed yet — the owner pushes commit and tag together)
-        from .links import LinkError, facts_from_local_tag  # noqa: PLC0415
+        # a link record (Requirement 8.9): the mod lives at mods/<id> of the FloofyCrew repository on its default
+        # branch; the facts (the pinned commit, canonical-manifest hash, files) come from the committed tree of
+        # --link-source, a local checkout of that repository, at --link-ref (HEAD: the commit may not be pushed yet)
+        from .links import LinkError, facts_from_local_commit  # noqa: PLC0415
 
-        tag = f"{mod_id}-{version}"
         path = f"mods/{mod_id}"
         if link_source is None:
-            raise BootstrapError(f"--record link needs --link-source <checkout of {floofycrew_repo} holding the tag {tag}> so the record can carry the commit (or seed with --record archive)")
+            raise BootstrapError(f"--record link needs --link-source <checkout of {floofycrew_repo}> so the record can pin the commit (or seed with --record archive)")
         try:
-            facts = facts_from_local_tag(Path(link_source), tag, path)
+            facts = facts_from_local_commit(Path(link_source), link_ref, path)
         except LinkError as exc:
             raise BootstrapError(str(exc)) from exc
         if facts.manifest_sha256 != hashlib.sha256(canonical_bytes(manifest)).hexdigest():
-            raise BootstrapError(f"{link_source} at {tag}: {path}/floofy.json differs from the seed {mod_dir}/floofy.json — tag the same tree you seed from")
-        release = {"tag": tag, "channel": channel, "publishedAt": _now(), "link": {"repo": floofycrew_repo, "tag": tag, "commit": facts.commit, "manifestSha256": facts.manifest_sha256, "path": path}, "files": facts.files}
+            raise BootstrapError(f"{link_source} at {link_ref}: {path}/floofy.json differs from the seed {mod_dir}/floofy.json — commit the tree you seed from")
+        release = {"channel": channel, "publishedAt": _now(), "link": {"repo": floofycrew_repo, "path": path, "commit": facts.commit, "manifestSha256": facts.manifest_sha256}, "files": facts.files}
         (record_dir / "release.json").write_text(json.dumps(release, indent=2) + "\n", encoding="utf-8")
-        return {"id": mod_id, "version": version, "record": "link", "repo": floofycrew_repo, "tag": tag, "commit": facts.commit, "manifestSha256": facts.manifest_sha256, "files": len(facts.files)}
+        return {"id": mod_id, "version": version, "record": "link", "repo": floofycrew_repo, "commit": facts.commit, "manifestSha256": facts.manifest_sha256, "files": len(facts.files)}
     file_name = f"{mod_id}-{version}.zip"
     tag = f"{mod_id}-{version}" if "{id}-{version}" in str(repo.config.get("archiveUrlTemplate", "")) else version
     url = repo.archive_url(mod_id=mod_id, version=version, tag=tag, file=file_name)
@@ -385,6 +384,7 @@ def init_registry_repo(
     floofycrew_version: str | None = None,
     record_kind: str | None = None,
     link_source: Path | None = None,
+    link_ref: str = "HEAD",
     replace: bool = False,
     gate: bool | None = None,
     contact: str | None = None,
@@ -392,8 +392,8 @@ def init_registry_repo(
     """Instantiate (or, with ``replace``, re-render) a registry repository at ``target``.
 
     ``record_kind`` picks the shape of the seeded records — ``link`` (Requirement
-    8.9; needs ``link_source``, a local checkout of the FloofyCrew repository
-    holding the ``<id>-<version>`` tags) or ``archive`` — defaulting to the
+    8.9; needs ``link_source``, a local checkout of the FloofyCrew repository,
+    pinned at ``link_ref`` — ``HEAD`` by default) or ``archive`` — defaulting to the
     adapter's ``recordKind``. ``replace`` empties the target first (everything
     but ``.git/``) so a clone that already holds a rendered registry can be
     regenerated in place; the result is deterministic apart from timestamps.
@@ -423,7 +423,7 @@ def init_registry_repo(
     repo = RegistryRepo.load(target)
     package_block = config.get("registryPackage") if isinstance(config.get("registryPackage"), dict) else {}
     seeded = [
-        _seed_mod(repo, Path(floofycrew_root) / "mods" / mod_id, floofycrew_repo=values["FLOOFYCREW_REPO"], channel="stable", archives_in_repo=archives_in_repo, record_kind=values["RECORD_KIND"], link_source=link_source, contact=contact, contact_pattern=str(package_block.get("contactPattern")) if package_block.get("contactPattern") else None)
+        _seed_mod(repo, Path(floofycrew_root) / "mods" / mod_id, floofycrew_repo=values["FLOOFYCREW_REPO"], channel="stable", archives_in_repo=archives_in_repo, record_kind=values["RECORD_KIND"], link_source=link_source, link_ref=link_ref, contact=contact, contact_pattern=str(package_block.get("contactPattern")) if package_block.get("contactPattern") else None)
         for mod_id in seed_mods
     ]
     summary: dict[str, Any] = {"target": str(target), "edition": values["EDITION"], "source": values["SOURCE_LABEL"], "keyId": values["KEY_ID"], "recordKind": values["RECORD_KIND"], "written": [str(p.relative_to(target)) for p in written], "seeded": seeded, "github": github}
@@ -486,7 +486,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sign", default=None, metavar="KEY", help="sign index.json and compat.json with this private key")
     parser.add_argument("--floofycrew-version", default=None)
     parser.add_argument("--record", default=None, choices=["link", "archive"], help="the shape of the seeded records (default: the adapter's recordKind, else archive)")
-    parser.add_argument("--link-source", default=None, metavar="DIR", help="for --record link: a local checkout of the FloofyCrew repository holding the <id>-<version> tags (the commit and files come from the tagged tree)")
+    parser.add_argument("--link-source", default=None, metavar="DIR", help="for --record link: a local checkout of the FloofyCrew repository (the pinned commit and files come from its committed tree at --link-ref)")
+    parser.add_argument("--link-ref", default="HEAD", metavar="COMMITISH", help="for --record link: the commit, branch or HEAD of --link-source to pin (default HEAD)")
     parser.add_argument("--replace", action="store_true", help="re-render over an existing tree (everything but .git/ is removed first)")
     parser.add_argument("--gate", dest="gate", action="store_true", default=None, help="render the gated package (build gate module, tests, vendored tooling); default: when the adapter config has a registryPackage block")
     parser.add_argument("--no-gate", dest="gate", action="store_false", help="do not render the gated package")
@@ -508,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
             floofycrew_version=args.floofycrew_version,
             record_kind=args.record,
             link_source=Path(args.link_source) if args.link_source else None,
+            link_ref=args.link_ref,
             replace=args.replace,
             gate=args.gate,
             contact=args.contact,

@@ -257,7 +257,7 @@ def _link_entry(url: str, commit: str, root: Path) -> dict:
     for path in sorted(p for p in root.rglob("*") if p.is_file() and ".git" not in p.parts and p.name != "floofy.json"):
         data = path.read_bytes()
         files.append({"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
-    return {"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "editions": ["internal", "external"], "compat": {}, "dependencies": {"floofycrew": ">=0.0.0"}, "channel": "stable", "publishedAt": "2026-09-20T00:00:00Z", "link": {"repo": url, "tag": "1.0.0", "commit": commit, "manifestSha256": manifest_sha256(root)}, "files": files}
+    return {"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "editions": ["internal", "external"], "compat": {}, "dependencies": {"floofycrew": ">=0.0.0"}, "channel": "stable", "publishedAt": "2026-09-20T00:00:00Z", "link": {"repo": url, "commit": commit, "manifestSha256": manifest_sha256(root)}, "files": files}
 
 
 def test_link_record_installs_through_the_clone_path_as_a_listed_source(env):
@@ -277,14 +277,14 @@ def test_link_record_installs_through_the_clone_path_as_a_listed_source(env):
     assert env.run("--json", "which", theme["sha256"]).json["hits"][0]["mod"] == "example-theme", "hash lookup covers a link record's files (Requirement 8.5)"
 
 
-def test_link_record_refuses_a_moved_tag_a_changed_manifest_and_changed_files(env):
+def test_link_record_refuses_an_unknown_commit_a_changed_manifest_and_changed_files(env):
     url, commit = make_bare_repo(env.scratch)
     work = env.scratch / "work"
     good = _link_entry(url, commit, work)
-    # 1. the record says another commit: the tag moved since the curator merged it
+    # 1. the record pins a commit the repository does not have: the fetch fails, nothing lands
     _merged_cache(env, {**good, "link": {**good["link"], "commit": "0" * 40}})
-    moved = env.run("--yes", "install", "example-theme")
-    assert moved.exit == 1 and "refusing a moved tag" in moved.stderr and not (env.paths.mods / "example-theme").exists()
+    unknown = env.run("--yes", "install", "example-theme")
+    assert unknown.exit == 1 and "cannot fetch" in unknown.stderr and not (env.paths.mods / "example-theme").exists()
     # 2. the record's manifest hash differs from the checkout's
     _merged_cache(env, {**good, "link": {**good["link"], "manifestSha256": "f" * 64}})
     manifest = env.run("--yes", "install", "example-theme")
@@ -307,12 +307,39 @@ def test_link_record_refuses_a_moved_tag_a_changed_manifest_and_changed_files(en
     assert env.run("--yes", "install", "example-theme").exit == 0
 
 
+def test_link_record_pins_a_commit_so_the_branch_may_move_on_and_no_tag_is_needed(env):
+    """The record is located by its commit (Requirement 8.9): development continues on the branch, tags are not
+    consulted, and a record made before commits were pinned (tag only) still resolves at its tag."""
+    url, commit = make_bare_repo(env.scratch)
+    work = env.scratch / "work"
+    good = _link_entry(url, commit, work)
+    assert "tag" not in good["link"]
+    # the branch moves on after the record was made
+    (work / "README.md").write_text("later\n", encoding="utf-8")
+    _git("add", "-A", cwd=work)
+    _git("commit", "-q", "-m", "keep developing", cwd=work)
+    _git("push", "-q", url, "HEAD:main", cwd=work)
+    head = _git("rev-parse", "HEAD", cwd=work)
+    assert head != commit
+    _merged_cache(env, good)
+    done = env.run("--yes", "install", "example-theme")
+    assert done.exit == 0, done.stderr
+    installed = env.paths.mods / "example-theme"
+    assert not (installed / "README.md").exists(), "the pinned commit's tree landed, not the branch head that added README.md"
+    source = read_source(installed)
+    assert source["commit"] == commit and source["link"]["commit"] == commit and "tag" not in source["link"], "the install record carries the commit, no tag"
+    env.run("--yes", "uninstall", "example-theme")
+    # a legacy record: tag, no commit
+    legacy = {**good, "link": {"repo": url, "tag": "1.0.0", "manifestSha256": good["link"]["manifestSha256"]}}
+    _merged_cache(env, legacy)
+    assert env.run("--yes", "install", "example-theme").exit == 0, "cloned at its tag"
 
-def test_a_reference_to_a_tag_the_publisher_never_pushed_names_the_missing_tag(env):
-    """The first internal registry install: the records named `rimuru-branding-1.0.0` and `settings-demo-1.0.0`,
-    tags that existed only in the publisher's clone of the package. git reports a missing tag as
-    "Remote branch X not found"; the manager says what is missing and whose step it is."""
+
+
+def test_a_reference_to_a_tag_the_repository_lacks_names_the_missing_tag(env):
+    """An unlisted install (`floofy install <url>@<tag>`) names a tag; git reports a missing one as
+    "Remote branch X not found" and the manager says what is missing instead of relaying that."""
     url, _commit = make_bare_repo(env.scratch, tag="1.0.0")
     refused = env.run("install", f"{url}@rimuru-branding-1.0.0", "--accept-unlisted-source")
     assert refused.exit == 1
-    assert "no tag or branch named 'rimuru-branding-1.0.0'" in refused.stderr and "publisher has not pushed" in refused.stderr
+    assert "no tag or branch named 'rimuru-branding-1.0.0'" in refused.stderr

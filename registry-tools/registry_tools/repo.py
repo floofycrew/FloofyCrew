@@ -4,16 +4,18 @@ A registry is a git repository curated by pull request. Mod files are **not**
 in it — they are release assets of the mod's own repository (public edition) or
 archives the registry package carries beside the records (internal edition,
 transitional); the records only name them with ``url``, ``sha256`` and ``size``.
-A **link record** names no file at all: it points at the mod's repository at a
-tag, and the index carries the commit, the canonical-manifest hash and the
-checkout's files so a client can clone and verify (Requirement 8.9)::
+A **link record** names no file at all: it points at the mod's repository and
+the mod's directory inside it, pinned at a **commit** — the version is located
+by that commit, never by a tag — and the index carries the commit, the
+canonical-manifest hash and the checkout's files so a client can fetch and
+verify (Requirement 8.9)::
 
     registry.json                       the registry's identity (below)
     mods/<id>/mod.json                  optional curated record: repo, tags, links, icon
     mods/<id>/<version>/floofy.json     the mod's manifest, copied verbatim from the release
-    mods/<id>/<version>/release.json    {"tag", "publishedAt", "channel",
+    mods/<id>/<version>/release.json    {"publishedAt", "channel", "tag"?,
                                          "files": [{url, sha256, size, name}]              — an asset record, or
-                                         "link": {repo, tag?, commit, manifestSha256, path?},
+                                         "link": {repo, commit, manifestSha256, path?, ref?},
                                          "files": [{path, sha256, size}]                    — a link record,
                                          "app": {"name", "subdirectory"}?, "yanked": "<reason>"?,
                                          "changelog": "<https URL of the release notes>"?}
@@ -84,7 +86,7 @@ class VersionRecord:
 
     @property
     def link(self) -> dict[str, Any] | None:
-        """The link record's ``{repo, tag?, commit?, manifestSha256?, path?}`` (Requirement 8.9), ``None`` for an asset record."""
+        """The link record's ``{repo, commit?, manifestSha256?, path?, ref?, tag?}`` (Requirement 8.9), ``None`` for an asset record."""
         link = self.release.get("link")
         return dict(link) if isinstance(link, dict) and isinstance(link.get("repo"), str) else None
 
@@ -93,11 +95,39 @@ class VersionRecord:
         return self.link is not None
 
     @property
-    def link_tag(self) -> str:
-        """The tag a link record is cloned at: ``link.tag``, else the record's ``tag``."""
+    def link_tag(self) -> str | None:
+        """A legacy link record's tag (``link.tag``, else a ``tag`` the release declares); ``None`` for a commit-pinned record.
+
+        Since records pin commits, no tag locates a version: this is read only to
+        resolve a record made before that, and to render what such a record says.
+        """
         link = self.link or {}
         tag = link.get("tag")
-        return tag if isinstance(tag, str) and tag else self.tag
+        if isinstance(tag, str) and tag:
+            return tag
+        declared = self.release.get("tag")
+        return declared if isinstance(declared, str) and declared else None
+
+    @property
+    def link_commit(self) -> str | None:
+        """The commit a link record pins (``link.commit``), ``None`` while the record is unresolved."""
+        link = self.link or {}
+        commit = str(link.get("commit") or "").lower()
+        return commit or None
+
+    @property
+    def link_ref(self) -> str | None:
+        """The branch the record is made from and refreshed against (``link.ref``); ``None`` means the repository's default branch."""
+        link = self.link or {}
+        ref = link.get("ref")
+        return ref if isinstance(ref, str) and ref else None
+
+    @property
+    def link_point(self) -> str:
+        """What the record is fetched at, for messages: the commit (short), else the legacy tag, else the default branch."""
+        if self.link_commit:
+            return self.link_commit[:12]
+        return self.link_tag or (self.link_ref or "the default branch")
 
     @property
     def link_resolved(self) -> bool:

@@ -34,10 +34,15 @@ consent screen — typed, or with the explicit ``--accept-unlisted-source`` flag
 ``--yes`` never accepts it. Nothing about the source is trusted beyond that
 consent: the tier of such an install is ``unlisted`` (Requirement 8.11).
 
-A registry **link record** (Requirement 8.9) is resolved through the same clone
-path; the caller compares the checkout's commit, canonical-manifest hash
+A registry **link record** (Requirement 8.9) pins a **commit** — no tag is
+involved: the record names the repository, the mod's directory inside it and the
+commit the curator recorded, and the client fetches exactly that commit
+(:meth:`GitRef.at_commit`, a ``git fetch --depth 1 origin <sha>``, which both
+forges FloofyCrew targets serve), then compares the checkout's canonical-manifest hash
 (:func:`manifest_sha256`) and ``files[]`` with the record and refuses any
-difference (:mod:`floofy_core.installer`).
+difference (:mod:`floofy_core.installer`). A reference with neither a tag nor a
+``--ref`` (:meth:`GitRef.default_branch`) clones the repository's **default
+branch** — what the registry tooling reads to make or refresh a record.
 
 Checkouts live under ``<data home>/cache/sources/git/<key>/`` (one directory per
 repository + pinned point, replaced on the next fetch of the same key; a cache
@@ -141,16 +146,36 @@ class GitRef:
 
     @property
     def commitish(self) -> str:
-        """What the clone checks out: the tag, else the explicit ``--ref``."""
+        """What the clone checks out: the tag, else the explicit ``--ref``; empty for the default branch."""
         return self.tag or self.ref or ""
 
     @property
     def pinned(self) -> bool:
-        return self.tag is not None
+        """Whether the reference names a fixed point (a tag or a commit)."""
+        return self.tag is not None or self.is_commit
 
     @property
     def is_commit(self) -> bool:
         return self.tag is None and self.ref is not None and bool(_HEX40.match(self.ref))
+
+    @property
+    def is_default_branch(self) -> bool:
+        """Neither a tag nor a ``--ref``: the clone takes the repository's default branch."""
+        return self.tag is None and self.ref is None
+
+    @classmethod
+    def at_commit(cls, url: str, commit: str, subdirectory: str = "", *, allow_local: bool | None = None) -> "GitRef":
+        """The reference a link record resolves to: ``url`` at the 40-hex ``commit`` (Requirement 8.9)."""
+        if not _HEX40.match(str(commit or "").lower()):
+            raise GitRefError("BadRef", f"{commit!r} is not a 40-hex commit")
+        base = cls.parse(url, ref=str(commit).lower(), allow_local=allow_local)
+        return cls(url=base.url, tag=None, ref=base.ref, subdirectory=subdirectory)
+
+    @classmethod
+    def default_branch(cls, url: str, subdirectory: str = "", *, allow_local: bool | None = None) -> "GitRef":
+        """``url`` at its default branch (what a registry record is made from); ``fetch`` records the commit it resolved to."""
+        base = cls.parse(url, ref="HEAD", allow_local=allow_local)
+        return cls(url=base.url, tag=None, ref=None, subdirectory=subdirectory)
 
     @property
     def text(self) -> str:
@@ -317,17 +342,19 @@ def clone_into(ref: GitRef, destination: Path, *, timeout: int = CLONE_TIMEOUT, 
             if done.returncode != 0:
                 shutil.rmtree(destination, ignore_errors=True)
                 raise GitCloneError(f"cannot fetch {ref.url} at {ref.ref}: {_tail(done.stderr)}")
+    elif ref.is_default_branch:
+        done = _run([*git, "clone", "-q", "--depth", "1", "--single-branch", ref.url, str(destination)], cwd=None, env=env, timeout=timeout)
+        if done.returncode != 0:
+            shutil.rmtree(destination, ignore_errors=True)
+            raise GitCloneError(f"cannot clone {ref.url} (default branch): {_tail(done.stderr)}")
     else:
         done = _run([*git, "clone", "-q", "--depth", "1", "--branch", ref.commitish, "--single-branch", ref.url, str(destination)], cwd=None, env=env, timeout=timeout)
         if done.returncode != 0:
             shutil.rmtree(destination, ignore_errors=True)
             detail = _tail(done.stderr)
             if "Remote branch" in detail and "not found" in detail:
-                # git says "Remote branch X not found" for a missing TAG too. For a registry link record that
-                # means the publisher pushed the package but not the tag the record names (seen with the
-                # first-party mods: `rimuru-branding-1.0.0` and `settings-demo-1.0.0` existed only in the
-                # publisher's clone). Say what is missing and whose step it is instead of relaying git's wording.
-                raise GitCloneError(f"cannot clone {ref.url} at {ref.commitish}: the repository has no tag or branch named {ref.commitish!r} — the record names a tag the publisher has not pushed yet (git: {detail})")
+                # git says "Remote branch X not found" for a missing TAG too: say what is missing instead of relaying git's wording
+                raise GitCloneError(f"cannot clone {ref.url} at {ref.commitish}: the repository has no tag or branch named {ref.commitish!r} (git: {detail})")
             raise GitCloneError(f"cannot clone {ref.url} at {ref.commitish}: {detail}")
     head = _run([*git, "-C", str(destination), "rev-parse", "HEAD"], cwd=None, env=env, timeout=60)
     if head.returncode != 0 or not _HEX40.match(head.stdout.strip()):

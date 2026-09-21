@@ -105,7 +105,7 @@ class ResolvedSource:
     tier: str = TIER_UNLISTED
     #: The parsed git reference (``url``, ``tag``, ``ref``, ``subdirectory``) when a clone was involved.
     git: dict[str, Any] | None = None
-    #: The registry link record the clone was checked against (``repo``, ``tag``, ``commit``, ``manifestSha256``), when any.
+    #: The registry link record the clone was checked against (``repo``, ``commit``, ``manifestSha256``[, ``path``]), when any.
     link: dict[str, Any] | None = None
     _cleanup: list[Path] = field(default_factory=list, repr=False)
 
@@ -232,23 +232,31 @@ def resolve_git(reference: GitRef, *, home: DataHome, tier: str = TIER_UNLISTED)
 def resolve_link(key: str, picked: IndexVersion, *, home: DataHome) -> ResolvedSource:
     """Resolve a **link record** through the git clone path and hold the checkout to the record (Requirement 8.9).
 
-    The record's ``repo`` is cloned at its ``tag`` (the user's own credentials,
-    :func:`resolve_git`); the checkout is refused when its commit is not the
-    record's ``commit`` (the tag moved), when the canonical-manifest hash is not
-    ``manifestSha256`` (the manifest changed), or when any of the record's
-    ``files[]`` differs in hash or size. What passes is a ``registry`` source of
-    tier ``listed`` carrying both the link record and the clone facts.
+    A link record pins a **commit**: the record's ``repo`` is fetched at exactly
+    ``link.commit`` (``git fetch --depth 1 origin <sha>``, the user's own
+    credentials, :func:`resolve_git`), so where the repository's branches or tags
+    have moved since does not matter and no tag is needed to locate a version. The
+    checkout is refused when its canonical-manifest hash is not ``manifestSha256``
+    (the manifest changed) or when any of the record's ``files[]`` differs in hash
+    or size. A record made before commits were pinned (``tag`` but no ``commit``)
+    is still cloned at its tag. What passes is a ``registry`` source of tier
+    ``listed`` carrying both the link record and the clone facts.
     """
     link = picked.link or {}
+    expected_commit = str(link.get("commit") or "").lower()
+    subdirectory = str(link.get("path") or "")
     try:
-        reference = GitRef(url=str(link["repo"]), tag=str(link.get("tag") or picked.version), subdirectory=str(link.get("path") or ""))
-        GitRef.parse(reference.text)  # the same grammar and transport rule as a user-typed reference
+        if expected_commit:
+            reference = GitRef.at_commit(str(link["repo"]), expected_commit, subdirectory)
+        elif link.get("tag"):
+            reference = GitRef.parse(f"{link['repo']}@{link['tag']}" + (f"#{subdirectory}" if subdirectory else ""))
+        else:
+            raise InstallError(f"{key}@{picked.version}: the link record pins neither a commit nor a tag")
     except (KeyError, GitRefError) as exc:
         raise InstallError(f"{key}@{picked.version}: the link record is unusable: {exc}") from exc
     source = resolve_git(reference, home=home, tier=TIER_LISTED)
-    expected_commit = str(link.get("commit") or "").lower()
     if expected_commit and source.commit != expected_commit:
-        raise InstallError(f"{key}@{picked.version}: the tag {reference.tag} now points at commit {source.commit[:12]}, the registry record says {expected_commit[:12]} — refusing a moved tag (Requirement 8.9)")
+        raise InstallError(f"{key}@{picked.version}: the fetch resolved to commit {source.commit[:12]}, the registry record says {expected_commit[:12]} — refusing (Requirement 8.9)")
     expected_manifest = str(link.get("manifestSha256") or "").lower()
     if expected_manifest and source.sha256 != expected_manifest:
         raise InstallError(f"{key}@{picked.version}: the checkout's floofy.json (canonical sha256 {source.sha256[:12]}…) differs from the registry record ({expected_manifest[:12]}…) — refusing (Requirement 8.9)")
@@ -261,7 +269,7 @@ def resolve_link(key: str, picked: IndexVersion, *, home: DataHome) -> ResolvedS
     source.version = picked.version
     source.registry_key = key
     source.tier = TIER_LISTED
-    source.link = {"repo": reference.url, "tag": reference.tag, "commit": source.commit, "manifestSha256": source.sha256, **({"path": reference.subdirectory} if reference.subdirectory else {})}
+    source.link = {"repo": reference.url, "commit": source.commit, "manifestSha256": source.sha256, **({"tag": reference.tag} if reference.tag else {}), **({"path": reference.subdirectory} if reference.subdirectory else {})}
     return source
 
 

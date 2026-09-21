@@ -98,7 +98,7 @@ def test_the_rendered_package_has_the_documented_layout(rendered):
     assert block["gateCommand"] in (target / "README.md").read_text(encoding="utf-8")
     # the community bar (Requirement 8.10), item by item
     contributing = (target / "CONTRIBUTING.md").read_text(encoding="utf-8")
-    for phrase in ("`floofy validate` clean", "`license` in `floofy.json`", "no\n   third-party artwork", "Not masquerade", "reserved-names.json", "`network.hosts[]`", "encrypted only", "Name a `contact`", "tag equals `version`"):
+    for phrase in ("`floofy validate` clean", "`license` in `floofy.json`", "no\n   third-party artwork", "Not masquerade", "reserved-names.json", "`network.hosts[]`", "encrypted only", "Name a `contact`", "Bump `version`"):
         assert phrase in contributing, phrase
     assert config["repoUrlPattern"] in contributing
     # the seeded record names a contact; the key record is the pinned one; the vendored copies are byte copies

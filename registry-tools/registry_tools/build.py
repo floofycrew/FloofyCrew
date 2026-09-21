@@ -7,7 +7,7 @@ records (:mod:`registry_tools.repo`) and the compatibility matrix. Per version:
   → ``kirocrew``, ``kirocrew.editions`` → ``editions``, ``dependsOn`` →
   ``dependencies``) and the release record (``files[]``, ``channel``,
   ``publishedAt``, ``tag``, ``yanked``); a **link record** contributes
-  ``link{repo, tag, commit, manifestSha256[, path]}`` and its ``files[]`` as
+  ``link{repo, commit, manifestSha256[, path][, ref]}`` and its ``files[]`` as
   ``{path, sha256, size}`` of the checkout instead of archive URLs (Requirement 8.9);
 * ``compat{hostVersion: verdict}`` folded in from ``compat.json``: every matrix
   row that has a cell for this ``id@version`` contributes ``hostVersion →
@@ -95,9 +95,13 @@ def _version_entry(record: VersionRecord, compat: CompatCache | None) -> dict[st
     }
     if record.is_link:
         link = record.link or {}
-        entry["link"] = {"repo": str(link.get("repo") or ""), "tag": record.link_tag, "commit": str(link.get("commit") or ""), "manifestSha256": str(link.get("manifestSha256") or "")}
+        entry["link"] = {"repo": str(link.get("repo") or ""), "commit": str(link.get("commit") or ""), "manifestSha256": str(link.get("manifestSha256") or "")}
         if isinstance(link.get("path"), str) and link["path"]:
             entry["link"]["path"] = link["path"]
+        if record.link_ref:
+            entry["link"]["ref"] = record.link_ref
+        if record.link_tag and not record.link_commit:
+            entry["link"]["tag"] = record.link_tag  # a record made before commits were pinned
     if isinstance(host.get("channels"), list) and host["channels"]:
         entry["channels"] = [str(c) for c in host["channels"]]
     if isinstance(host.get("strict"), bool) and host["strict"]:
@@ -133,7 +137,7 @@ def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, genera
 
     A link record must be **resolved** (``commit``, ``manifestSha256``, path-shaped
     ``files[]``) before it can be indexed: ``resolve_links`` clones each unresolved
-    one at its tag and rewrites its ``release.json`` (Requirement 8.9); without it an
+    one at its branch and pins the commit in its ``release.json`` (Requirement 8.9); without it an
     unresolved record is a problem. Every link record's ``manifestSha256`` is
     checked against the record's own ``floofy.json`` on every build, and its
     ``repo`` against the registry's ``repoUrlPattern`` when one is pinned.
@@ -165,7 +169,7 @@ def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, genera
                 result.problems.append(f"{record.mod_id}@{record.version}: link.repo {link.get('repo')!r} does not match this registry's repository pattern {repo.repo_url_pattern!r} (Requirement 8.10)")
             if not record.link_resolved:
                 if not resolve_links:
-                    result.problems.append(f"{record.mod_id}@{record.version}: the link record is unresolved (no commit / manifestSha256 / files[]); run `registry_tools build --resolve-links` to clone {link.get('repo')} at {record.link_tag} and fill them in")
+                    result.problems.append(f"{record.mod_id}@{record.version}: the link record is unresolved (no commit / manifestSha256 / files[]); run `registry_tools record` or `build --resolve-links` to read {link.get('repo')} at {record.link_ref or 'its default branch'} and pin the commit")
                     continue
                 try:
                     facts = resolve_record(record)
@@ -173,7 +177,7 @@ def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, genera
                     result.problems.append(str(exc))
                     continue
                 write_resolved(record, facts)
-                result.notes.append(f"{record.mod_id}@{record.version}: link record resolved from {link.get('repo')} at {record.link_tag} (commit {facts.commit[:12]}, {len(facts.files)} file(s))")
+                result.notes.append(f"{record.mod_id}@{record.version}: link record resolved from {link.get('repo')} at {record.link_ref or 'the default branch'} (pinned commit {facts.commit[:12]}, {len(facts.files)} file(s))")
             ok, why = manifest_hash_matches(record)
             if not ok:
                 result.problems.append(why)
