@@ -9,6 +9,9 @@ import React from "react";
 import { apiFetch } from "../api.mjs";
 import { commandNote, styles } from "../palette.mjs";
 
+/** What a profile is, in one line (the page's intro). */
+export const PROFILES_INTRO = "A profile is a named snapshot of your installed mods with their exact versions. Save one before you experiment, switch back to it to restore that set, or export it to carry a setup to another machine.";
+
 export function ProfilesPage({ manager }) {
   const { busy, act, output } = manager;
   const [profiles, setProfiles] = React.useState(null);
@@ -36,6 +39,7 @@ export function ProfilesPage({ manager }) {
       "div",
       { style: styles.card, "data-testid": "floofycrew-profiles" },
       React.createElement("h2", { style: styles.cardTitle }, "Profiles"),
+      React.createElement("div", { style: styles.cardIntro, "data-testid": "floofycrew-profiles-intro" }, PROFILES_INTRO),
       profiles === null ? React.createElement("div", { style: styles.muted }, "loading…") : profiles.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.4rem 0" } }, "no profiles saved") : null,
       (profiles || []).map((profile) =>
         React.createElement(

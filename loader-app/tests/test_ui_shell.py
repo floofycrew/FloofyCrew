@@ -77,10 +77,61 @@ def test_the_app_palette_is_the_cli_palette():
 
 def test_pages_name_the_terminal_command_for_what_the_app_lacks():
     settings = (UI / "app" / "pages" / "settings.mjs").read_text(encoding="utf-8")
-    for command in ("floofy init", "floofy deinit", "floofy apply", "floofy restore --all", "floofy verify", "floofy hold", "floofy dev", "floofy new", "floofy validate", "kirocrew gateway restart"):
+    for command in ("floofy init", "floofy deinit", "floofy apply", "floofy restore --all", "floofy verify", "floofy hold", "floofy dev", "floofy new", "floofy validate", "kirocrew restart"):
         assert command in settings, command
+    assert "kirocrew gateway restart" not in settings, "the host's verb is `kirocrew restart`; `gateway` has no restart action"
     for page, command in (("mods.mjs", "floofy install"), ("registry.mjs", "floofy registry add"), ("profiles.mjs", "floofy profile"), ("doctor.mjs", "floofy doctor"), ("audit.mjs", "floofy audit")):
         assert command in (UI / "app" / "pages" / page).read_text(encoding="utf-8"), (page, command)
+
+
+def test_tab_styles_carry_the_same_border_keys_in_both_states():
+    """1.1.6: a tab clicked once used to keep a grey frame after another tab was selected.
+
+    React diffs inline styles key by key: with a `border` shorthand on the tab and
+    `borderColor` only on the active variant, leaving the active state removed
+    `borderColor` and the colour fell back to currentColor. Both states now spell
+    the same longhands, so nothing is ever unset.
+    """
+    text = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
+    item = re.search(r"navItem: \{(.*?)\},\n", text)
+    active = re.search(r"navItemActive: \{(.*?)\},\n", text)
+    assert item and active
+    item_keys = set(re.findall(r"(\w+): ", item.group(1)))
+    active_keys = set(re.findall(r"(\w+): ", active.group(1)))
+    assert "border" not in item_keys, "no shorthand: longhands only, so the active variant never unsets a declaration"
+    assert {"borderWidth", "borderStyle", "borderColor", "borderBottomColor", "fontWeight", "color"} <= item_keys
+    assert active_keys <= item_keys, active_keys - item_keys
+
+
+def test_the_restart_and_update_buttons_reach_their_routes_and_the_pages_place_them():
+    """1.1.6: the red restart button and 'Update & restart' — POST /host/restart and POST /self-update, always behind a question."""
+    actions = (UI / "app" / "actions.mjs").read_text(encoding="utf-8")
+    assert "manager.restartHost()" in actions and "manager.selfUpdateAndRestart()" in actions
+    assert "styles.restart" in actions, "the restart button is the filled red one"
+    palette = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
+    assert re.search(r"restart: \{ background: PALETTE\.danger", palette)
+    shell = (UI / "index.mjs").read_text(encoding="utf-8")
+    assert 'callRoute("/host/restart", {}, { ask })' in shell, "the restart asks through the protocol; no answer is invented"
+    assert 'act("/self-update", { now: true })' in shell
+    assert "confirmations" not in shell.split("const restartHost")[1].split("return { state")[0], "the shell never pre-answers the restart question"
+    for page, testids in (("mods.mjs", ("floofycrew-restart-pending", "UpdateAndRestartButton")), ("settings.mjs", ("floofycrew-restart-settings", "floofycrew-restart-card")), ("registry.mjs", ("floofycrew-self-update-restart-registry",))):
+        text = (UI / "app" / "pages" / page).read_text(encoding="utf-8")
+        for needle in testids:
+            assert needle in text, (page, needle)
+    assert "floofycrew-restart-header" in shell
+
+
+def test_pages_are_columns_of_cards_and_the_sources_are_a_table():
+    """1.1.6: the shell's page section is a flex column with the card gap, the page ends with room below, Sources is a table, Profiles explains itself."""
+    palette = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
+    assert re.search(r'pageBody: \{ display: "flex", flexDirection: "column", gap: "1\.25rem" \}', palette)
+    assert re.search(r'page: \{ padding: "1\.25rem 1\.25rem 4rem"', palette), "room under the last card"
+    shell = (UI / "index.mjs").read_text(encoding="utf-8")
+    assert 'React.createElement("section", { style: styles.pageBody' in shell
+    registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
+    assert '"table"' in registry and "floofycrew-sources-table" in registry and '["Source", "Trust", "Signature policy", "Last refresh", "Actions"]' in registry
+    profiles = (UI / "app" / "pages" / "profiles.mjs").read_text(encoding="utf-8")
+    assert "export const PROFILES_INTRO" in profiles and "floofycrew-profiles-intro" in profiles
 
 
 def test_the_shell_talks_to_the_loader_same_origin_only():

@@ -55,6 +55,11 @@
       },
       {
         "method": "POST",
+        "path": "/host/restart",
+        "purpose": "restart the KiroCrew gateway through `kirocrew restart` (detached) behind the App's yes-no confirmation — the red 'Restart KiroCrew' button [actor: app]"
+      },
+      {
+        "method": "POST",
         "path": "/mods/{id}/fault",
         "purpose": "SPA host reports a failed module {message, stack, source}"
       },
@@ -262,6 +267,11 @@
         "method": "POST",
         "path": "/vanilla",
         "purpose": "floofy vanilla {cancel?} [actor: app]"
+      },
+      {
+        "method": "POST",
+        "path": "/self-update",
+        "purpose": "floofy self-update {now?} — the 'Update FloofyCrew' button; the CLI's install question arrives as the yes-no 409 [actor: app]"
       },
       {
         "method": "POST",

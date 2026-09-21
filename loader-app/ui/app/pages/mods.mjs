@@ -11,6 +11,7 @@
 // questions the App's modals present (task 11.3).
 import React from "react";
 
+import { RestartButton, UpdateAndRestartButton } from "../actions.mjs";
 import { commandNote, styles } from "../palette.mjs";
 import { ModPage, ModPagesList } from "./modpage.mjs";
 
@@ -107,15 +108,14 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
       selfUpdate && selfUpdate.available
         ? React.createElement(
             "div",
-            { style: styles.warn, "data-testid": "floofycrew-self-update-notice" },
-            React.createElement("strong", null, "FloofyCrew: "),
-            `${selfUpdate.version} is available and supports this host (you run ${state.loaderVersion || "?"}) — at a terminal: `,
-            React.createElement("code", { style: styles.command }, "floofy self-update"),
-            selfUpdate.notes ? React.createElement(React.Fragment, null, " · ", React.createElement("a", { href: selfUpdate.notes, target: "_blank", rel: "noopener noreferrer", style: styles.accent }, "release notes")) : null,
+            { style: { ...styles.warn, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem 0.6rem", marginTop: "0.4rem" }, "data-testid": "floofycrew-self-update-notice" },
+            React.createElement("span", null, React.createElement("strong", null, "FloofyCrew: "), `${selfUpdate.version} is available and supports this host (you run ${state.loaderVersion || "?"})`, selfUpdate.notes ? React.createElement(React.Fragment, null, " · ", React.createElement("a", { href: selfUpdate.notes, target: "_blank", rel: "noopener noreferrer", style: styles.accent }, "release notes")) : null),
+            React.createElement(UpdateAndRestartButton, { manager, version: selfUpdate.version }),
+            React.createElement("span", { style: styles.muted }, "or at a terminal: ", React.createElement("code", { style: styles.command }, "floofy self-update")),
           )
         : null,
       selfUpdate && selfUpdate.staged && !selfUpdate.staged.applied && selfUpdate.staged.present
-        ? React.createElement("div", { style: styles.warn, "data-testid": "floofycrew-self-update-staged" }, `Loader app update to FloofyCrew ${selfUpdate.staged.version} staged — installed by floofy apply the next time no gateway runs (it needs the gateway stopped), or floofy self-update --now`)
+        ? React.createElement("div", { style: { ...styles.warn, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem 0.6rem", marginTop: "0.4rem" }, "data-testid": "floofycrew-self-update-staged" }, React.createElement("span", null, `Loader app update to FloofyCrew ${selfUpdate.staged.version} staged — installed by floofy apply the next time no gateway runs, or now with `, React.createElement("code", { style: styles.command }, "floofy self-update --now")), React.createElement("button", { style: { ...styles.button, ...styles.primary, marginBottom: 0 }, disabled: busy || manager.restarting, "data-testid": "floofycrew-self-update-install-staged", onClick: () => manager.selfUpdateAndRestart() }, "Install the staged update & restart"))
         : null,
       React.createElement(
         "div",
@@ -124,7 +124,15 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
         consent.required ? `required — ${consent.message || "the one-time warning has not been acknowledged"}; the first action asks for it ` : `acknowledged by ${consent.by || "?"} on ${consent.acknowledgedAt || "?"} (${consent.how || "?"})`,
         consent.required && openConsent ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": "floofycrew-consent-open", onClick: () => openConsent({ reaccept: false }) }, "Read the warning and agree") : null,
       ),
-      pending.length ? React.createElement("div", { style: styles.warn, "data-testid": "floofycrew-pending" }, `Staged (restart to apply): ${pending.join(", ")} `, React.createElement("button", { style: styles.button, onClick: applyNow, disabled: busy, "data-testid": "floofycrew-apply-now" }, "Apply now")) : null,
+      pending.length
+        ? React.createElement(
+            "div",
+            { style: { ...styles.warn, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem 0.6rem", marginTop: "0.4rem" }, "data-testid": "floofycrew-pending" },
+            React.createElement("span", null, `Staged (applied at the next gateway start): ${pending.join(", ")}`),
+            React.createElement("button", { style: { ...styles.button, marginBottom: 0 }, onClick: applyNow, disabled: busy, "data-testid": "floofycrew-apply-now" }, "Apply now (reload the Loader)"),
+            React.createElement(RestartButton, { manager, testid: "floofycrew-restart-pending" }),
+          )
+        : null,
       state && state.governance && state.governance.length
         ? React.createElement(
             "ul",

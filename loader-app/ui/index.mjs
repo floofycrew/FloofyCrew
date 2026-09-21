@@ -16,13 +16,18 @@
 // confirmation the CLI would ask arrives as a 409 question the App presents.
 // The unofficial banner is always visible; the palette mirrors the CLI's.
 // A capability the App lacks is shown with its terminal command, never hidden.
+// The red "Restart KiroCrew" button (header, the staged line, Settings) is the
+// one action that touches the host process: POST /host/restart asks first and
+// hands the restart to `kirocrew restart`; "Update & restart" chains it after
+// `self-update --now` when a newer FloofyCrew supports this host.
 //
 // Importing `./host.mjs` here makes the SPA host available on the manager page
 // even when no `index.html` loader tag is patched in (Requirement 4.2).
 import React from "react";
 
 import { ensureStarted } from "./host.mjs";
-import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf } from "./app/api.mjs";
+import { RestartButton } from "./app/actions.mjs";
+import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf, waitForGateway } from "./app/api.mjs";
 import { ConfirmationHost, useAsker } from "./app/confirm.mjs";
 import { UNOFFICIAL, styles } from "./app/palette.mjs";
 import { AuditPage } from "./app/pages/audit.mjs";
@@ -33,6 +38,7 @@ import { RegistryPage } from "./app/pages/registry.mjs";
 import { SettingsPage } from "./app/pages/settings.mjs";
 
 export { API, UNOFFICIAL, callRoute };
+export { RestartButton, UpdateAndRestartButton } from "./app/actions.mjs";
 export { apiFetch, runCli } from "./app/api.mjs";
 export { compatBadge, tierBadge } from "./app/pages/mods.mjs";
 
@@ -118,10 +124,48 @@ export function useManager({ ask } = {}) {
     }
   }, [refresh]);
 
-  return { state, rows, statusMeta, registry, busy, output, error, refresh, act, applyNow, setOutput, setError };
+  // The red button: POST /host/restart asks its yes-no question through the same protocol (the modal), then the Loader
+  // hands the restart to `kirocrew restart`; this side only waits for the new gateway and reloads the dashboard.
+  const [restarting, setRestarting] = React.useState(false);
+  const restartHost = React.useCallback(async () => {
+    setBusy(true);
+    setError("");
+    let result = null;
+    try {
+      result = await callRoute("/host/restart", {}, { ask });
+      setOutput(transcriptOf(result, "/host/restart"));
+      if (result.ok && result.restarting) {
+        setRestarting(true);
+        waitForGateway().then((back) => {
+          if (back && typeof location !== "undefined") location.reload();
+          else setRestarting(false);
+        });
+      } else if (!result.ok && !result.declined) {
+        setError(result.error || `HTTP ${result.httpStatus}`);
+      }
+    } catch (exc) {
+      setError(String(exc));
+      result = { ok: false, error: String(exc) };
+    } finally {
+      setBusy(false);
+    }
+    return result;
+  }, [ask]);
+
+  // "Update & restart": the CLI's own install question first (yes-no 409), then the restart's; nothing is answered for the user.
+  const selfUpdateAndRestart = React.useCallback(async () => {
+    const updated = await act("/self-update", { now: true });
+    if (!updated || !updated.ok) return updated;
+    return restartHost();
+  }, [act, restartHost]);
+
+  return { state, rows, statusMeta, registry, busy, output, error, restarting, refresh, act, applyNow, restartHost, selfUpdateAndRestart, setOutput, setError };
 }
 
-function Header({ state }) {
+
+
+function Header({ manager }) {
+  const state = manager.state;
   const host = (state && state.host) || {};
   return React.createElement(
     "div",
@@ -131,6 +175,7 @@ function Header({ state }) {
     React.createElement("h1", { style: styles.title }, "FloofyCrew"),
     React.createElement("span", { style: styles.muted }, state ? `Loader ${state.loader} · FloofyCrew ${state.loaderVersion || "?"} · API ${state.api_version || "?"}` : "loading…"),
     React.createElement("span", { style: styles.muted }, `host ${host.edition || "?"} ${host.version || "?"} (${host.channel || "channel unknown"})`),
+    React.createElement("div", { style: styles.headerActions }, React.createElement(RestartButton, { manager, testid: "floofycrew-restart-header" })),
   );
 }
 
@@ -167,16 +212,22 @@ export default function FloofyCrewApp({ ask: askOverride, initialPage } = {}) {
   }, []);
   const manager = useManager({ ask });
   const page = PAGES.find((p) => p.key === route.key) || PAGES[0];
+  // switching sections re-reads the Loader (state, status, registry) so a page never shows what a terminal changed meanwhile
+  const { refresh } = manager;
+  React.useEffect(() => {
+    refresh().catch(() => undefined);
+  }, [route.key, refresh]);
   // the one-time warning on request (Settings, the "consent required" line): the consent route asks, the modal answers
   const openConsent = React.useCallback(({ reaccept = false } = {}) => manager.act("/consent", reaccept ? { reaccept: true } : {}), [manager.act]);
 
   return React.createElement(
     "div",
     { style: styles.page, "data-testid": "floofycrew-manager" },
-    React.createElement(Header, { state: manager.state }),
+    React.createElement(Header, { manager }),
     React.createElement("div", { style: styles.banner, "data-testid": "floofycrew-banner", role: "note" }, `FloofyCrew mod manager — UNOFFICIAL. ${UNOFFICIAL} Mods run with the gateway's privileges on your consent; governance verdicts are warnings, never gates.`),
     React.createElement(Nav, { current: page.key, onSelect: select }),
-    React.createElement("section", { "data-testid": `floofycrew-page-${page.key}` }, React.createElement(page.component, { manager, rest: route.rest, navigate: select, openConsent })),
+    manager.restarting ? React.createElement("div", { style: { ...styles.card, ...styles.warn }, "data-testid": "floofycrew-restarting", role: "status" }, "Restarting the KiroCrew gateway — the dashboard reloads when the new gateway answers (up to two minutes). If it does not come back, run `kirocrew restart` at a terminal.") : null,
+    React.createElement("section", { style: styles.pageBody, "data-testid": `floofycrew-page-${page.key}` }, React.createElement(page.component, { manager, rest: route.rest, navigate: select, openConsent })),
     manager.error ? React.createElement("div", { style: { ...styles.card, ...styles.danger }, "data-testid": "floofycrew-error" }, manager.error) : null,
     manager.output ? React.createElement("pre", { style: { ...styles.card, ...styles.mono }, "data-testid": "floofycrew-output" }, manager.output) : null,
     askOverride ? null : React.createElement(ConfirmationHost, { pending: asker.pending, answer: asker.answer }),

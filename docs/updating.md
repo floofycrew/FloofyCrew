@@ -122,6 +122,19 @@ not list your host is refused unless you pass `--force`; a `floofy` running from
 checkout or a package install is told to update the way it was installed
 (`--target PYZ` names an installed zipapp explicitly).
 
+In the manager App the same notice carries an **Update & restart** button
+(1.1.6): it runs `self-update --now` through the App's typed route — the CLI's
+own "Install FloofyCrew X over Y?" question appears in the App's modal — and,
+once the Loader app is installed, asks once more and restarts the gateway
+through `POST /host/restart`, which hands the restart to the host's own
+`kirocrew restart` (service-aware: a systemd/launchd unit is restarted by its
+service manager, a foreground gateway is stopped and a detached replacement
+started and verified). The dashboard reloads when the new gateway answers. The
+same red **Restart KiroCrew** button sits in the App's header, on the "staged"
+line of the Mods page and in Settings, for staged installs and vanilla requests;
+every restart is an `op: host-restart` audit row. The CLI keeps its stance: a
+`floofy` command never restarts a live gateway by itself.
+
 ## Holding the host back — explicitly
 
 FloofyCrew never pauses host updates on its own. `floofy hold [--duration 7d]`

@@ -489,6 +489,6 @@ def vanilla(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.set_result(requested=True, marker=str(marker), gatewayRunning=running)
     ctx.say(f"vanilla boot requested: the next gateway start disables every mod once and restores the overlay patches for that boot (marker {marker.name}).")
     if running:
-        ctx.say("a gateway is running — restart it yourself (`kirocrew restart`) to take the vanilla boot; FloofyCrew never restarts your gateway.")
+        ctx.say("a gateway is running — restart it yourself (`kirocrew restart`, or the App's Restart KiroCrew button) to take the vanilla boot; the CLI never restarts your gateway by itself.")
     ctx.say("the boot after that runs your mods again; `floofy vanilla --cancel` withdraws the request.")
     return 0

@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { browserAsk, callRoute, mergeConfirmations, transcriptOf } from "../../ui/app/api.mjs";
+import { browserAsk, callRoute, mergeConfirmations, transcriptOf, waitForGateway } from "../../ui/app/api.mjs";
 
 function fakeLoader(script) {
   // script: a function (body, round) -> {status, body}; records every request
@@ -88,4 +88,39 @@ test("the round trip gives up after MAX_ROUNDS instead of looping", async () => 
   assert.equal(result.ok, false);
   assert.match(result.error, /too many confirmation rounds/);
   assert.equal(calls.length, 8);
+});
+
+
+// --- the restart wait (1.1.6) -------------------------------------------------------------------------------------
+
+function clock() {
+  // a fake clock: `sleep` advances it, `now` reads it, so the poll loop runs without real time
+  let t = 0;
+  return { now: () => t, sleep: async (ms) => { t += ms; } };
+}
+
+test("waitForGateway resolves true once /health went away and answers again", async () => {
+  const { now, sleep } = clock();
+  const replies = [{ ok: true, body: { bootedAt: "t0" } }, null, null, { ok: true, body: { bootedAt: "t1" } }];
+  let i = 0;
+  const back = await waitForGateway({ fetchImpl: async () => { const r = replies[Math.min(i, replies.length - 1)]; i += 1; if (r === null) throw new Error("ECONNREFUSED"); return r; }, now, sleep, timeoutMs: 60000, intervalMs: 1000 });
+  assert.equal(back, true);
+  assert.equal(i, 4);
+});
+
+test("waitForGateway resolves true on a new bootedAt even when no poll saw the gateway down", async () => {
+  const { now, sleep } = clock();
+  const replies = [{ ok: true, body: { bootedAt: "t0" } }, { ok: true, body: { bootedAt: "t0" } }, { ok: true, body: { bootedAt: "t9" } }];
+  let i = 0;
+  const back = await waitForGateway({ fetchImpl: async () => replies[Math.min(i++, replies.length - 1)], now, sleep, timeoutMs: 60000, intervalMs: 1000 });
+  assert.equal(back, true);
+  assert.equal(i, 3);
+});
+
+test("waitForGateway resolves false when the same gateway keeps answering until the budget runs out", async () => {
+  const { now, sleep } = clock();
+  let polls = 0;
+  const back = await waitForGateway({ fetchImpl: async () => { polls += 1; return { ok: true, body: { bootedAt: "t0" } }; }, now, sleep, timeoutMs: 10000, intervalMs: 1000 });
+  assert.equal(back, false);
+  assert.equal(polls, 10);
 });

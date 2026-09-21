@@ -13,6 +13,7 @@ the SPA file route is declared once per depth (1–4 segments below the mod id).
 | GET | ``/state`` | the :class:`LoaderState` JSON plus ``api_version``, ``unofficial: true`` |
 | GET | ``/health`` | Loader liveness |
 | POST | ``/reload`` | re-run the boot sequence (apply ``pending/`` now, pick up ``enabled.json``) — the manager App's "apply now" |
+| POST | ``/host/restart`` | restart the KiroCrew gateway through ``kirocrew restart`` (detached), behind the App's ``yes-no`` confirmation — the red "Restart KiroCrew" button; see :mod:`floofy_loader.hostrestart` |
 | POST | ``/mods/{id}/fault`` | body ``{message, stack, source: "spa"}``: the SPA host reports a failed module; the mod is disabled with ``Error`` |
 | GET | ``/spa/{id}/{file...}`` | an enabled mod's ``spa`` part files from ``<data home>/spa/<id>/`` (``Cache-Control: no-cache``, typed by extension, path-escape safe) |
 | POST | ``/cli`` | body ``{"argv": [...]}``: run one **read-only** ``floofy`` command in-process (``status``, ``doctor``, ``search``, ``info``, ``list``, ``audit``, ``which``) |
@@ -70,6 +71,7 @@ CLI_MOVED: dict[str, str] = {
     "profile": "GET/POST /profiles, POST /profiles/{name}/use|export, /profiles/import",
     "vanilla": "POST /vanilla",
     "apply": "POST /reload (apply now); `floofy apply` at a terminal",
+    "self-update": "POST /self-update",
 }
 
 #: Declared for the manifest test and the manager UI; ``build_routes`` produces exactly these.
@@ -77,6 +79,7 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("GET", "/state"),
     ("GET", "/health"),
     ("POST", "/reload"),
+    ("POST", "/host/restart"),
     ("POST", "/mods/{id}/fault"),
     ("POST", "/cli"),
     ("GET", "/registry"),
@@ -440,10 +443,22 @@ def build_routes(runtime: Any) -> list:
             return respond(_json(500, {"ok": False, "error": f"{type(exc).__name__}: {exc}"}))
         return respond(_json(200, {"ok": True, **runtime.state_dict()}))
 
+    async def host_restart(request: Any, ctx: Any) -> Any:
+        from .hostrestart import restart_response  # noqa: PLC0415
+
+        body: Any = {}
+        if request.can_read_body:
+            try:
+                body = await request.json()
+            except Exception:  # noqa: BLE001 - a bad body is a 400, not a 500
+                return respond(_json(400, {"ok": False, "error": "the body must be JSON"}))
+        return respond(restart_response(runtime, body))
+
     routes = [
         AppRoute("GET", "/state", make(lambda request: state_response(runtime))),
         AppRoute("GET", "/health", make(lambda request: health_response(runtime))),
         AppRoute("POST", "/reload", reload),
+        AppRoute("POST", "/host/restart", host_restart),
         AppRoute("POST", "/mods/{id}/fault", fault),
         AppRoute("POST", "/cli", cli),
         AppRoute("GET", "/registry", make(lambda request: registry_response(runtime))),

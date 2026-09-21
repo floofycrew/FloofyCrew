@@ -11,6 +11,38 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- **Restart KiroCrew** from the manager App. A red button in the App's header,
+  on the Mods page's "staged" line and in Settings asks once (the App's `yes-no`
+  modal through the 409 protocol; nothing is answered for the user) and then
+  `POST /host/restart` hands the restart to the host's own `kirocrew restart`,
+  started detached with the managed host home in `KIROCREW_HOME` — service-aware:
+  a systemd/launchd unit is restarted by its service manager, a foreground
+  gateway is stopped and a detached replacement started and verified. The App
+  polls the Loader's `/health` and reloads the dashboard when the new gateway
+  answers; every restart is an `op: host-restart` audit row (`actor: app`), a
+  missing launcher is a 422 naming the terminal command. The CLI keeps its
+  stance: no `floofy` command restarts a live gateway by itself.
+- **Update & restart** when a newer FloofyCrew supports this host: the notice on
+  the Mods page and the Registry's Updates card carries a button that runs the new
+  typed route `POST /self-update {now: true}` (`floofy self-update --now`; the
+  CLI's own "Install FloofyCrew X over Y?" question in the modal; no `--force`,
+  `--check` or `--target` reachable) and then the restart above. A staged Loader
+  app update gets an "Install the staged update & restart" button.
+
+### Changed
+
+- Manager App polish: pages are columns of cards with a 1.25 rem gap and 4 rem of
+  room under the last one; a tab clicked once no longer keeps a grey frame after
+  another tab is selected (the tab border is spelled as longhands in both states,
+  so React's style diff never unsets it); Registry › Sources is a table (Source ·
+  Trust · Signature policy · Last refresh · Actions) instead of stacked lines;
+  the Profiles page opens with one line saying what a profile is; switching
+  sections re-reads the Loader so a page never shows what a terminal changed
+  meanwhile. Settings names the host's verb correctly (`kirocrew restart`, not
+  `kirocrew gateway restart`, which does not exist).
+
 ### Fixed
 
 - The Loader app grant is recorded in the host's **local-source shape**. The

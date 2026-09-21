@@ -86,6 +86,36 @@ export function transcriptOf(result, path) {
 }
 
 export const getState = () => apiFetch("/state");
+export const getHealth = () => apiFetch("/health");
 export const getRegistry = () => apiFetch("/registry");
 export const getStatus = () => runCli(["status"]);
 export const reload = () => apiFetch("/reload", { method: "POST" });
+
+/**
+ * After `POST /host/restart` was accepted: wait for the gateway to go away and come back, polling the Loader's
+ * `/health`. Resolves `true` when a fresh gateway answers — the old one stopped answering in between, or the Loader
+ * reports a different `bootedAt` — and `false` when nothing new answered within the budget (the shell then stops
+ * saying "restarting" and leaves the terminal hint). Same-origin only, like everything else here.
+ */
+export async function waitForGateway({ fetchImpl = getHealth, timeoutMs = 120000, intervalMs = 1500, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() } = {}) {
+  const started = now();
+  let wentAway = false;
+  let firstBootedAt = null;
+  while (now() - started < timeoutMs) {
+    await sleep(intervalMs);
+    let reply = null;
+    try {
+      reply = await fetchImpl();
+    } catch {
+      reply = null;
+    }
+    if (!reply || !reply.ok) {
+      wentAway = true;
+      continue;
+    }
+    const bootedAt = (reply.body && reply.body.bootedAt) || "";
+    if (firstBootedAt === null) firstBootedAt = bootedAt;
+    if (wentAway || (bootedAt && bootedAt !== firstBootedAt)) return true;
+  }
+  return false;
+}

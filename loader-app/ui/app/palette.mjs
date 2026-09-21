@@ -36,20 +36,35 @@ const border = "1px solid var(--border, rgba(127,127,127,.35))";
 const borderStrong = "1px solid var(--border-strong, rgba(127,127,127,.6))";
 
 export const styles = Object.freeze({
-  page: { padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem", fontSize: "0.9rem", color: "var(--text, inherit)", minHeight: "100%" },
+  // the bottom padding leaves room under the last card so a page never ends flush against the viewport edge
+  page: { padding: "1.25rem 1.25rem 4rem", display: "flex", flexDirection: "column", gap: "1.25rem", fontSize: "0.9rem", color: "var(--text, inherit)", minHeight: "100%" },
+  // a page is a column of cards with the same gap as the shell around it
+  pageBody: { display: "flex", flexDirection: "column", gap: "1.25rem" },
   header: { display: "flex", alignItems: "center", gap: "0.9rem", flexWrap: "wrap" },
+  headerActions: { marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" },
   title: { fontSize: "1.25rem", fontWeight: 700, color: PALETTE.heading, margin: 0 },
   banner: { border: `1px solid ${PALETTE.warn}`, background: "rgba(255,179,71,.12)", padding: "0.6rem 0.9rem", borderRadius: "8px", fontWeight: 600 },
   nav: { display: "flex", gap: "0.35rem", flexWrap: "wrap", borderBottom: border, paddingBottom: "0.5rem" },
-  navItem: { padding: "0.35rem 0.8rem", borderRadius: "6px 6px 0 0", border: "1px solid transparent", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "0.9rem" },
+  // The tab border is spelled as longhands, and the active variant sets exactly the same keys: React diffs inline
+  // styles key by key, so a tab that goes from active back to inactive keeps every declaration. With a `border`
+  // shorthand here and `borderColor` only on the active variant, leaving the active state unset `borderColor`,
+  // which fell back to currentColor — the grey frame that appeared on a tab after it had been clicked once.
+  navItem: { padding: "0.35rem 0.8rem", borderRadius: "6px 6px 0 0", borderWidth: "1px", borderStyle: "solid", borderColor: "transparent", borderBottomColor: "transparent", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "0.9rem", fontWeight: 400, outlineOffset: "-2px" },
   navItemActive: { borderColor: PALETTE.accent, borderBottomColor: "transparent", color: PALETTE.accent, fontWeight: 600 },
-  card: { border, borderRadius: "8px", padding: "0.75rem 1rem", background: "var(--card, transparent)" },
+  card: { border, borderRadius: "8px", padding: "0.9rem 1.1rem", background: "var(--card, transparent)" },
+  cardIntro: { opacity: 0.75, margin: "-0.2rem 0 0.7rem", lineHeight: 1.45 },
+  // a plain table for lists whose entries carry several short fields (the registry sources)
+  table: { width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" },
+  th: { textAlign: "left", fontWeight: 600, opacity: 0.8, padding: "0.35rem 0.6rem", borderBottom: borderStrong, whiteSpace: "nowrap" },
+  td: { padding: "0.55rem 0.6rem", borderBottom: border, verticalAlign: "top" },
   cardTitle: { margin: "0 0 0.5rem", fontSize: "1rem", fontWeight: 600 },
   row: { borderTop: border, padding: "0.6rem 0", display: "grid", gridTemplateColumns: "minmax(12rem, 1.4fr) minmax(8rem, 1fr) minmax(8rem, 1fr) minmax(14rem, 2fr) minmax(12rem, 1.2fr)", gap: "0.75rem", alignItems: "start" },
   head: { fontWeight: 600, opacity: 0.8, borderTop: "none" },
   badge: { display: "inline-block", padding: "0.1rem 0.45rem", borderRadius: "999px", border: borderStrong, fontSize: "0.75rem", marginRight: "0.3rem", whiteSpace: "nowrap" },
   button: { padding: "0.25rem 0.6rem", borderRadius: "6px", border: borderStrong, background: "var(--bg-elevated, transparent)", color: "inherit", cursor: "pointer", marginRight: "0.35rem", marginBottom: "0.3rem", fontSize: "0.8rem" },
   primary: { borderColor: PALETTE.accent, color: PALETTE.accent, fontWeight: 600 },
+  // the filled red button: the gateway restart — the one action on this surface that interrupts the dashboard itself
+  restart: { background: PALETTE.danger, borderColor: PALETTE.danger, color: "#fff", fontWeight: 700 },
   input: { padding: "0.3rem 0.5rem", borderRadius: "6px", border: borderStrong, background: "var(--bg-elevated, transparent)", color: "inherit", fontSize: "0.85rem", minWidth: "16rem", fontFamily: "inherit" },
   muted: { opacity: 0.75 },
   mono: { fontFamily: "var(--mono, ui-monospace, monospace)", fontSize: "0.78rem", whiteSpace: "pre-wrap", maxHeight: "18rem", overflow: "auto", margin: 0 },

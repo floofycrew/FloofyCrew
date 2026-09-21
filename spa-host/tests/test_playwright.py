@@ -837,3 +837,71 @@ def test_6_manager_app_smoke(harness: Harness):
             removed = client.post(f"{API}/mods/settings-demo/uninstall", {"now": True, "confirmations": {"yes": True}})
             assert removed.status == 200, removed.body[:300]
         client.request("DELETE", f"{API}/registries/local")
+
+
+def test_7_ui_polish_and_the_restart_button(harness: Harness):
+    """1.1.6: the tab frame stays transparent after a tab was clicked and left, pages are gapped columns of cards, Sources is a
+    table, Profiles explains itself, and the red Restart KiroCrew button asks first — declining leaves no trace."""
+    client = harness.gw.client()
+    context, page = harness.page()
+    registry = None
+    try:
+        page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-nav"]', timeout=60000)
+        transparent = {"rgba(0, 0, 0, 0)", "transparent"}
+        # the tab border bug: click Registry, come back to Mods, the Registry tab must not keep a frame
+        page.click('[data-testid="floofycrew-nav-registry"]')
+        page.wait_for_selector('[data-testid="floofycrew-page-registry"] [data-testid="floofycrew-sources"]', timeout=60000)
+        page.click('[data-testid="floofycrew-nav-mods"]')
+        page.wait_for_selector('[data-testid="floofycrew-page-mods"]', timeout=60000)
+        left_tab = page.evaluate("() => { const s = getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-registry\"]')); return [s.borderTopColor, s.borderLeftColor, s.borderRightColor, s.borderBottomColor]; }")
+        assert all(c in transparent for c in left_tab), f"a tab that was clicked once keeps a grey frame: {left_tab}"
+        active_tab = page.evaluate("() => getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-mods\"]')).borderTopColor")
+        assert active_tab not in transparent, "the active tab is framed in the accent colour"
+        # pages are flex columns with the card gap; the page leaves room below the last card
+        assert page.evaluate("() => getComputedStyle(document.querySelector('[data-testid=\"floofycrew-page-mods\"]')).display") == "flex"
+        gap = page.evaluate("() => parseFloat(getComputedStyle(document.querySelector('[data-testid=\"floofycrew-page-mods\"]')).rowGap)")
+        assert gap >= 16, gap
+        bottom = page.evaluate("() => parseFloat(getComputedStyle(document.querySelector('[data-testid=\"floofycrew-manager\"]')).paddingBottom)")
+        assert bottom >= 48, bottom
+        page.screenshot(path=str(SHOTS / "manager-mods-1.1.6.png"), full_page=True)
+        # Sources is a table with the CLI's columns (a local signed registry as the row); Profiles carries its one-line intro
+        registry = _LocalRegistry(SETTINGS_DEMO_DIR, harness.gw.scratch)
+        added = client.post(f"{API}/registries", {"url": registry.base, "name": "polish", "publicKey": registry.public_key, "refresh": True})
+        assert added.status == 200, added.body[:300]
+        page.click('[data-testid="floofycrew-nav-registry"]')
+        page.wait_for_selector('[data-testid="floofycrew-sources-table"]', timeout=60000)
+        heads = page.eval_on_selector_all('[data-testid="floofycrew-sources-table"] th', "els => els.map(e => e.textContent)")
+        assert heads == ["Source", "Trust", "Signature policy", "Last refresh", "Actions"], heads
+        row = page.inner_text('[data-testid="floofycrew-source-polish"]')
+        assert "signature required" in row and "verified" in row, row
+        page.screenshot(path=str(SHOTS / "manager-registry-1.1.6.png"), full_page=True)
+        page.click('[data-testid="floofycrew-nav-profiles"]')
+        page.wait_for_selector('[data-testid="floofycrew-profiles-intro"]', timeout=60000)
+        assert "named snapshot" in page.inner_text('[data-testid="floofycrew-profiles-intro"]')
+        # the red button: header, Settings; it asks through the modal and a decline changes nothing
+        rows_before = len(_audit_rows(harness))
+        assert page.locator('[data-testid="floofycrew-restart-header"]').count() == 1
+        colour = page.evaluate("() => getComputedStyle(document.querySelector('[data-testid=\"floofycrew-restart-header\"]')).backgroundColor")
+        assert colour == "rgb(255, 95, 115)", colour  # PALETTE.danger
+        page.click('[data-testid="floofycrew-nav-settings"]')
+        page.wait_for_selector('[data-testid="floofycrew-settings-restart"]', timeout=60000)
+        page.screenshot(path=str(SHOTS / "manager-settings-1.1.6.png"), full_page=True)
+        page.click('[data-testid="floofycrew-restart-card"]')
+        page.wait_for_selector('[data-testid="floofycrew-yesno-modal"]', timeout=60000)
+        assert "Restart the KiroCrew gateway now?" in page.inner_text('[data-testid="floofycrew-yesno-prompt"]')
+        page.screenshot(path=str(SHOTS / "manager-restart-modal-1.1.6.png"))
+        page.keyboard.press("Escape")
+        page.wait_for_selector('[data-testid="floofycrew-yesno-modal"]', state="detached", timeout=30000)
+        assert page.locator('[data-testid="floofycrew-restarting"]').count() == 0
+        assert len(_audit_rows(harness)) == rows_before, "a declined restart leaves no audit row"
+        assert "not confirmed" in page.inner_text('[data-testid="floofycrew-output"]')
+        # the route itself, without the answer: the question, not a restart
+        asked = client.post(f"{API}/host/restart", {})
+        assert asked.status == 409 and asked.json()["confirmation"]["kind"] == "yes-no", asked.body[:300]
+        assert client.get(f"{API}/health").status == 200, "the gateway is untouched"
+    finally:
+        context.close()
+        if registry is not None:
+            registry.close()
+            client.request("DELETE", f"{API}/registries/polish")

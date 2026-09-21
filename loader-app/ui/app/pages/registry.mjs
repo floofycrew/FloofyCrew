@@ -9,28 +9,60 @@
 // the changelog link — everything through the typed routes.
 import React from "react";
 
+import { UpdateAndRestartButton } from "../actions.mjs";
 import { apiFetch } from "../api.mjs";
 import { commandNote, styles } from "../palette.mjs";
 
 const TRUST_LEVELS = ["index", "owner"];
 
-function SourceRow({ source, manager }) {
+/** The last-refresh verdict of one source, as two short cells: the signature and the fetch. */
+export function sourceVerdict(source) {
   const cache = source.cache || {};
-  const state = !cache || Object.keys(cache).length === 0 ? "never fetched" : cache.usable ? `usable: ${cache.mods ?? "?"} mod(s), signature ${(cache.signature || {}).status || "?"}, fetched ${cache.fetchedAt || "?"}` : `refused: ${cache.refusal || cache.error || "?"}`;
+  if (!cache || Object.keys(cache).length === 0) return { signature: "—", fetch: "never fetched", tone: "muted" };
+  if (cache.usable) return { signature: (cache.signature || {}).status || "?", fetch: `${cache.mods ?? "?"} mod(s), fetched ${cache.fetchedAt || "?"}`, tone: "ok" };
+  return { signature: (cache.signature || {}).status || "—", fetch: `refused: ${cache.refusal || cache.error || "?"}`, tone: "danger" };
+}
+
+/** One source as a table row: name and URL, trust, signature policy and pinned key, the last refresh, the actions. */
+function SourceRow({ source, manager }) {
   const key = encodeURIComponent(source.key);
+  const verdict = sourceVerdict(source);
+  const flip = source.trust === "index" ? "owner" : "index";
   return React.createElement(
-    "div",
-    { style: { borderTop: styles.row.borderTop, padding: "0.5rem 0" }, "data-testid": `floofycrew-source-${source.label}` },
-    React.createElement("div", null, React.createElement("strong", null, source.label), " ", React.createElement("code", null, source.url)),
-    React.createElement("div", { style: styles.muted }, `trust=${source.trust} · ${source.allowUnsigned ? "UNSIGNED INDEXES ACCEPTED" : "signature required"} · key ${source.keyId || (source.publicKey ? "pinned" : "-")} · ${state}`),
+    "tr",
+    { "data-testid": `floofycrew-source-${source.label}` },
+    React.createElement("td", { style: styles.td }, React.createElement("div", null, React.createElement("strong", null, source.label)), React.createElement("code", { style: { ...styles.command, wordBreak: "break-all" } }, source.url)),
+    React.createElement("td", { style: styles.td }, React.createElement("span", { style: styles.badge }, source.trust)),
+    React.createElement("td", { style: styles.td }, React.createElement("div", { style: source.allowUnsigned ? styles.warn : undefined }, source.allowUnsigned ? "unsigned indexes accepted" : "signature required"), React.createElement("div", { style: styles.muted }, `key ${source.keyId || (source.publicKey ? "pinned" : "—")}`)),
+    React.createElement("td", { style: styles.td }, React.createElement("div", { style: styles[verdict.tone] || styles.muted }, verdict.signature), React.createElement("div", { style: styles.muted }, verdict.fetch)),
     React.createElement(
-      "div",
-      { style: { marginTop: "0.3rem" } },
+      "td",
+      { style: { ...styles.td, whiteSpace: "nowrap" } },
       React.createElement("button", { style: styles.button, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}/refresh`) }, "Refresh"),
-      React.createElement("button", { style: styles.button, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}/trust`, { trust: source.trust === "index" ? "owner" : "index", allowUnsigned: Boolean(source.allowUnsigned) }) }, `Trust: ${source.trust} → ${source.trust === "index" ? "owner" : "index"}`),
-      React.createElement("button", { style: { ...styles.button, ...(source.allowUnsigned ? {} : styles.warn) }, disabled: manager.busy, "data-testid": `floofycrew-source-unsigned-${source.label}`, onClick: () => manager.act(`/registries/${key}/trust`, { trust: source.trust, allowUnsigned: !source.allowUnsigned }) }, source.allowUnsigned ? "Require a verified signature again" : "Accept unsigned indexes…"),
+      React.createElement("button", { style: styles.button, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}/trust`, { trust: flip, allowUnsigned: Boolean(source.allowUnsigned) }) }, `Trust → ${flip}`),
+      React.createElement("br", null),
+      React.createElement("button", { style: { ...styles.button, ...(source.allowUnsigned ? {} : styles.warn) }, disabled: manager.busy, "data-testid": `floofycrew-source-unsigned-${source.label}`, onClick: () => manager.act(`/registries/${key}/trust`, { trust: source.trust, allowUnsigned: !source.allowUnsigned }) }, source.allowUnsigned ? "Require a signature again" : "Accept unsigned…"),
       React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}`, {}, { method: "DELETE" }) }, "Remove"),
     ),
+  );
+}
+
+/** The sources table (Registry › Sources): one row per configured source, the columns the CLI's `registry list` prints. */
+function SourcesTable({ sources, manager }) {
+  const errors = sources.filter((s) => s.error);
+  const rows = sources.filter((s) => !s.error);
+  return React.createElement(
+    React.Fragment,
+    null,
+    errors.map((source, index) => React.createElement("div", { key: `error-${index}`, style: styles.danger }, source.error)),
+    rows.length === 0
+      ? null
+      : React.createElement(
+          "table",
+          { style: { ...styles.table, marginTop: "0.5rem" }, "data-testid": "floofycrew-sources-table" },
+          React.createElement("thead", null, React.createElement("tr", null, ["Source", "Trust", "Signature policy", "Last refresh", "Actions"].map((label) => React.createElement("th", { key: label, style: styles.th, scope: "col" }, label)))),
+          React.createElement("tbody", null, rows.map((source) => React.createElement(SourceRow, { key: source.key || source.url, source, manager }))),
+        ),
   );
 }
 
@@ -135,7 +167,13 @@ export function RegistryPage({ manager, rest }) {
       { style: styles.card, "data-testid": "floofycrew-updates" },
       React.createElement("h2", { style: styles.cardTitle }, "Updates"),
       selfUpdate && selfUpdate.available
-        ? React.createElement("div", { style: { ...styles.warn, marginBottom: "0.4rem" }, "data-testid": "floofycrew-self-update" }, `FloofyCrew ${selfUpdate.version} is available for this host${selfUpdate.notes ? " — " : ""}`, selfUpdate.notes ? React.createElement("a", { href: selfUpdate.notes, target: "_blank", rel: "noopener noreferrer", style: styles.accent }, "release notes") : null, React.createElement("span", { style: styles.muted }, " — at a terminal: ", React.createElement("code", { style: styles.command }, "floofy self-update")))
+        ? React.createElement(
+            "div",
+            { style: { ...styles.warn, marginBottom: "0.6rem", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem 0.6rem" }, "data-testid": "floofycrew-self-update" },
+            React.createElement("span", null, `FloofyCrew ${selfUpdate.version} is available for this host`, selfUpdate.notes ? React.createElement(React.Fragment, null, " — ", React.createElement("a", { href: selfUpdate.notes, target: "_blank", rel: "noopener noreferrer", style: styles.accent }, "release notes")) : null),
+            React.createElement(UpdateAndRestartButton, { manager, version: selfUpdate.version, testid: "floofycrew-self-update-restart-registry" }),
+            React.createElement("span", { style: styles.muted }, "or at a terminal: ", React.createElement("code", { style: styles.command }, "floofy self-update")),
+          )
         : null,
       updates.length === 0
         ? React.createElement("div", { style: styles.muted }, "every installed mod is at the newest version the registry cache knows to work here")
@@ -162,11 +200,12 @@ export function RegistryPage({ manager, rest }) {
       "div",
       { style: styles.card, "data-testid": "floofycrew-sources" },
       React.createElement("h2", { style: styles.cardTitle }, "Sources"),
+      React.createElement("div", { style: styles.cardIntro }, "Where mods come from: each source is a signed registry directory (index.json, compat.json, .sig). The merged cache is what Search and Updates read."),
       React.createElement("div", { style: styles.muted }, `merged cache: ${cache.mods ?? 0} mod(s)${cache.generatedAt ? `, generated ${cache.generatedAt}` : ""}${(cache.notes || []).length ? ` — ${cache.notes.join("; ")}` : ""}`),
-      sources.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.4rem 0" } }, "no registry source configured") : sources.map((source) => (source.error ? React.createElement("div", { key: "error", style: styles.danger }, source.error) : React.createElement(SourceRow, { key: source.key || source.url, source, manager }))),
+      sources.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.4rem 0" } }, "no registry source configured") : React.createElement(SourcesTable, { sources, manager }),
       React.createElement(
         "div",
-        { style: { marginTop: "0.5rem" } },
+        { style: { marginTop: "0.8rem" } },
         React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act("/registries/refresh") }, "Refresh every source"),
         React.createElement("button", { style: styles.button, disabled: busy, "data-testid": "floofycrew-registry-defaults", onClick: () => manager.act("/registries/defaults", { refresh: true, hostRegistry: true }) }, "Record the edition's default source"),
       ),

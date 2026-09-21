@@ -7,6 +7,7 @@
 // does it. About: versions and the FloofyCrew mark as the terminal draws it.
 import React from "react";
 
+import { RestartButton } from "../actions.mjs";
 import { apiFetch } from "../api.mjs";
 import { PALETTE, UNOFFICIAL, styles } from "../palette.mjs";
 
@@ -18,7 +19,7 @@ export const TERMINAL_ONLY = Object.freeze([
   ["Revert-then-patch every payload now (the Loader does it at every start)", "floofy apply"],
   ["Return every payload to vanilla", "floofy restore --all"],
   ["Verify served bytes against the deployment manifests; run the SPA reporter", "floofy verify [--spa]"],
-  ["Restart the gateway (the App cannot; the next start applies staged installs and honours a vanilla request)", "kirocrew gateway restart"],
+  ["Restart the gateway from a shell (the red button does the same from here, through the host's own command)", "kirocrew restart"],
   ["Pause the host's own auto-update (explicit, logged)", "floofy hold [--duration 7d] [--release]"],
   ["Link a mod checkout for development and stream its log", "floofy dev <path> [--follow]"],
   ["Scaffold a new mod", "floofy new <kind> --id <id>"],
@@ -57,8 +58,15 @@ export function SettingsPage({ manager, openConsent }) {
       "div",
       { style: styles.card, "data-testid": "floofycrew-settings-vanilla" },
       React.createElement("h2", { style: styles.cardTitle }, "Vanilla boot"),
-      React.createElement("div", { style: styles.muted }, "Ask for exactly one gateway start with every mod disabled; the marker is consumed by the next start (the App cannot restart the gateway)."),
-      React.createElement("div", { style: { marginTop: "0.4rem" } }, React.createElement("button", { style: styles.button, disabled: busy, "data-testid": "floofycrew-vanilla", onClick: () => act("/vanilla", {}) }, "Request a vanilla boot"), React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act("/vanilla", { cancel: true }) }, "Cancel the request"), React.createElement("span", { style: styles.muted }, " Terminal: ", React.createElement("code", { style: styles.command }, "floofy vanilla [--cancel]"), " then ", React.createElement("code", { style: styles.command }, "kirocrew gateway restart"))),
+      React.createElement("div", { style: styles.cardIntro }, "Ask for exactly one gateway start with every mod disabled; the marker is consumed by the next start — request it, then restart."),
+      React.createElement("div", { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.3rem 0.5rem" } }, React.createElement("button", { style: { ...styles.button, marginBottom: 0 }, disabled: busy, "data-testid": "floofycrew-vanilla", onClick: () => act("/vanilla", {}) }, "Request a vanilla boot"), React.createElement("button", { style: { ...styles.button, marginBottom: 0 }, disabled: busy, onClick: () => act("/vanilla", { cancel: true }) }, "Cancel the request"), React.createElement(RestartButton, { manager, testid: "floofycrew-restart-settings" }), React.createElement("span", { style: styles.muted }, " Terminal: ", React.createElement("code", { style: styles.command }, "floofy vanilla [--cancel]"), " then ", React.createElement("code", { style: styles.command }, "kirocrew restart"))),
+    ),
+    React.createElement(
+      "div",
+      { style: styles.card, "data-testid": "floofycrew-settings-restart" },
+      React.createElement("h2", { style: styles.cardTitle }, "Restart KiroCrew"),
+      React.createElement("div", { style: styles.cardIntro }, "Staged installs and removals, a Loader app update and a vanilla request all take effect at the next gateway start. The button asks first, then runs the host's own `kirocrew restart` (service-aware); the dashboard goes away for a few seconds and this page reloads when the new gateway answers."),
+      React.createElement(RestartButton, { manager, testid: "floofycrew-restart-card" }),
     ),
     React.createElement(
       "div",

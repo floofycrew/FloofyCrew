@@ -40,6 +40,7 @@ automation switches that answer a question by themselves (``--yes``,
 | POST | ``/profiles/{name}/export`` | ``{file}`` | ``profile export <name> <file>`` |
 | POST | ``/profiles/import`` | ``{file, name?}`` | ``profile import <file> [--name N]`` |
 | POST | ``/vanilla`` | ``{cancel?}`` | ``vanilla [--cancel]`` |
+| POST | ``/self-update`` | ``{now?}`` | ``self-update [--now]`` — the "Update FloofyCrew" button; the CLI's own "Install FloofyCrew X over Y?" question arrives as the ``yes-no`` 409 (the App never runs ``--force``, ``--check`` or ``--target``) |
 | POST | ``/consent`` | ``{agree: true, reaccept?}`` (or ``confirmations.consent: true``) | ``init --no-loader-app --no-trigger [--reaccept]`` with the agreement as the ``[ I AGREE ]`` answer (``how: "app"``) |
 
 **Confirmation protocol** (Requirement 16.3; design "Manager App"). A request may
@@ -331,6 +332,16 @@ def _vanilla(params: dict[str, str], body: dict[str, Any], query: dict[str, list
     return ["vanilla", "--cancel"] if _flag(body, "cancel") else ["vanilla"]
 
 
+def _self_update(params: dict[str, str], body: dict[str, Any], query: dict[str, list[str]]) -> list[str]:
+    # `--now` installs the staged Loader app through the host App Kit while this gateway runs (it takes effect at
+    # the next start — the App's "Update & restart" follows it with POST /host/restart); without it the zipapp is
+    # swapped and the Loader app archive stays staged for `floofy apply`, exactly like the CLI.
+    argv = ["self-update"]
+    if _flag(body, "now"):
+        argv.append("--now")
+    return argv
+
+
 def _consent(params: dict[str, str], body: dict[str, Any], query: dict[str, list[str]]) -> list[str]:
     argv = ["init", "--no-loader-app", "--no-trigger"]
     if _flag(body, "reaccept"):
@@ -398,6 +409,7 @@ ROUTES: tuple[AppRouteSpec, ...] = (
     AppRouteSpec("POST", "/profiles/{name}/use", "profiles.use", _profile_use, mutating=True),
     AppRouteSpec("POST", "/profiles/{name}/export", "profiles.export", _profile_export),
     AppRouteSpec("POST", "/vanilla", "vanilla", _vanilla, mutating=True),
+    AppRouteSpec("POST", "/self-update", "selfupdate", _self_update, mutating=True),
     AppRouteSpec("POST", "/consent", "consent", _consent, mutating=True),
 )
 
