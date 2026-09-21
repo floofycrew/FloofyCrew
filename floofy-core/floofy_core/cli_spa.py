@@ -81,7 +81,7 @@ def _print(report: SpaReport, as_json: bool) -> None:
         print(f"  MISS  {miss['name']}{chunk}: {miss.get('reason', '')}")
     for row in report.not_applicable:
         print(f"  n/a   {row['name']}: {row.get('reason', '')}")
-    extra = {k: v for k, v in data.items() if k in ("route", "hostTag", "url")}
+    extra = {k: v for k, v in data.items() if k in ("route", "hostTag", "mounted", "url")}
     if extra:
         print(f"  {extra}")
 

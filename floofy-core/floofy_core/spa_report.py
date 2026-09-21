@@ -33,12 +33,15 @@ from urllib.parse import urlencode
 __all__ = [
     "CHUNK_RE",
     "HOST_MODULE_URL",
+    "MOUNT_SELECTOR",
+    "MOUNT_SETTLE_MS",
     "PlaywrightMissing",
     "SpaReport",
     "bundle_stems",
     "check_bundle_fingerprints",
     "default_registry_path",
     "discover_chunks",
+    "drive_report_page",
     "load_registry",
     "match_bundle",
     "run_browser_report",
@@ -46,6 +49,11 @@ __all__ = [
 
 #: Same-origin URL of the SPA host module (served by the unauthenticated app-UI route).
 HOST_MODULE_URL = "/apps/floofycrew/ui/host.mjs"
+#: "The SPA has mounted": the React mount point (the ``shell.root`` surface, ``#root``) has rendered a child.
+#: Since 0.7.0.5 the entry chunk renders only after a ``/api/ui-prefs`` round-trip, so ``load`` is not enough.
+MOUNT_SELECTOR = "#root > *"
+#: Settle time after the mount before the report (the surfaces observer debounces mutations by 150 ms).
+MOUNT_SETTLE_MS = 500
 #: ``<stem>-<hash>.js`` references, as ``/assets/<name>`` URLs or ``./<name>`` module specifiers (mirrors ``surfaces.mjs``).
 CHUNK_RE = re.compile(r"(?:/assets/|\./)([A-Za-z][A-Za-z0-9_.]*?)-([A-Za-z0-9_-]{8})\.js\b")
 _SHELL_REF_RE = re.compile(r'(?:<script[^>]*\bsrc=|<link[^>]*\bhref=)(["\'])(/assets/[^"\']+\.js)\1', re.I)
@@ -173,7 +181,7 @@ class SpaReport:
             chunks={str(k): str(v) for k, v in (document.get("chunks") or {}).items()},
             source="browser",
         )
-        report.extra = {k: v for k, v in document.items() if k in ("route", "surfaces", "loaderVersion")}
+        report.extra = {k: v for k, v in document.items() if k in ("route", "surfaces", "loaderVersion", "mounted")}
         report.extra.update(extra or {})
         return report
 
@@ -247,6 +255,10 @@ def run_browser_report(
     ``inject_host`` is true, the SPA host module tag is added — same URL the
     Patcher's loader tag uses — so the report also works on a payload whose
     ``index.html`` is not patched (``hostTag: "injected"`` in the result).
+
+    The report is taken only once the SPA has mounted (see
+    :func:`drive_report_page`): since 0.7.0.5 the host defers ``createRoot().render``
+    behind a ``/api/ui-prefs`` round-trip, so ``load`` no longer implies a rendered shell.
     """
     try:
         from playwright.sync_api import Error as PlaywrightError  # noqa: PLC0415
@@ -257,24 +269,12 @@ def run_browser_report(
     base = base_url.rstrip("/")
     query = f"?{urlencode({'token': token})}" if token else ""
     url = f"{base}{path}{query}"
-    deadline = time.monotonic() + timeout_s
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=headless)
         try:
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             page.goto(url, wait_until="load", timeout=int(timeout_s * 1000))
-            host_tag = "present"
-            if not _wait_for_floofy(page, min(4.0, timeout_s / 4)):
-                if not inject_host:
-                    raise RuntimeError("window.floofy is not present and host injection is disabled (--no-inject)")
-                page.add_script_tag(url=HOST_MODULE_URL, type="module")
-                host_tag = "injected"
-                if not _wait_for_floofy(page, max(1.0, deadline - time.monotonic())):
-                    status = page.evaluate("() => window.__floofyHostStatus || null")
-                    raise RuntimeError(f"window.floofy.report did not appear (host status: {status}); is the Loader app installed, enabled and the token valid?")
-            # let the host finish the first render and the surfaces settle
-            page.wait_for_timeout(500)
-            document = page.evaluate("(options) => window.floofy.report(options)", {"extraSurfaces": extra_surfaces or []})
+            document, host_tag = drive_report_page(page, extra_surfaces=extra_surfaces, inject_host=inject_host, timeout_s=timeout_s)
             if screenshot is not None:
                 Path(screenshot).parent.mkdir(parents=True, exist_ok=True)
                 page.screenshot(path=str(screenshot))
@@ -285,9 +285,76 @@ def run_browser_report(
     return SpaReport.from_browser(document, extra={"url": f"{base}{path}", "hostTag": host_tag})
 
 
+def drive_report_page(
+    page: Any,
+    *,
+    extra_surfaces: list[dict[str, Any]] | None = None,
+    inject_host: bool = True,
+    timeout_s: float = 45.0,
+    clock: Any = time.monotonic,
+) -> tuple[dict[str, Any], str]:
+    """On an already-loaded dashboard ``page``, attach the host if needed, wait for the SPA to mount, report.
+
+    Returns ``(report document, host_tag)`` with ``host_tag`` ``"present"`` (the
+    shell carried a loader tag), ``"injected"`` (added here) or
+    ``"reinjected"`` (added again after the host reloaded the page). ``page``
+    is a Playwright page or anything with the same ``wait_for_function`` /
+    ``wait_for_selector`` / ``add_script_tag`` / ``evaluate`` / ``wait_for_timeout``
+    surface (the tests pass a fake).
+
+    Order of events: ``window.floofy.report`` must exist (Loader + SPA host up),
+    then the React root must have rendered (``MOUNT_SELECTOR``) — the DOM
+    fingerprints of the shell only exist after that — then a short settle so
+    the surfaces observer catches up, then the report. A mount that never comes
+    within the budget is not an error: the report is taken anyway and names the
+    misses, which is exactly what the matrix should record. The 0.7.0.5 entry
+    may also ``location.reload()`` after syncing UI prefs; that wipes an injected
+    ``window.floofy``, so the host is checked again after the mount and attached
+    once more when it went missing.
+    """
+    deadline = clock() + timeout_s
+    remaining = lambda floor=1.0: max(floor, deadline - clock())  # noqa: E731 - local helper
+
+    def attach() -> None:
+        if not inject_host:
+            raise RuntimeError("window.floofy is not present and host injection is disabled (--no-inject)")
+        page.add_script_tag(url=HOST_MODULE_URL, type="module")
+        if not _wait_for_floofy(page, remaining()):
+            status = page.evaluate("() => window.__floofyHostStatus || null")
+            raise RuntimeError(f"window.floofy.report did not appear (host status: {status}); is the Loader app installed, enabled and the token valid?")
+
+    host_tag = "present"
+    if not _wait_for_floofy(page, min(4.0, timeout_s / 4)):
+        attach()
+        host_tag = "injected"
+    mounted = False
+    for _attempt in range(2):
+        mounted = _wait_for_mount(page, remaining())
+        # let the host finish the first render and the surfaces settle
+        page.wait_for_timeout(MOUNT_SETTLE_MS if mounted else 100)
+        if _wait_for_floofy(page, 0.5):
+            break
+        # the SPA reloaded itself (ui-prefs sync) and took the injected host with it
+        attach()
+        host_tag = "reinjected"
+    document = page.evaluate("(options) => window.floofy.report(options)", {"extraSurfaces": extra_surfaces or []})
+    if isinstance(document, dict):
+        document.setdefault("mounted", mounted)
+    return document, host_tag
+
+
 def _wait_for_floofy(page: Any, seconds: float) -> bool:
     try:
         page.wait_for_function("() => window.floofy && typeof window.floofy.report === 'function'", timeout=int(max(0.1, seconds) * 1000))
+        return True
+    except Exception:  # noqa: BLE001 - a timeout is the negative answer
+        return False
+
+
+def _wait_for_mount(page: Any, seconds: float) -> bool:
+    """Whether the React root rendered something within ``seconds`` (``MOUNT_SELECTOR``)."""
+    try:
+        page.wait_for_selector(MOUNT_SELECTOR, state="attached", timeout=int(max(0.1, seconds) * 1000))
         return True
     except Exception:  # noqa: BLE001 - a timeout is the negative answer
         return False
