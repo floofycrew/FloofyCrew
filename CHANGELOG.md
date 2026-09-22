@@ -11,6 +11,26 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.2 — 2026-09-22
+
+A patch on 1.3.1 for hosts whose `$HOME` is a symlink: payload paths are now
+canonical everywhere, so the deployment manifest keeps one entry per file and a
+gateway restart no longer wipes the first-frame boot script and SPA-host loader
+tag out of `index.html` — the regression that made custom themes flash the
+stale pre-hydration theme and kept runtime parts from loading. Also new:
+the hourly re-apply trigger now refreshes the App's release banner and
+per-mod update rows, so update reminders reach users who never open a
+terminal.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Fixed
 
 - **One canonical spelling per payload file** (`floofy_core.payloads.make_payload`,
