@@ -1,0 +1,17 @@
+/* display-comfort — the chat-scale rules (baked into index.html as a boot stylesheet;
+   the runtime part injects the same text as <style id="floofy-display-comfort"> so the
+   mod also works before the next patch apply).
+
+   The scale itself lives in one custom property on <html>, set by the boot hook /
+   runtime / settings page; with the property unset every rule below is a no-op (zoom 1).
+   `zoom` rather than `font-size` because the host styles message text with explicit
+   rem/px utility classes that would ignore an inherited font-size — zoom scales the
+   whole bubble (text, code blocks, spacing) proportionally and lays out correctly. */
+
+[data-testid="message-bubble"] {
+  zoom: var(--floofy-dc-chat-scale, 1);
+}
+
+html[data-floofy-dc-composer="on"] [data-testid="chat-footer"] {
+  zoom: var(--floofy-dc-chat-scale, 1);
+}
