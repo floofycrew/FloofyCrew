@@ -11,6 +11,24 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- **One canonical spelling per payload file** (`floofy_core.payloads.make_payload`,
+  `floofy_core.deploy`). On a host whose `$HOME` is a symlink (a common
+  clouddesk layout, `/home/x -> /local/home/x`) the gateway spelled payload
+  paths through the symlink while a shell spelled them canonically. The
+  deployment manifest, keyed by raw string, collected one entry per spelling
+  for the same file; drift then classified the other process's write as
+  `user-edited`, and inside a single gateway apply `index.html` was committed
+  as two independent work items — the import-map commit (derived from the
+  pre-patch original) silently dropping the boot-script ops written a moment
+  earlier. Net effect: the first-frame theme sheet and the SPA-host loader tag
+  vanished on every gateway restart, so custom themes flashed the stale
+  pre-hydration theme and runtime parts never loaded. Payload roots are now
+  canonicalized at discovery, every manifest lookup and record goes through
+  `canonical_path`, and loading a manifest heals pre-existing duplicate
+  spellings (newest record kept, first-recorded original hash preserved).
+
 ### Added
 
 - **Update reminders without a terminal** (Requirement 7.7 extended). The

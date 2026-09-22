@@ -258,3 +258,70 @@ def test_added_name_is_recognised_and_idempotent(name: str, tag: str | None) -> 
     assert is_floofy_added(result)
     assert added_name(result) == result
     assert ADDED_MARKER in result
+
+
+
+# --- canonical paths (the $HOME-symlink split-brain) ----------------------------------
+#
+# The gateway reaches a payload through a symlinked $HOME (/home/x -> /local/home/x)
+# while a shell spells the canonical path. Keyed by raw string, one file collected two
+# manifest entries; each process classified the other's write as user-edited, and inside
+# one apply index.html became two work items, the later commit dropping the earlier
+# one's ops (the custom-themes first-frame boot script). One canonical spelling per
+# file closes it.
+
+
+def _linked_home(tmp_path: Path) -> tuple[Path, Path]:
+    real = tmp_path / "real-home"
+    real.mkdir()
+    link = tmp_path / "home-link"
+    link.symlink_to(real, target_is_directory=True)
+    return real, link
+
+
+def test_manifest_records_and_finds_one_entry_across_spellings(tmp_path: Path) -> None:
+    real, link = _linked_home(tmp_path)
+    (real / "index.html").write_text("original", encoding="utf-8")
+    manifest = DeployManifest("venv:crew-venv:0.7.0.5", "0.7.0.5", "external")
+    manifest.record_patch(link / "index.html", "orig", "patched-1", "floofycrew", "boot")
+    # the second writer (another process) spells the same file canonically
+    entry = manifest.record_patch(real / "index.html", "orig", "patched-2", "custom-themes", "4")
+    assert len(manifest.files) == 1
+    assert entry.patched_sha256 == "patched-2"
+    assert manifest.find_file(link / "index.html") is manifest.find_file(real / "index.html")
+    manifest.forget(link / "index.html")
+    assert manifest.is_empty
+
+
+def test_manifest_load_heals_duplicate_spellings(tmp_path: Path) -> None:
+    real, link = _linked_home(tmp_path)
+    (real / "index.html").write_text("patched-by-b", encoding="utf-8")
+    document = {
+        "schema": 1,
+        "payload": "venv:crew-venv:0.7.0.5",
+        "hostVersion": "0.7.0.5",
+        "edition": "external",
+        "payloadRoot": str(real),
+        "updatedAt": "2026-09-22T00:00:00Z",
+        "files": [
+            {"path": str(link / "index.html"), "orig_sha256": "orig-true", "patched_sha256": "sha-a", "mod": "floofycrew", "part": "boot", "ts": "2026-09-21T20:25:31Z", "backup": None},
+            {"path": str(real / "index.html"), "orig_sha256": "orig-true", "patched_sha256": "sha-b", "mod": "custom-themes", "part": "4", "ts": "2026-09-22T15:46:33Z", "backup": None},
+        ],
+        "added": [
+            {"path": str(link / "a-floofy.js"), "sha256": "s1", "mod": "m", "ts": "2026-09-21T00:00:00Z"},
+            {"path": str(real / "a-floofy.js"), "sha256": "s2", "mod": "m", "ts": "2026-09-22T00:00:00Z"},
+        ],
+        "sidelined": [],
+    }
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    manifest = DeployManifest.load(path)
+    assert [f.path for f in manifest.files] == [str(real / "index.html")]
+    kept = manifest.files[0]
+    assert kept.patched_sha256 == "sha-b" and kept.part == "4", "the newest record describes the last actual write"
+    assert kept.orig_sha256 == "orig-true"
+    assert [a.path for a in manifest.added] == [str(real / "a-floofy.js")]
+    assert manifest.added[0].sha256 == "s2"
+    # drift over the healed manifest sees ONE clean file, no phantom user-edit
+    report = classify_drift(manifest, current_host_version="0.7.0.5", hasher=lambda p: "sha-b")
+    assert report.classes[str(real / "index.html")] is DriftClass.CLEAN

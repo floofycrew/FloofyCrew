@@ -320,7 +320,16 @@ def make_payload(
     (version from the package, channel from the version unless ``derive_channel``
     is false, edition from the probe, interpreter from a venv-style ``bin/python``).
     """
-    package_dir = Path(package_dir)
+    # Canonicalize both directories (symlinks resolved) so every process derives the SAME
+    # spelling for a payload's files. The gateway sees ``$HOME`` through a symlink
+    # (``/home/x -> /local/home/x``) while a shell spells it canonically; without this the
+    # deployment manifest collects one entry per spelling for the same file, drift calls the
+    # other process's write "user-edited", and inside one apply index.html is committed as
+    # TWO work items — the later one silently dropping the earlier one's ops (the boot
+    # script). ``resolve_target`` already canonicalizes op targets; this makes the payload's
+    # own paths (``index_html``, ``dist_dir``) agree with it.
+    package_dir = Path(package_dir).resolve()
+    root = Path(root).resolve()
     host_version = version or read_host_version(package_dir)
     probe = edition_probe or default_edition_probe
     parts = [kind]
@@ -329,7 +338,7 @@ def make_payload(
     parts.append(str(host_version))
     return Payload(
         id=":".join(parts),
-        root=Path(root),
+        root=root,
         package_dir=package_dir,
         dist_dir=package_dir / "static" / "dist",
         host_version=host_version,
