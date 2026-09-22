@@ -130,6 +130,13 @@ def test_update_check_shows_progress_and_a_result_line():
     assert '"Checking…"' in registry and "check failed" in registry
 
 
+def test_the_landing_page_reminds_about_mod_updates():
+    """Requirement 7.7: the Mods page shows a mod-updates notice (the trigger keeps the data fresh unattended)."""
+    mods = (UI / "app" / "pages" / "mods.mjs").read_text(encoding="utf-8")
+    assert "floofycrew-mod-updates-notice" in mods and "floofycrew-mod-updates-open" in mods
+    assert 'navigate("registry")' in mods, "the notice hands the user to the Registry page for the actions"
+
+
 def test_the_restart_and_update_buttons_reach_their_routes_and_the_pages_place_them():
     """1.1.6: the red restart button and 'Update & restart' — POST /host/restart and POST /self-update, always behind a question."""
     actions = (UI / "app" / "actions.mjs").read_text(encoding="utf-8")

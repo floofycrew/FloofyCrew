@@ -41,7 +41,7 @@ terminal it prints the usage). FloofyCrew is unofficial and says so in every ban
 | `enable <id>` / `disable <id>` | flip the flag, reload a running gateway, re-apply patches | `--no-reload` |
 | `update [ids] [--all]` | move installed registry mods to the newest version the matrix knows to work on this host | `--check`, `--now`, `--accept-flags` |
 | `dev <path>` | symlink a checkout into `mods/<id>`, enable host dev mode where applicable, stream its log | `--follow`, `--unlink`, `--no-reload` |
-| `apply` | revert-then-patch every payload with the enabled mods' patches (what the re-apply trigger runs as `apply --if-changed`) | `--if-changed`, `--payload ID`, `--no-verify`, `--confirm-governance-target PATH` |
+| `apply` | revert-then-patch every payload with the enabled mods' patches (what the re-apply trigger runs as `apply --if-changed`). `--if-changed` also keeps the App's update reminders fresh unattended: the daily FloofyCrew release check (its own 24 h cache) and a registry-source refresh at most once a day — best-effort, never failing the run, disabled together with `updates.check` | `--if-changed`, `--payload ID`, `--no-verify`, `--confirm-governance-target PATH` |
 | `restore` | return every payload to vanilla by manifest and sweep — works without a manifest | `--all` (default), `--payload ID`, `--no-sweep` |
 | `verify` | compare served bytes with the deployment manifests over the dashboard socket / loopback; tell dormant from failed | `--spa` (the browser reporter), `--bundle` (offline fingerprints), `--extra-surfaces`, `--timeout` |
 | `validate <dir \| archive>` | schema, `files[]` hashes, parts, targets (engineering-rule targets rejected, governance files flagged), network scan | |

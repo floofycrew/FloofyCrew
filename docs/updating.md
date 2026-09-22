@@ -22,6 +22,20 @@ state.
 `apply --if-changed` compares discovery with `host-state.json` and returns in a
 few milliseconds when nothing changed; a quiet hour costs one payload scan.
 
+The same run also keeps the App's **update reminders** fresh — it is the one
+FloofyCrew command that runs unattended, outside the gateway, with your own
+credentials, so it carries the freshness work the Loader is not allowed to do
+(the Loader performs no network I/O): the daily FloofyCrew release check (its
+own 24 h cache, so the hourly trigger costs at most one request a day) and a
+refresh of your registry sources at most once a day. Both are best-effort — an
+offline desk or an expired credential never fails the trigger, the caches just
+keep their previous state — a registry you have never fetched yourself is not
+fetched (your first explicit `floofy registry refresh` opts in), and
+`floofy config set updates.check false` switches both off together with the
+release check. The App's banner ("FloofyCrew X is available…") and its mod
+update rows read those caches, so they stay current even if you never open a
+terminal.
+
 ## What happens when a new host version is detected
 
 In the order the requirement lists:

@@ -11,6 +11,22 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- **Update reminders without a terminal** (Requirement 7.7 extended). The
+  re-apply trigger's `floofy apply --if-changed` — the one run that happens
+  unattended, outside the gateway, with the user's own credentials — now also
+  performs the daily FloofyCrew release check (its own 24 h cache, so the
+  hourly trigger costs at most one request a day) and a registry-source
+  refresh at most once a day (`floofy_core/freshness.py`), so the App's
+  release banner and per-mod update rows stay fresh for users who never open
+  a terminal. Best-effort: an offline desk or a failed feed never fails the
+  trigger; a registry the user never fetched themselves is not fetched; and
+  `updates.check false` disables both. The Loader still performs no network
+  I/O itself. The Mods landing page now carries the mod-updates notice too
+  ("N mod update(s) available … Review on the Registry page") — before, only
+  the Registry page showed them.
+
 ## 1.3.1 — 2026-09-22
 
 A patch on 1.3.0 that removes ceremony from installing mods. A git reference

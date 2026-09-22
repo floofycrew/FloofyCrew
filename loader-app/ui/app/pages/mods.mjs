@@ -95,6 +95,7 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
   const pending = (statusMeta && statusMeta.pending) || [];
   const quarantine = (statusMeta && statusMeta.quarantine) || {};
   const updates = (registry && registry.updates) || {};
+  const modUpdates = Object.entries(updates).filter(([, u]) => u && u.update);
   const mod = (id) => `/mods/${encodeURIComponent(id)}`;
 
   return React.createElement(
@@ -138,6 +139,16 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
             "ul",
             { style: { ...styles.warn, ...styles.list, marginTop: "0.4rem" } },
             state.governance.map((warning, index) => React.createElement("li", { key: index }, `governance ${warning.code}: ${warning.message}`)),
+          )
+        : null,
+      // Requirement 7.7: the landing page reminds about MOD updates too (the data is kept fresh unattended
+      // by the re-apply trigger's daily check + registry refresh; the Registry page carries the actions)
+      modUpdates.length
+        ? React.createElement(
+            "div",
+            { style: { ...styles.ok, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem 0.6rem", marginTop: "0.4rem" }, "data-testid": "floofycrew-mod-updates-notice" },
+            React.createElement("span", null, `${modUpdates.length} mod update(s) available: ${modUpdates.map(([id, u]) => `${id} ${u.installed} → ${u.candidate}`).join(", ")}`),
+            navigate ? React.createElement("button", { style: { ...styles.button, ...styles.primary, marginBottom: 0 }, disabled: busy, "data-testid": "floofycrew-mod-updates-open", onClick: () => navigate("registry") }, "Review on the Registry page") : null,
           )
         : null,
     ),

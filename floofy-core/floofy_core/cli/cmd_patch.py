@@ -68,9 +68,13 @@ def apply(ctx: CliContext, args: argparse.Namespace) -> int:
     if staged is not None:
         ctx.set_result(selfUpdateLoaderApp=staged)
     if args.if_changed:
+        from ..freshness import run as freshness  # noqa: PLC0415
         from ..hostchange import apply_if_changed  # noqa: PLC0415
 
         outcome = apply_if_changed(ctx, confirmed_governance_targets=list(args.confirm_governance_target), verify=not args.no_verify)
+        # Requirement 7.7: `--if-changed` is the unattended trigger path, the one run that happens without the
+        # user — keep the App's update reminders fresh from here (best-effort, both steps cached/daily inside).
+        outcome["freshness"] = freshness(ctx)
         ctx.set_result(**outcome)
         return 0 if outcome.get("ok", True) else 1
     report = reapply(ctx, verify=not args.no_verify, confirmed_governance_targets=list(args.confirm_governance_target), payload_ids=args.payload or None)
