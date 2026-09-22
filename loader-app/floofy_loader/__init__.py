@@ -21,4 +21,4 @@ __all__ = ["__version__"]
 #: The Loader ships with the FloofyCrew release it belongs to; the build script
 #: (``scripts/build_loader_app.py``) keeps ``app.json`` ``version`` in step with
 #: ``floofy_core.__version__``.
-__version__ = "1.3.0"
+__version__ = "1.3.1"
