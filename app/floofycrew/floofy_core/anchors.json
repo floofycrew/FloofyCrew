@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "description": "Python anchors: host names the Loader, the manager and the shipped mods rely on. Checked against a payload's source files without importing the gateway (floofy_core.anchors); the compat matrix records matched/total per host version (Requirement 9.1).",
+  "anchors": [
+    {"module": "kiro_crew.apps.route_registry", "attr": "AppRoute", "why": "the Loader's routes are AppRoute(method, path, handler) objects returned from backend.hooks.routes"},
+    {"module": "kiro_crew.apps.hooks_integration", "attr": "get_route_registry", "why": "ctx.hooks route targets swap the live aiohttp route handler found through this registry"},
+    {"module": "kiro_crew.apps.module_loader", "attr": "load_app_module", "why": "how the host imports floofy_loader.hooks by file path (the shim puts the app dir on sys.path)"},
+    {"module": "kiro_crew.apps.execution", "attr": "app_execution_denied", "why": "the App Kit execution gate the agent.apps_trusted grant satisfies"},
+    {"module": "kiro_crew.apps.manifest", "attr": "UIConfig", "why": "app.json ui.entry, the manager page's vehicle"},
+    {"module": "kiro_crew.apps.routes", "attr": "handle_app_ui_file", "why": "the unauthenticated /apps/<name>/ui/ route that serves host.mjs, patched chunk copies and boot assets"},
+    {"module": "kiro_crew.apps.manager", "attr": "apps_dir", "why": "<host home>/apps, where the Loader app is installed"},
+    {"module": "kiro_crew.dashboard.handlers.core", "attr": "index", "why": "serves index.html unchanged; the example python-hook and the boot script rely on it"},
+    {"module": "kiro_crew.dashboard.handlers.core", "attr": "api_token_local", "why": "the manager mints its session here with the local secret"},
+    {"module": "kiro_crew.dashboard.handlers.themes", "attr": "api_themes_install", "why": "the theme seam route (POST /api/themes/install)"},
+    {"module": "kiro_crew.dashboard.token_auth", "attr": "token_auth_middleware", "why": "the ?token= exchange and cookie the manager session relies on"},
+    {"module": "kiro_crew.dashboard.server", "attr": "_BASE_CSP", "why": "the served CSP the SPA host and patches were designed against (spike 1.4)"},
+    {"module": "kiro_crew.config.paths", "attr": "config_dir", "why": "the host home (KIROCREW_HOME or ~/.kiro/crew)"},
+    {"module": "kiro_crew.config.loader", "attr": "read_local_secret", "why": "run/gateway-<port>.secret then .local_secret: the manager reads the same files"},
+    {"module": "kiro_crew.release_channel", "attr": "channel", "why": "the channel rule floofy.host mirrors for un-stamped builds"},
+    {"module": "kiro_crew.platform.bootstrap", "attr": null, "why": "the early shim arms a post-import hook on this module"}
+  ]
+}

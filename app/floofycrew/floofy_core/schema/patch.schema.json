@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://floofycrew.dev/schema/patch-1.json",
+  "title": "FloofyCrew patch descriptor (kind: patch, schema 1)",
+  "description": "An overlay patch applied by the Patcher (Requirement 5) to one file of a host payload. Every text op is gated by a content fingerprint that must match exactly once and by the 'appliesTo' host-version range (Requirement 5.5); 'marker' makes an op idempotent. Patches on hashed chunks are swapped in through the host's inline import map (design spike 1.4), which is why a descriptor may carry an 'importMap' block.",
+  "type": "object",
+  "required": ["target", "ops"],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {}
+  },
+  "properties": {
+    "schema": {
+      "description": "Descriptor schema version; 1 when present.",
+      "type": "integer",
+      "const": 1
+    },
+    "target": {
+      "description": "Path of the file to patch, relative to the payload root (for example kiro_crew/static/dist/index.html). For a content-hashed chunk the name may carry a glob (kiro_crew/static/dist/assets/useTheme-*.js) that must resolve to exactly one file of the payload — a fingerprint on the name, never a hash. Host Python sources and launcher files are refused as engineering-rule targets (Requirement 5.10); governance files are allowed but flagged governance-altering (Requirement 11.4). An `electron:<member>` target names a file INSIDE the desktop shell's app.asar (for example electron:mochi/petOverlays.js): the archive is rewritten as one file with its own backup, on payloads that have a shell and whose fuses do not enforce asar integrity; gateway-only payloads report it NotApplicable (Requirement 5.11).",
+      "$ref": "#/$defs/relativePath"
+    },
+    "mode": {
+      "description": "How the patched text reaches the browser (design spike 1.4). 'in-place' (default): the target file is rewritten (backed up, hash-tracked). 'import-map': the target chunk stays untouched; a patched copy with rebased imports is written under the Loader app's ui/patched/ and one import-map key in index.html swaps it in for every importer — the module-patching path for hashed chunks. An entry chunk loaded by <script src> is not reachable through the import map and falls back to the in-place + alias-graph path.",
+      "type": "string",
+      "enum": ["in-place", "import-map"],
+      "default": "in-place"
+    },
+    "find": {
+      "description": "Optional literal that must occur in the target text before any op applies (Vencord's `find`: identifies the module by content). Absent → the whole descriptor is skipped with FingerprintMiss.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "appliesTo": {
+      "description": "Host base-version range (X.Y.Z) the patch applies to; outside it the Patcher skips the descriptor with a diagnostic (Requirement 5.5). Default: every version.",
+      "$ref": "#/$defs/semverRange"
+    },
+    "fromBuild": {
+      "description": "Optional inclusive lower bound on the full host version (including an internal build number or insider tag) for build-range gating, in the spirit of Vencord's fromBuild.",
+      "$ref": "#/$defs/hostVersion"
+    },
+    "toBuild": {
+      "description": "Optional exclusive upper bound on the full host version for build-range gating.",
+      "$ref": "#/$defs/hostVersion"
+    },
+    "cacheBust": {
+      "description": "True when the target is a content-hashed immutable asset that must be republished under a new name (Requirement 5.6). Not needed for the import-map remap path.",
+      "type": "boolean",
+      "default": false
+    },
+    "importMap": {
+      "description": "Optional import-map keys to add to the host's inline import map in index.html: original specifier or URL -> replacement URL under the Loader app's ui/patched/ path (design spike 1.4). Kept permissive on purpose; the Patcher validates the URLs.",
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "ops": {
+      "description": "Text operations applied in order. A fingerprint that matches zero or several times makes the Patcher SKIP the whole descriptor (never a partial rewrite).",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/op" }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))[^\\\\\\u0000-\\u001f]+$"
+    },
+    "semverRange": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[ 0-9A-Za-z.*+|<>=^~-]+$",
+      "format": "semver-range"
+    },
+    "hostVersion": {
+      "description": "A host version as the host prints it: X.Y.Z, X.Y.Z.N, X.Y.ZrcN, X.Y.Z.devN or X.Y.Z-insider.N.",
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 64,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+[0-9A-Za-z.-]*$",
+      "format": "host-version"
+    },
+    "opCommon": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "description": "Text inserted or substituted.",
+          "type": "string"
+        },
+        "marker": {
+          "description": "A literal that is present in the target once the op has been applied; its presence makes the op a no-op (idempotency).",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "op": {
+      "oneOf": [
+        {
+          "description": "insert-before / insert-after / replace: 'fingerprint' must match exactly once (literal, or a regular expression when 'regex' is true).",
+          "type": "object",
+          "required": ["op", "fingerprint", "content"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "type": "string", "enum": ["insert-before", "insert-after", "replace"] },
+            "fingerprint": { "type": "string", "minLength": 1 },
+            "regex": { "type": "boolean", "default": false },
+            "occurrence": {
+              "description": "'only' (default): the fingerprint must match exactly once. 'first' / 'last': the fingerprint names a class of locations (for example every <script tag) and the op takes the first or last one — still a content fingerprint, never an offset.",
+              "type": "string",
+              "enum": ["only", "first", "last"],
+              "default": "only"
+            },
+            "content": { "$ref": "#/$defs/opCommon/properties/content" },
+            "marker": { "$ref": "#/$defs/opCommon/properties/marker" },
+            "description": { "$ref": "#/$defs/opCommon/properties/description" }
+          }
+        },
+        {
+          "description": "append-head: 'content' is inserted just before </head>; no fingerprint needed.",
+          "type": "object",
+          "required": ["op", "content"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "append-head" },
+            "content": { "$ref": "#/$defs/opCommon/properties/content" },
+            "marker": { "$ref": "#/$defs/opCommon/properties/marker" },
+            "description": { "$ref": "#/$defs/opCommon/properties/description" }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://floofycrew.dev/schema/signature-1.json",
+  "title": "FloofyCrew detached signature (index.json.sig / compat.json.sig, schema 1)",
+  "description": "An Ed25519 signature over the json-c14n-1 canonical bytes of the document it sits beside (Requirement 8.3). The key id is sha256(public key)[:16]; the public key is pinned per edition in the manager, or per source by the user.",
+  "type": "object",
+  "required": ["schema", "alg", "keyId", "signature"],
+  "properties": {
+    "schema": { "const": 1 },
+    "alg": { "const": "ed25519" },
+    "keyId": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+    "signature": {
+      "description": "Base64 of the 64-byte signature.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{86}==$"
+    },
+    "signedAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "canonical": { "const": "json-c14n-1" }
+  },
+  "patternProperties": { "^x-": {} },
+  "additionalProperties": false
+}
