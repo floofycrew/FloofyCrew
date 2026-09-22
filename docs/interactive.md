@@ -17,8 +17,8 @@ unofficial and says so on every screen.
   source tier (`unlisted` / `listed` / `tested`); Enter on a mod for Info,
   Enable/Disable, Update, Uninstall, Yeet; plus *Install from the registry*
   (a search field, then the matching records), *Install from a git reference*
-  (a text field for `ssh://…@tag` or `https://…@tag`), *Restore a quarantined
-  set*, *Show the quarantine*, *Status*.
+  (a text field for `ssh://…` or `https://…`, `@tag` optional), *Restore a
+  quarantined set*, *Show the quarantine*, *Status*.
 - **Registries** — the sources and their trust; Enter on a source for Refresh,
   Change the trust level, Accept/require unsigned indexes, Remove; plus *Add a
   source* (URL, trust level, signature requirement), *Refresh every source*,

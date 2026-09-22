@@ -48,7 +48,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_save_list_export_import_round_trip(env, tmp_path: Path):
     for mod_id in ("alpha", "beta"):
         assert env.run("--yes", "install", str(env.mod(mod_id))).exit == 0
-    assert env.run("--yes", "install", str(env.mod("hooky", "hook"))).exit == 0  # lands disabled
+    assert env.run("--yes", "install", str(env.mod("hooky", "hook")), "--disabled").exit == 0  # switched off on purpose
     saved = env.run("--json", "profile", "save", "work")
     assert saved.exit == 0, saved.stderr
     lock = json.loads(env.paths.profile("work").read_text(encoding="utf-8"))
@@ -75,7 +75,7 @@ def test_use_sets_flags_installs_missing_and_disables_extras(env):
     alpha, beta = env.mod("alpha"), env.mod("beta")
     for mod in (alpha, beta):
         assert env.run("--yes", "install", str(mod)).exit == 0
-    assert env.run("--yes", "install", str(env.mod("hooky", "hook")), "--enable").exit == 0
+    assert env.run("--yes", "install", str(env.mod("hooky", "hook"))).exit == 0  # lands enabled like every confirmed install
     assert env.run("--json", "profile", "save", "full").exit == 0
     # drift away from the profile: uninstall beta, disable alpha, install an extra
     assert env.run("--yes", "uninstall", "beta").exit == 0

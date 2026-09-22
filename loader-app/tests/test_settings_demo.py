@@ -44,9 +44,9 @@ def test_the_mod_is_valid_and_declares_what_it_needs():
 
 def test_install_enable_config_round_trip_and_the_echo_route(homes: Path):
     home = Home(homes / "h", consent=True)
-    code, result, _ = home.cli("--yes", "install", str(MOD_DIR), "--now")
+    code, result, _ = home.cli("--yes", "install", str(MOD_DIR), "--now", "--disabled")
     assert code == 0, result
-    assert result.get("enabled") is False, "lands disabled: the python-hook part (Requirement 11.7)"
+    assert result.get("enabled") is False, "installed switched off on purpose (--disabled) to exercise the disabled path first"
     disclosure = result.get("disclosure") or {}
     assert [(p.get("kind"), "App" in str(p.get("seam"))) for p in disclosure.get("parts", [])] == [("ui", True), ("python-hook", False)]
     home.runtime.reload()

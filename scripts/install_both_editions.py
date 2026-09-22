@@ -19,7 +19,7 @@ manifest allows both*. This script proves it end to end without a live host:
    no edition adapter can list the machine's real installs;
 3. runs the manager in-process: ``floofy init --i-accept-the-risk`` (the consent
    record; no Loader app, no trigger), then per mod ``floofy validate <archive>``,
-   ``floofy --yes install <archive> --now``, ``floofy enable <id>``;
+   ``floofy --yes install <archive> --now`` (lands enabled), ``floofy enable <id>`` (idempotent);
 4. runs the Loader's ``boot()`` in-process against the same payload and asserts
    every mod is **active** there: the Patcher ran for ``custom-themes`` (the
    ``spa`` boot part is baked into the payload's ``index.html``; the ``patch``

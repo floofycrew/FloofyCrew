@@ -14,7 +14,7 @@ automation switches that answer a question by themselves (``--yes``,
 
 | Method | Path | Body | Runs |
 |---|---|---|---|
-| POST | ``/mods/install`` | ``{source, now?, enable?, ref?}`` | ``install <source> [--now] [--enable] [--ref REF]`` |
+| POST | ``/mods/install`` | ``{source, now?, disabled?, ref?}`` | ``install <source> [--now] [--disabled] [--ref REF]`` |
 | POST | ``/mods/update-check`` | | ``update --all --check`` |
 | POST | ``/mods/update-all`` | ``{now?}`` | ``update --all [--now]`` |
 | POST | ``/mods/{id}/enable`` · ``/disable`` | ``{reload?=true}`` | ``enable|disable <id> [--no-reload]`` |
@@ -171,8 +171,9 @@ def _install(params: dict[str, str], body: dict[str, Any], query: dict[str, list
     argv = ["install", str(source)]
     if _flag(body, "now"):
         argv.append("--now")
-    if _flag(body, "enable"):
-        argv.append("--enable")
+    if _flag(body, "disabled"):
+        argv.append("--disabled")
+    # pre-1.3 body key: `enable` asked for what is now the default — accepted and dropped
     ref = _text(body, "ref")
     if ref:
         argv += ["--ref", ref]

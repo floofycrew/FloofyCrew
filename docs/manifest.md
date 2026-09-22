@@ -143,8 +143,9 @@ dialogs — never the browser's pop-ups, which the desktop shell lacks); see
 a cleanup function (or an object with `unmount()`). The page runs inside an
 error boundary: an import or mount that throws is shown with the message and a
 *Disable* button and never takes the manager page down. A `ui` part is inert
-until opened, so it does **not** make a mod land disabled (only `python-hook`
-and `spa` parts do); `floofy validate` checks that `entry` and `icon` exist,
+until opened, so it is **not** one of the code kinds the install confirmation
+covers (only `python-hook` and `spa` are);
+`floofy validate` checks that `entry` and `icon` exist,
 sit under `path` and are hash-listed, and its network scan covers the module
 like any other shipped code. `floofy new ui` scaffolds one.
 

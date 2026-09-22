@@ -815,7 +815,7 @@ def test_6_manager_app_smoke(harness: Harness):
         disclosure = page.inner_text('[data-testid="floofycrew-disclosure"]')
         assert "settings-demo 1.0.0" in disclosure and "ui/spa" in disclosure and "python-hook/gateway" in disclosure, disclosure
         assert "no remote hosts declared" in page.inner_text('[data-testid="floofycrew-disclosure-network"]')
-        assert "land DISABLED" in disclosure, "the python-hook part lands it disabled (Requirement 11.7)"
+        assert "installs the mod enabled" in disclosure, "the disclosure says the confirmed install lands enabled (Requirement 11.7)"
         assert page.is_checked('[data-testid="floofycrew-staging-staged"]'), "staged is the default (Requirement 16.5)"
         page.check('[data-testid="floofycrew-staging-now"]')
         page.click('[data-testid="floofycrew-yesno-yes"]')
@@ -829,14 +829,11 @@ def test_6_manager_app_smoke(harness: Harness):
         install_rows = [r for r in _audit_rows(harness) if r["op"] == "install" and r["mod"] == "settings-demo"]
         assert install_rows and install_rows[-1]["actor"] == "app" and install_rows[-1]["tier"] == "listed" and install_rows[-1]["source"]["ref"] == "settings-demo@1.0.0", install_rows[-1]
         state = client.get(f"{API}/state").json()
-        assert state["mods"]["settings-demo"]["active"] is False and state["mods"]["settings-demo"]["reason"] == "UserDisabled"
+        assert state["mods"]["settings-demo"]["active"] is True, "a confirmed install lands enabled and active (Requirement 11.7)"
 
-        # 3. enable it on the Mods page, open its settings page
+        # 3. already enabled on the Mods page (no manual step, Requirement 11.7); open its settings page
         page.click('[data-testid="floofycrew-nav-mods"]')
         page.wait_for_selector('[data-testid="floofycrew-mod-row-settings-demo"]', timeout=60000)
-        assert page.inner_text('[data-testid="floofycrew-enabled-settings-demo"]').startswith("disabled")
-        assert page.is_disabled('[data-testid="floofycrew-open-page-settings-demo"]'), "the page of a disabled mod cannot be opened"
-        page.click('[data-testid="floofycrew-toggle-settings-demo"]')
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-settings-demo\"]')?.textContent.startsWith('enabled')", timeout=90000)
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-open-page-settings-demo\"]')?.disabled === false", timeout=60000)
         state = client.get(f"{API}/state").json()["mods"]["settings-demo"]
@@ -871,7 +868,7 @@ def test_6_manager_app_smoke(harness: Harness):
         assert client.get(f"{API}/ui/mods/settings-demo/ui/page.mjs").status == 404
         assert client.get(f"{API}/mods/settings-demo/config").json()["config"] == {"greeting": "hello from the smoke test", "notify": True}, "the settings survive the disable"
         ops = [(r["op"], r["actor"]) for r in _audit_rows(harness) if r.get("mod") == "settings-demo"]
-        assert ("install", "app") in ops and ("enable", "app") in ops and ("disable", "app") in ops, ops
+        assert ("install", "app") in ops and ("disable", "app") in ops, ops  # no enable row: the install landed enabled (Requirement 11.7)
         assert page.locator('[data-testid="floofycrew-nav"]').count() == 1 and page.locator('[data-testid="floofycrew-banner"]').count() == 1
         print(f"manager App smoke: {time.time() - started:.1f}s")
     finally:

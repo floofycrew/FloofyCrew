@@ -91,7 +91,6 @@ def test_reference_grammar_accepts_the_two_encrypted_spellings_only():
         ("forge.example/owner/repo@1.0.0", "NotAGitReference"),
         ("https://forge.example/owner/repo?raw=1", "NotAGitReference"),
         ("https://forge.example/owner/repo@1.0.0#../escape", "BadSubdirectory"),
-        ("https://forge.example/owner/repo", "UnpinnedReference"),
         ("file:///srv/repo.git@1.0.0", "LocalTransport"),
     ):
         with pytest.raises(GitRefError) as caught:
@@ -99,9 +98,12 @@ def test_reference_grammar_accepts_the_two_encrypted_spellings_only():
         assert caught.value.code == code, text
     assert not local_git_allowed({})
     assert GitRef.parse("file:///srv/repo.git@1.0.0", allow_local=True).scheme == "file"
+    # a bare reference is not refused: it takes the repository's default branch (HEAD)
+    bare = GitRef.parse("https://forge.example/owner/repo", allow_local=False)
+    assert bare.is_default_branch and not bare.pinned and bare.commitish == ""
 
 
-def test_unpinned_reference_needs_an_explicit_ref_and_never_both():
+def test_explicit_ref_forms_and_never_both():
     branch = GitRef.parse("https://forge.example/o/r.git", ref="main")
     assert branch.tag is None and branch.ref == "main" and branch.commitish == "main" and not branch.pinned and not branch.is_commit
     commit = GitRef.parse("ssh://forge.example/pkg/R", ref="a" * 40)
@@ -169,10 +171,12 @@ def test_the_unlisted_source_line_is_never_accepted_by_yes_but_by_the_named_flag
     assert row["result"] == "ok" and row["unlistedSource"]["how"] == "flag" and "unlisted source accepted (flag)" in row["detail"]
 
 
-def test_unpinned_reference_is_refused_without_ref_and_recorded_with_the_commit_with_it(env):
+def test_bare_reference_installs_the_default_branch_and_records_the_commit(env):
     url, commit = make_bare_repo(env.scratch)
-    refused = env.run("install", url, "--accept-unlisted-source")
-    assert refused.exit == 1 and "names no tag" in refused.stderr and "--ref" in refused.stderr
+    bare = env.run("install", url, "--accept-unlisted-source")
+    assert bare.exit == 0, bare.stderr
+    record = read_source(env.paths.mods / "example-theme")
+    assert record["git"]["tag"] is None and record["git"]["ref"] is None and record["commit"] == commit, "default branch (HEAD), recorded with the commit it resolved to"
     result = env.run("install", url, "--ref", "main", "--accept-unlisted-source")
     assert result.exit == 0, result.stderr
     record = read_source(env.paths.mods / "example-theme")

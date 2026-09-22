@@ -11,6 +11,42 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Changed
+
+- **A confirmed install lands enabled** (Requirement 11.7 reworded). The
+  install confirmation *is* the consent, so the separate `floofy enable` step —
+  which users (and the owner) kept forgetting — is gone. `--disabled` (CLI) and
+  the App's plain-language "install switched off (enable it later)" checkbox
+  land a mod off on request; the jargon "enable code parts right away" flag and
+  checkbox are retired (`--enable` is still accepted and ignored so pre-1.3
+  automation keeps working). The disclosure's `landsDisabled` field is now
+  `codeParts` — what the confirmation covers, not a promise about the flag.
+- **A git reference no longer needs a tag** (Requirement 8.8 reworded). A bare
+  `ssh://…` / `https://….git` reference installs the repository's **default
+  branch** (its HEAD); the mod's version and host compatibility are read from
+  the checkout's `floofy.json`, never derived from a tag or commit hash, and
+  the install is recorded with the commit the clone resolved to. `@<tag>` and
+  `--ref <branch|commit>` stay available to pin a point on purpose
+  (`UnpinnedReference` is no longer raised).
+- **The manual Yeet button is gone from the App.** Disable and Uninstall cover
+  the user-facing need; the automatic per-host-version quarantine, its Restore
+  button and the `floofy yeet` command are unchanged, and the quarantine card
+  now says in plain language when mods land there (and names the terminal
+  command for parking one by hand, Requirement 16.2).
+- **Registry › "Check for updates" reports what it did**: the button reads
+  "Checking…" with a busy note while the sources are asked, then a one-line
+  verdict — how many updates are available, "everything is at the newest
+  version known to work here", or the error when the check failed.
+
+### Fixed
+
+- **The active tab grew a bottom border after any tab switch.** React writes
+  only the changed inline-style keys, so the 4-side `borderColor` write on
+  activation repainted the bottom while `borderBottomColor` (unchanged,
+  transparent) was not re-written. Border colours are now spelled per side in
+  both tab states; the active tab never paints a bottom border, matching the
+  first render.
+
 ### Added
 
 - **License and third-party notices.** The repository gains its `LICENSE` (MIT)

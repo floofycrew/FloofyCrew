@@ -21,8 +21,9 @@ The install flow, in the order the user experiences it:
    (applied at the next gateway start — "restart to apply"), else into
    ``mods/<id>/``; the seam kind handlers (theme, agent, skill, appearance,
    config, app) run right away — they act outside the gateway process;
-5. ``enabled.json``: a mod with ``python-hook`` / ``spa`` parts lands **disabled**
-   (``floofy enable`` turns it on); everything else is enabled;
+5. ``enabled.json``: a confirmed install lands **enabled** — the step-3
+   confirmation is the consent (Requirement 11.7); ``--disabled`` lands it
+   switched off for a later ``floofy enable``;
 6. audit row; ``--now`` reloads the running Loader and re-applies patches.
 
 ``uninstall`` reverses the seam parts, stages a ``pending/<id>.remove`` marker
@@ -44,7 +45,7 @@ from typing import Any
 from ..consent import ACCEPT_PHRASE
 from ..gitsource import UNLISTED_SOURCE_LINE
 from ..installer import CONFIRM_KINDS, InstallError, ResolvedSource, disclose, manifest_of, place, resolve_source, run_handlers, validate
-from ..modstore import code_kinds_of, read_source
+from ..modstore import read_source
 from ..registry import IndexCache
 from ..semver import InvalidVersion, Version
 from ..tier import describe, tier_for_candidate
@@ -66,10 +67,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     l = sub.add_parser("list", help="installed mods, one line each: version, enabled, tier, source")
     l.set_defaults(handler=list_mods)
 
-    i = sub.add_parser("install", help="install a mod from a path, an archive, an https URL, a git reference (ssh://…@tag, https://…@tag) or the registry (id[@version])")
-    i.add_argument("ref", help="mod directory, .zip/.tar.gz, https://… URL, git reference ssh://<host>/<path>[@<tag>][#<subdir>] / https://<host>/<owner>/<repo>[.git][@<tag>], or registry id[@version]")
+    i = sub.add_parser("install", help="install a mod from a path, an archive, an https URL, a git reference (ssh://… or https://…, default branch unless @tag pins one) or the registry (id[@version])")
+    i.add_argument("ref", help="mod directory, .zip/.tar.gz, https://… URL, git reference ssh://<host>/<path>[@<tag>][#<subdir>] / https://<host>/<owner>/<repo>[.git][@<tag>] (no @tag = the default branch; version and compatibility come from floofy.json), or registry id[@version]")
     i.add_argument("--now", action="store_true", help="install immediately and reload a running gateway (default: stage for the next gateway start)")
-    i.add_argument("--enable", action="store_true", help="enable code parts right away instead of landing disabled")
+    i.add_argument("--disabled", action="store_true", help="install the mod switched off (enable it later with `floofy enable <id>`); by default a confirmed install lands enabled")
+    i.add_argument("--enable", action="store_true", help=argparse.SUPPRESS)  # pre-1.3 flag: enabled is the default now; accepted so old automation keeps working
     i.add_argument("--sha256", default=None, help="expected SHA-256 of a downloaded archive")
     i.add_argument("--ref", dest="ref_name", default=None, metavar="BRANCH|COMMIT", help="git reference only: install an UNPINNED checkout (no @tag) on purpose; the resolved commit is recorded")
     i.add_argument("--confirm-governance-target", action="append", default=[], metavar="PATH", help="pre-confirm one governance-altering target path (repeatable; each recorded in the audit log)")
@@ -257,7 +259,7 @@ def _confirm_install(ctx: CliContext, disclosure, *, pre_confirmed: list[str], a
     return True, confirmed, "", unlisted_how
 
 
-def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable_code: bool, pre_confirmed: list[str], accept_flags: bool, keep_enabled: bool = False, accept_unlisted: bool = False) -> dict[str, Any]:
+def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabled: bool = False, pre_confirmed: list[str], accept_flags: bool, keep_enabled: bool = False, accept_unlisted: bool = False) -> dict[str, Any]:
     """Validate → disclose → confirm → place → seam handlers → flag → audit (→ reload). Shared by install/update/profile."""
     report = validate(source.root)
     disclosure = disclose(source.root, report, ctx.governance(), source=source)
@@ -285,7 +287,9 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable
     for part in outcomes:
         ctx.say(f"  part {part.index} {part.kind}: {part.status} — {part.detail}")
     previous = ctx.enabled().get(mod_id)
-    lands_disabled = bool(code_kinds_of(manifest)) and not enable_code
+    # Requirement 11.7: the confirmation above IS the consent — a confirmed install lands enabled;
+    # `--disabled` (the App's "install switched off") lands it off on request.
+    lands_disabled = disabled
     if keep_enabled and previous is not None:
         enabled_now = previous
     else:
@@ -320,7 +324,7 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, enable
             if applied is not None:
                 ctx.say(f"  patches re-applied: {'ok' if applied.ok else 'errors'} on {len(applied.payloads)} payload(s)")
     if lands_disabled and not keep_enabled:
-        ctx.say(f"  {mod_id} has code parts and landed DISABLED (Requirement 11.7): `floofy enable {mod_id}` when you are ready.")
+        ctx.say(f"  {mod_id} landed switched off (--disabled): `floofy enable {mod_id}` when you are ready.")
     return outcome
 
 
@@ -332,7 +336,7 @@ def install(ctx: CliContext, args: argparse.Namespace) -> int:
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     try:
-        outcome = install_source(ctx, source, now=args.now, enable_code=args.enable, pre_confirmed=list(args.confirm_governance_target), accept_flags=args.accept_flags, accept_unlisted=args.accept_unlisted_source)
+        outcome = install_source(ctx, source, now=args.now, disabled=args.disabled, pre_confirmed=list(args.confirm_governance_target), accept_flags=args.accept_flags, accept_unlisted=args.accept_unlisted_source)
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     finally:
@@ -464,7 +468,7 @@ def update(ctx: CliContext, args: argparse.Namespace) -> int:
         source: ResolvedSource | None = None
         try:
             source = resolve_source(f"{row['key']}@{row['candidate']}", home=ctx.home, opener_for=ctx.url_opener, **target)
-            outcome = install_source(ctx, source, now=args.now, enable_code=False, pre_confirmed=list(args.confirm_governance_target), accept_flags=args.accept_flags, keep_enabled=True)
+            outcome = install_source(ctx, source, now=args.now, pre_confirmed=list(args.confirm_governance_target), accept_flags=args.accept_flags, keep_enabled=True)
             ctx.result["applied"].append({"id": row["id"], "version": row["candidate"], "outcome": outcome})
         except InstallError as exc:
             ctx.warn(f"{row['id']}: update failed: {exc}")

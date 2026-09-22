@@ -117,7 +117,7 @@ class LoaderManagedHandler:
     def install(self, ctx: KindContext, mod_id: str, mod_dir: Path, part: dict[str, Any], index: int) -> PartOutcome:
         if self.kind == "ui":
             return self._outcome(index, "loader", f"the FloofyCrew App lists the page {part.get('title')!r} under Mods and mounts it when you open it (inert until then; Requirement 16.4)")
-        return self._outcome(index, "loader", "activated by the Loader at the next gateway start once the mod is enabled (lands disabled — Requirement 11.7)")
+        return self._outcome(index, "loader", "activated by the Loader at the next gateway start while the mod is enabled (a confirmed install lands enabled; --disabled lands it off — Requirement 11.7)")
 
     def uninstall(self, ctx: KindContext, mod_id: str, mod_dir: Path, part: dict[str, Any], index: int) -> PartOutcome:
         if self.kind == "ui":

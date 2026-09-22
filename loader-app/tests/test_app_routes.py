@@ -135,7 +135,7 @@ def test_every_cli_action_of_requirement_15_4_has_a_route_and_no_route_can_spell
     names = {r.name for r in ROUTES}
     assert {"mods.install", "mods.enable", "mods.disable", "mods.update", "updates.check", "updates.apply", "mods.uninstall", "mods.yeet", "mods.yeet_restore", "mods.yeet_list", "registries.add", "registries.remove", "registries.refresh", "registries.trust", "registries.defaults", "profiles.list", "profiles.save", "profiles.use", "profiles.export", "profiles.import", "doctor", "audit", "consent", "mods.search", "mods.info", "status"} <= names
     assert all((r.method, r.path) in ROUTE_TABLE for r in ROUTES), "the route table the app.json documents covers the App routes"
-    everything = {"source": "x", "now": True, "enable": True, "ref": "main", "reload": False, "keepConfig": True, "reason": "r", "ids": ["a-mod"], "version": "0.7.0.5", "url": "https://r.example/", "trust": "owner", "allowUnsigned": True, "name": "p", "keyId": "k", "publicKey": "pk", "refresh": False, "hostRegistry": False, "check": True, "file": "/tmp/x.json", "cancel": True, "agree": True, "reaccept": True}
+    everything = {"source": "x", "now": True, "enable": True, "disabled": True, "ref": "main", "reload": False, "keepConfig": True, "reason": "r", "ids": ["a-mod"], "version": "0.7.0.5", "url": "https://r.example/", "trust": "owner", "allowUnsigned": True, "name": "p", "keyId": "k", "publicKey": "pk", "refresh": False, "hostRegistry": False, "check": True, "file": "/tmp/x.json", "cancel": True, "agree": True, "reaccept": True}
     for route in ROUTES:
         argv = route.argv({"id": "a-mod", "key": "srckey", "name": "p"}, everything, {"q": ["x"], "tail": ["3"], "op": ["enable"]})
         assert not (set(argv) & FORBIDDEN_FLAGS), (route.name, argv)
@@ -253,7 +253,7 @@ def test_install_stops_at_each_missing_question_without_side_effects(homes: Path
     status, body = home.call("mods.install", body={"source": str(mod), "now": True})
     assert status == 409 and body["confirmation"]["kind"] == "yes-no" and "python-hook" in body["confirmation"]["text"], body
     disclosure = body["disclosure"]
-    assert disclosure["id"] == "govy" and disclosure["confirmKinds"] == ["python-hook"] and disclosure["governanceTargets"] == ["security_policy.json"] and disclosure["landsDisabled"] is True
+    assert disclosure["id"] == "govy" and disclosure["confirmKinds"] == ["python-hook"] and disclosure["governanceTargets"] == ["security_policy.json"] and disclosure["codeParts"] is True
     assert any(f["code"] == "GovernanceAltering" for f in disclosure["flags"])
     assert any("GOVERNANCE-ALTERING" in line for line in body["transcript"])
     # 2. yes answers the kinds and the flags; the governance target is a typed question of its own
@@ -269,7 +269,7 @@ def test_install_stops_at_each_missing_question_without_side_effects(homes: Path
     # 4. every answer present: installed now, disabled (a code mod), the rows written
     status, body = home.call("mods.install", body={"source": str(mod), "now": True, "confirmations": {"yes": True, "governanceTargets": ["security_policy.json"]}})
     assert status == 200 and body["ok"] is True, body
-    assert (home.paths.mods / "govy").is_dir() and read_enabled(home.paths.enabled) == {"govy": False}
+    assert (home.paths.mods / "govy").is_dir() and read_enabled(home.paths.enabled) == {"govy": True}, "a confirmed install lands enabled (Requirement 11.7)"
     ops = [r["op"] for r in home.audit()]
     assert ops == ["governance-target-confirm", "agent-install", "install"] and all(r["actor"] == "app" for r in home.audit())
     assert home.audit()[0]["detail"] == "typed at the prompt" and home.audit()[0]["files"] == ["security_policy.json"]

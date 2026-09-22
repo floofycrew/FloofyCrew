@@ -6,7 +6,7 @@ reused in-process by the manager UI:
 * :func:`resolve_source` — a mod reference is a **path** (directory or
   ``.zip``/``.tar.gz``), a **URL** (HTTPS only; plaintext ``http://`` is refused
   unless the host is loopback — Requirement 11.6 applies to FloofyCrew's own
-  traffic too), a **git reference** (``ssh://…@tag``, ``https://…[.git]@tag``:
+  traffic too), a **git reference** (``ssh://…`` / ``https://…[.git]``, ``@tag`` optional:
   shallow-cloned with the user's own credentials, Requirement 8.8 —
   :mod:`floofy_core.gitsource`) or a **registry id** (``id`` / ``id@version`` from
   the merged ``cache/index.json``, with the index's ``sha256`` checked after
@@ -296,9 +296,10 @@ def resolve_source(
     every URL. A registry reference picks the newest version known to work on this
     host (:meth:`floofy_core.registry.IndexCache.pick`, Requirement 9.2) and checks
     the downloaded archive against the index's ``sha256`` **and** ``size``. A git
-    reference (``ssh://…@tag``, ``https://…[.git]@tag``; :class:`floofy_core.gitsource.GitRef`)
-    is shallow-cloned with the user's own credentials; ``git_ref`` is the explicit
-    ``--ref <branch|commit>`` that admits an unpinned reference (Requirement 8.8).
+    reference (``ssh://…`` / ``https://…[.git]``; :class:`floofy_core.gitsource.GitRef`)
+    is shallow-cloned with the user's own credentials — the default branch when
+    bare, ``@tag`` or the explicit ``git_ref`` (``--ref <branch|commit>``) when the
+    caller pins a point (Requirement 8.8).
     """
     candidate = Path(ref).expanduser()
     if candidate.exists():
@@ -405,7 +406,8 @@ class Disclosure:
     governance_targets: list[str]
     host_warnings: list[dict[str, Any]]  # the host's verdicts, informational
     confirm_kinds: list[str]
-    lands_disabled: bool
+    #: Whether the mod carries code kinds (``python-hook``/``spa``) — what the confirmation covers (Requirement 11.7).
+    code_parts: bool
     errors: list[dict[str, Any]]
     #: The source tier this install will have (Requirement 8.11) and, for a git reference, the facts behind the extra consent line.
     tier: str = TIER_UNLISTED
@@ -423,7 +425,7 @@ class Disclosure:
             "governanceTargets": list(self.governance_targets),
             "hostWarnings": list(self.host_warnings),
             "confirmKinds": list(self.confirm_kinds),
-            "landsDisabled": self.lands_disabled,
+            "codeParts": self.code_parts,
             "errors": list(self.errors),
             "tier": self.tier,
             "unlistedSource": dict(self.unlisted_source) if self.unlisted_source else None,
@@ -452,8 +454,8 @@ class Disclosure:
             out.append(f"  GOVERNANCE-ALTERING target: {target} (needs its path typed to confirm)")
         for warning in self.host_warnings:
             out.append(f"  host says: {warning['code']}: {warning['message']}")
-        if self.lands_disabled:
-            out.append("  code parts (python-hook/spa) land DISABLED; `floofy enable` turns them on (Requirement 11.7)")
+        if self.code_parts:
+            out.append("  code parts (python-hook/spa) run once installed — a confirmed install lands ENABLED; `--disabled` lands it switched off (Requirement 11.7)")
         for error in self.errors:
             out.append(f"  ERROR {error['code']}: {error['message']}")
         return out
@@ -486,7 +488,7 @@ def disclose(root: Path, report: ValidationReport, snapshot: GovernanceSnapshot 
         governance_targets=governance_targets(root, manifest, policy),
         host_warnings=host_warnings,
         confirm_kinds=sorted(kinds & CONFIRM_KINDS),
-        lands_disabled=bool(code_kinds_of(manifest)),
+        code_parts=bool(code_kinds_of(manifest)),
         errors=[f.to_dict() for f in report.errors],
         tier=source.tier if source is not None else TIER_UNLISTED,
         unlisted_source=({"url": (source.git or {}).get("url"), "ref": source.ref, "commit": source.commit} if source is not None and source.unlisted_git else None),

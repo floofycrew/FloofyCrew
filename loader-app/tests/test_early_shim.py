@@ -182,8 +182,10 @@ def test_installer_source_is_the_shipped_package():
 
 
 def test_the_real_user_site_was_never_created():
-    assert REAL_USER_SITE.exists() == _real_user_site_existed
-    assert not REAL_USER_SITE.exists(), f"{REAL_USER_SITE} must not exist on this desk (fake HOME/PYTHONUSERBASE only)"
+    # The suite must only ever touch its fake HOME/PYTHONUSERBASE. The real user site MAY exist —
+    # a live floofy install on the developer's own machine puts the early shim there — so the
+    # guard is "the suite did not create it", not "it does not exist".
+    assert REAL_USER_SITE.exists() == _real_user_site_existed, f"the test-suite created or removed {REAL_USER_SITE} (fake HOME/PYTHONUSERBASE only)"
 
 
 
