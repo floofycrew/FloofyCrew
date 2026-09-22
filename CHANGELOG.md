@@ -166,6 +166,15 @@ active tab no longer grows a bottom border after a tab switch. No API change:
   name instead of an internal account alias; `packaging/README.md` and the
   changelog no longer name internal systems, so the full public export set
   scans clean.
+- The export now strips **internal-audience** content, not just internal
+  identifiers: regions of shared files wrapped in the exporter's
+  internal-only start/end markers (or tagged with its single-line marker,
+  which a markdown table row or code-block line carries inline) are dropped
+  from the public tree. The README's internal-edition install block, the
+  internal-only layout rows and the internal build command no longer confuse
+  public readers; unbalanced markers fail the export. The marker strings are
+  assembled at runtime in the exporter (and never spelled in prose — this
+  entry included) so the stripper cannot eat its own shipped source.
 
 ## 1.3.0 — 2026-09-22
 

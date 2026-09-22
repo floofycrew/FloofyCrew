@@ -27,16 +27,7 @@ floofy doctor
 
 or into the host's own virtualenv: `pip install floofycrew-<version>-py3-none-any.whl`.
 
-**Internal edition** (the `FloofyCrew` package; the clone URL is in its
-[README](packaging/internal/FloofyCrew/README.md)):
-
-```bash
-git clone <the FloofyCrew package> && cd FloofyCrew
-bash install.sh
-floofy doctor
-```
-
-Both end in `floofy init`, which shows a one-time warning and installs nothing
+Every install path ends in `floofy init`, which shows a one-time warning and installs nothing
 until you agree. Then open **FloofyCrew** in the dashboard sidebar, or run
 `floofy` for the interactive terminal. Updating FloofyCrew itself: `floofy
 self-update`, or the *Update & restart* button when the App tells you a new
@@ -64,24 +55,20 @@ files are byte-identical across the two editions (the figures are in
 |---|---|
 | `floofy-core/` | the shared core (`floofy_core`): manifest schema and validator, resolver, Patcher, registry client and signing, compatibility cache, the `floofy` CLI; example mods under `examples/`, tests under `tests/` |
 | `editions/public/` | the public edition adapter: pipx / venv / desktop payloads, the public registry and its pinned key |
-| `editions/toolbox/` | the internal edition adapter: the internal bundle's payloads, the internal registry, key and identity |
 | `loader-app/` | the Loader, a KiroCrew App (`app.json`, `floofy_loader/`, the early shim `floofy_early/`, the manager page in `ui/`) |
 | `spa-host/` | the dashboard-side runtime: `window.floofy`, surfaces, patch inspection, the reporter, the first-frame boot script |
-| `mods/` | first-party mods: `custom-themes` (the theme editor), `rimuru-branding` (a theme pack), `display-comfort` (chat text size + arbitrary page zoom), `mochi-pet-zoom-fix`, `settings-demo` |
+| `mods/` | first-party mods, one complete mod per directory — the index is [mods/README.md](mods/README.md) |
 | `registry-tools/` | build, sign and validate registry indexes; bootstrap a registry repository |
-| `packaging/` | the two release tracks: `internal/` (the `FloofyCrew` package) and `public/` (release assets, wheel, `install.sh`) |
-| `forge/` | release tracking: watches KiroCrew releases, re-tests every mod, fills the compatibility matrix |
+| `packaging/` | the release tracks: `public/` (GitHub release assets, wheel, `install.sh`) and the internal package track |
 | `docs/` | documentation ([index](docs/README.md)) |
 | `scripts/` | repository tooling (identifier check, zipapp / wheel / Loader builds, identity report) |
 | `branding/` | the fox mark, wordmark and ASCII banner, with the scripts that generate them |
-| `research/`, `.kiro/specs/` | the kickoff research and decision records; the spec (`requirements.md`, `design.md`, `tasks.md`) |
 
 ## Documentation
 
 Want to contribute a mod without reading any of this? Each edition can ship a
-contributor assistant that scaffolds, develops and publishes the mod with you
-(the internal edition's lives in its adapter under `editions/`, with its
-contributing guide); the docs below are the reference it works from.
+contributor assistant that scaffolds, develops and publishes the mod with you;
+the docs below are the reference it works from.
 
 [docs/README.md](docs/README.md) is the index: writing a mod (manifest, seams,
 the Python and SPA APIs, patches and fingerprints), publishing to a registry,
@@ -96,7 +83,6 @@ uv run pytest                                    # the whole suite (~5 min; Play
 python scripts/check_no_internal_identifiers.py  # what CI's de-amazon job runs
 python scripts/artifact_identity_report.py       # byte-identity across editions
 packaging/public/build.sh --check                # the public release tree, built twice, byte-identical
-packaging/internal/build.sh --check              # the internal package, built twice, byte-identical
 ```
 
 Rules the code keeps: one repository, two thin adapters; no internal identifiers

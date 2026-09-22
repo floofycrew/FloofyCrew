@@ -32,16 +32,29 @@ pytestmark = pytest.mark.skipif(scratch_payload() is None, reason="no payload co
 
 MOD_DIR = REPO_ROOT / "mods" / "display-comfort"
 
-#: What the document looked like BEFORE React: the boot hook runs during parse, so its levers are visible at DOMContentLoaded.
+#: What the document looked like at PARSE END (``readyState`` → ``interactive``):
+#: after the inline boot hook (which runs during parse) but before the deferred SPA
+#: bundle — so the snapshot isolates the boot hook's work from the runtime part's
+#: catch-up, which on a fast localhost can beat even DOMContentLoaded. The snapshot
+#: is per-document; the sessionStorage list accumulates one per document because a
+#: cold visit navigates more than once (the host's token handshake reloads, then
+#: routes to /chat) — only the FIRST document of a visit is genuinely cold.
 PROBE_INIT = """
 window.__dcProbe = {};
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('readystatechange', () => {
+  if (document.readyState !== 'interactive' || window.__dcProbe.atParseEnd) return;
   const el = document.documentElement;
-  window.__dcProbe.atDomContentLoaded = {
+  const snap = {
     zoom: el.style.zoom || '',
     chatScale: el.style.getPropertyValue('--floofy-dc-chat-scale').trim(),
     composer: el.getAttribute('data-floofy-dc-composer') || '',
   };
+  window.__dcProbe.atParseEnd = snap;
+  try {
+    const frames = JSON.parse(sessionStorage.getItem('__dcProbeFrames') || '[]');
+    frames.push(snap);
+    sessionStorage.setItem('__dcProbeFrames', JSON.stringify(frames));
+  } catch (storageError) {}
 });
 """
 
@@ -62,6 +75,16 @@ class Harness:
     def open(self, page, path: str = "/"):
         page.goto(dashboard_url(self.gw, path), wait_until="load", timeout=60000)
         page.wait_for_function("() => window.floofy && window.floofy.events.inspect().history.some((h) => h.name === 'host.ready')", timeout=30000)
+
+    def probe(self, page) -> dict:
+        """The current document's first-frame probe, once it exists.
+
+        A cold first visit navigates more than once (the host's token handshake
+        reloads the same URL before routing), so an immediate ``evaluate`` can land
+        on a document still parsing — wait for the listener to have fired.
+        """
+        page.wait_for_function("() => window.__dcProbe && window.__dcProbe.atParseEnd !== undefined", timeout=15000)
+        return page.evaluate("() => window.__dcProbe.atParseEnd")
 
 
 @pytest.fixture(scope="module")
@@ -132,7 +155,7 @@ def test_1_runtime_page_round_trip_and_warm_first_frame(harness: Harness):
 
         # WARM reload: the boot hook re-asserts both levers before React (no flash)
         page.reload(wait_until="load", timeout=60000)
-        probe = page.evaluate("() => window.__dcProbe.atDomContentLoaded")
+        probe = harness.probe(page)
         assert probe["zoom"] == "0.8" and probe["chatScale"] == "1.3" and probe["composer"] == "", probe
     finally:
         context.close()
@@ -141,10 +164,14 @@ def test_1_runtime_page_round_trip_and_warm_first_frame(harness: Harness):
 def test_2_cold_client_fail_open_config_catch_up_and_disable(harness: Harness):
     context, page = harness.page(init=PROBE_INIT)
     try:
-        # COLD client (empty storage): stock at DOMContentLoaded — fail-open, nothing guessed
+        # COLD client (empty storage): the FIRST document of the visit paints stock at
+        # DOMContentLoaded — fail-open, nothing guessed. (Later documents of the same
+        # visit may already carry the sizes: the runtime part caches the authoritative
+        # config as soon as it runs, and the host navigates during its token handshake.)
         harness.open(page)
-        probe = page.evaluate("() => window.__dcProbe.atDomContentLoaded")
-        assert probe == {"zoom": "", "chatScale": "", "composer": ""}, probe
+        harness.probe(page)
+        frames = json.loads(page.evaluate("() => sessionStorage.getItem('__dcProbeFrames') || '[]'"))
+        assert frames and frames[0] == {"zoom": "", "chatScale": "", "composer": ""}, frames
         # …then the runtime part catches up to the authoritative config once the host is ready
         page.wait_for_function("() => document.documentElement.style.zoom === '0.8' && document.documentElement.style.getPropertyValue('--floofy-dc-chat-scale') === '1.3'", timeout=30000)
 

@@ -82,6 +82,23 @@ PUBLIC_SET_OPTIONAL: tuple[str, ...] = ("LICENSE", "NOTICE.md", "LICENSES")
 #: Mods that must not ship publicly: patches of internal-only hosts, fan artwork.
 EXCLUDED_MODS: tuple[str, ...] = ("mochi-pet-zoom-fix", "rimuru-branding")
 
+#: Region markers for internal-AUDIENCE content in shared files (e.g. the
+#: internal edition's install block in README.md): everything between a line
+#: containing the start marker and a line containing the end marker — marker
+#: lines included — is dropped from the export. This is about audience fit,
+#: not leak prevention: the scanner still guards identifiers; the markers
+#: remove instructions and links that only make sense inside the internal
+#: network and would confuse a public reader.
+#: The markers are assembled at runtime so THIS file never contains them
+#: literally — the stripper walks every exported text file, and this script is
+#: itself exported; a literal marker here would make the stripper eat its own
+#: source. Spelled out they read floofy&#58;internal-only&#58;start / end / line.
+INTERNAL_ONLY_START = ":".join(("floofy", "internal-only", "start"))
+INTERNAL_ONLY_END = ":".join(("floofy", "internal-only", "end"))
+#: Single-line variant for places where a block marker would break the file's
+#: own syntax (a markdown table row carries it as an inline HTML comment).
+INTERNAL_ONLY_LINE = ":".join(("floofy", "internal-only", "line"))
+
 #: Directory names never copied (caches, build output, environments).
 SKIP_NAMES: frozenset[str] = frozenset(
     {".git", "__pycache__", "node_modules", ".venv", ".scratch", "dist", "build",
@@ -161,6 +178,45 @@ def prune_mods_readme(target: Path) -> int:
     return dropped
 
 
+def strip_internal_only_regions(target: Path) -> int:
+    """Drop every marked internal-only region from the exported text files.
+
+    Returns the number of regions removed. Unbalanced markers in a file fail
+    the export: a dangling start would silently ship everything after it.
+    """
+    removed = 0
+    for path in sorted(target.rglob("*")):
+        if not path.is_file() or path.is_symlink() or ".git" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if all(marker not in text for marker in (INTERNAL_ONLY_START, INTERNAL_ONLY_END, INTERNAL_ONLY_LINE)):
+            continue
+        kept: list[str] = []
+        depth = 0
+        for line in text.splitlines(keepends=True):
+            if INTERNAL_ONLY_LINE in line:
+                removed += 1
+                continue
+            if INTERNAL_ONLY_START in line:
+                depth += 1
+                removed += 1
+                continue
+            if INTERNAL_ONLY_END in line:
+                if depth == 0:
+                    raise ExportError(f"{path.relative_to(target)}: internal-only END marker without a start")
+                depth -= 1
+                continue
+            if depth == 0:
+                kept.append(line)
+        if depth != 0:
+            raise ExportError(f"{path.relative_to(target)}: internal-only START marker never closed")
+        path.write_text("".join(kept), encoding="utf-8")
+    return removed
+
+
 def check_excluded_mods_absent(target: Path) -> None:
     for mod in EXCLUDED_MODS:
         if (target / "mods" / mod).exists():
@@ -214,9 +270,10 @@ def export(target: Path, *, force: bool = False) -> dict[str, object]:
             shutil.rmtree(path) if path.is_dir() else path.unlink()
     written = copy_public_set(target)
     dropped = prune_mods_readme(target)
+    stripped = strip_internal_only_regions(target)
     check_excluded_mods_absent(target)
     scan_export(target)
-    return {"target": str(target), "paths": written, "readmeRowsDropped": dropped}
+    return {"target": str(target), "paths": written, "readmeRowsDropped": dropped, "internalRegionsStripped": stripped}
 
 
 def main(argv: list[str] | None = None) -> int:
