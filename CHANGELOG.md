@@ -31,6 +31,15 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Added
 
+- **`os-notify-bridge` 1.0.0**, a first-party mod that mirrors KiroCrew's
+  in-app notifications to native OS banners: approval waits, cron reports,
+  skill reviews and the rest of the feed reach the desktop even when the
+  dashboard is in the background. Listens to the host's own notification
+  fan-out (channel mutes keep their meaning), enriches banners from the feed
+  API (title, body, deep link), and adds the settings surface the platform
+  needs: a real permission button, a background-only policy, one switch per
+  kind, and the host's hidden turn-complete flag surfaced as a switch.
+
 - **Update reminders without a terminal** (Requirement 7.7 extended). The
   re-apply trigger's `floofy apply --if-changed` — the one run that happens
   unattended, outside the gateway, with the user's own credentials — now also
