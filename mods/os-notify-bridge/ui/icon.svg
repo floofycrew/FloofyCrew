@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="os-notify-bridge">
+  <!-- os-notify-bridge: a bell with a signal dot, drawn for this mod (no third-party artwork) -->
+  <path d="M12 3.5c-3.2 0-5.3 2.3-5.3 5.4v3.6L5 15.4v1.1h14v-1.1l-1.7-2.9V8.9c0-3.1-2.1-5.4-5.3-5.4z" fill="#ff9a3d"/>
+  <path d="M10 18.4a2 2 0 0 0 4 0z" fill="#ff6b8b"/>
+  <circle cx="17.5" cy="5.5" r="2.5" fill="#ff6b8b"/>
+</svg>
