@@ -11,6 +11,22 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- **`display-comfort` 1.0.0**, a quality-of-life mod answering the two
+  most-asked-for display requests upstream: a persistent chat text scale
+  (50–250 %, every message bubble, optionally the composer too) and an
+  arbitrary page zoom (25–300 % in 1 % steps, not just the browser's fixed
+  stops). A `ui` settings page with live-preview sliders persisting through
+  `floofy.mod(id).config` (no python-hook — the Loader's own config route),
+  a `spa` runtime part applying one custom property on `<html>` that the
+  mod's stylesheet turns into `zoom` on `[data-testid="message-bubble"]`
+  (explicit rem/px utility classes would ignore an inherited font-size),
+  and a `spa` boot part with a baked stylesheet plus a localStorage cache so
+  the chosen sizes paint on the first frame — a reload never flashes the
+  defaults. Fail-open everywhere: no settings, an out-of-range value, or a
+  renamed host marker leaves the dashboard stock.
+
 ## 1.3.2 — 2026-09-22
 
 A patch on 1.3.1 for hosts whose `$HOME` is a symlink: payload paths are now
