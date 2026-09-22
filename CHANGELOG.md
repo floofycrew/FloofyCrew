@@ -31,6 +31,20 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Added
 
+- **`display-comfort` 1.0.0**, a quality-of-life mod answering the two
+  most-asked-for display requests upstream: a persistent chat text scale
+  (50–250 %, every message bubble, optionally the composer too) and an
+  arbitrary page zoom (25–300 % in 1 % steps, not just the browser's fixed
+  stops). A `ui` settings page with live-preview sliders persisting through
+  `floofy.mod(id).config` (no python-hook — the Loader's own config route),
+  a `spa` runtime part applying one custom property on `<html>` that the
+  mod's stylesheet turns into `zoom` on `[data-testid="message-bubble"]`
+  (explicit rem/px utility classes would ignore an inherited font-size),
+  and a `spa` boot part with a baked stylesheet plus a localStorage cache so
+  the chosen sizes paint on the first frame — a reload never flashes the
+  defaults. Fail-open everywhere: no settings, an out-of-range value, or a
+  renamed host marker leaves the dashboard stock.
+
 - **Update reminders without a terminal** (Requirement 7.7 extended). The
   re-apply trigger's `floofy apply --if-changed` — the one run that happens
   unattended, outside the gateway, with the user's own credentials — now also
@@ -152,6 +166,15 @@ active tab no longer grows a bottom border after a tab switch. No API change:
   name instead of an internal account alias; `packaging/README.md` and the
   changelog no longer name internal systems, so the full public export set
   scans clean.
+- The export now strips **internal-audience** content, not just internal
+  identifiers: regions of shared files wrapped in the exporter's
+  internal-only start/end markers (or tagged with its single-line marker,
+  which a markdown table row or code-block line carries inline) are dropped
+  from the public tree. The README's internal-edition install block, the
+  internal-only layout rows and the internal build command no longer confuse
+  public readers; unbalanced markers fail the export. The marker strings are
+  assembled at runtime in the exporter (and never spelled in prose — this
+  entry included) so the stripper cannot eat its own shipped source.
 
 ## 1.3.0 — 2026-09-22
 

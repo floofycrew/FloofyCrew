@@ -52,6 +52,35 @@ def test_excluded_mods_are_absent_and_readme_rows_dropped(export_tree: Path) -> 
     assert "custom-themes" in readme and "settings-demo" in readme
 
 
+def test_internal_only_regions_are_stripped(export_tree: Path) -> None:
+    """The README's internal-edition install block and marked table rows are for
+    the internal audience only; the export must carry neither them nor any marker."""
+    readme = (export_tree / "README.md").read_text(encoding="utf-8")
+    assert "git clone <the FloofyCrew package>" not in readme, "the internal install block confuses public readers"
+    assert ADAPTER_DIR + "/" not in readme, "the internal adapter's table row is marked internal-only"
+    source = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "git clone <the FloofyCrew package>" in source, "the source README keeps the internal block"
+    marker_stem = exporter.INTERNAL_ONLY_START.rsplit(":", 1)[0]  # built at runtime: a literal here would trip the stripper on this very file
+    for path in export_tree.rglob("*"):
+        if path.is_file() and ".git" not in path.parts:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            assert marker_stem not in text, f"marker survived the export: {path}"
+
+
+def test_unbalanced_internal_only_markers_fail_the_export(tmp_path: Path) -> None:
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "doc.md").write_text(f"public\n<!-- {exporter.INTERNAL_ONLY_START} -->\ninternal\n", encoding="utf-8")
+    with pytest.raises(exporter.ExportError, match="never closed"):
+        exporter.strip_internal_only_regions(scratch)
+    (scratch / "doc.md").write_text(f"public\n<!-- {exporter.INTERNAL_ONLY_END} -->\n", encoding="utf-8")
+    with pytest.raises(exporter.ExportError, match="without a start"):
+        exporter.strip_internal_only_regions(scratch)
+
+
 def test_no_caches_or_git_metadata_in_the_export(export_tree: Path) -> None:
     leftovers = [p for p in export_tree.rglob("*") if p.name in exporter.SKIP_NAMES]
     assert leftovers == [], f"skip-set names copied: {[str(p) for p in leftovers[:5]]}"
