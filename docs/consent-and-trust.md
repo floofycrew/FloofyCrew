@@ -115,7 +115,8 @@ undeclared host — a flag you may accept ([python-api.md](python-api.md)).
 
 ## Unlisted sources — your explicit choice
 
-`floofy install <git reference>` (`ssh://…@<tag>`, `https://…[.git]@<tag>`)
+`floofy install <git reference>` (`ssh://…`, `https://…[.git]`, `@<tag>`
+optional — the default branch without it)
 clones a repository nobody but you vouches for. The manager verifies what the
 mod says about itself (`floofy validate`, every `files[]` hash) and records the
 commit, then adds one line to the consent screen — **unlisted source: no curator

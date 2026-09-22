@@ -52,12 +52,14 @@ export const styles = Object.freeze({
   title: { fontSize: "1.25rem", fontWeight: 700, color: PALETTE.heading, margin: 0 },
   banner: { border: `1px solid ${PALETTE.warn}`, background: "rgba(255,179,71,.12)", padding: "0.6rem 0.9rem", borderRadius: RADIUS, fontWeight: 600, display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" },
   nav: { display: "flex", gap: "0.35rem", flexWrap: "wrap", borderBottom: border, paddingBottom: "0.5rem" },
-  // The tab border is spelled as longhands, and the active variant sets exactly the same keys: React diffs inline
-  // styles key by key, so a tab that goes from active back to inactive keeps every declaration. With a `border`
-  // shorthand here and `borderColor` only on the active variant, leaving the active state unset `borderColor`,
-  // which fell back to currentColor — the grey frame that appeared on a tab after it had been clicked once.
-  navItem: { padding: "0.35rem 0.8rem", borderRadius: `${RADIUS} ${RADIUS} 0 0`, borderWidth: "1px", borderStyle: "solid", borderColor: "transparent", borderBottomColor: "transparent", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "0.9rem", fontWeight: 400, outlineOffset: "-2px" },
-  navItemActive: { borderColor: PALETTE.accent, borderBottomColor: "transparent", color: PALETTE.accent, fontWeight: 600 },
+  // Tab borders are spelled PER SIDE, never with the 4-side `borderColor` key. React diffs inline styles key by
+  // key and writes only what changed: on inactive→active, a 4-side `borderColor` write (transparent→accent) would
+  // repaint ALL FOUR sides — including the bottom — while `borderBottomColor` compares equal ("transparent" both
+  // sides) and is NOT re-written, so the css `border-color` shorthand's bottom value wins and a bottom border
+  // appears on any tab selected after first render (the active tab must never have one). Per-side keys diff
+  // independently, so the bottom stays transparent through every state change.
+  navItem: { padding: "0.35rem 0.8rem", borderRadius: `${RADIUS} ${RADIUS} 0 0`, borderWidth: "1px", borderStyle: "solid", borderTopColor: "transparent", borderRightColor: "transparent", borderLeftColor: "transparent", borderBottomColor: "transparent", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "0.9rem", fontWeight: 400, outlineOffset: "-2px" },
+  navItemActive: { borderTopColor: PALETTE.accent, borderRightColor: PALETTE.accent, borderLeftColor: PALETTE.accent, borderBottomColor: "transparent", color: PALETTE.accent, fontWeight: 600 },
   card: { border, borderRadius: RADIUS, padding: "0.9rem 1.1rem", background: "var(--card, transparent)" },
   cardIntro: { opacity: 0.75, margin: "-0.2rem 0 0.7rem", lineHeight: 1.45 },
   // a plain table for lists whose entries carry several short fields (the registry sources)

@@ -84,13 +84,16 @@ def test_pages_name_the_terminal_command_for_what_the_app_lacks():
         assert command in (UI / "app" / "pages" / page).read_text(encoding="utf-8"), (page, command)
 
 
-def test_tab_styles_carry_the_same_border_keys_in_both_states():
-    """1.1.6: a tab clicked once used to keep a grey frame after another tab was selected.
+def test_tab_styles_use_per_side_border_colors_only():
+    """1.1.6 kept a tab's frame after re-selection; the follow-up: the active tab grew a BOTTOM border.
 
-    React diffs inline styles key by key: with a `border` shorthand on the tab and
-    `borderColor` only on the active variant, leaving the active state removed
-    `borderColor` and the colour fell back to currentColor. Both states now spell
-    the same longhands, so nothing is ever unset.
+    React diffs inline styles key by key and writes only what changed: a 4-side
+    `borderColor` write on inactive→active repaints all four sides while
+    `borderBottomColor` compares equal and is not re-written, so the shorthand's
+    bottom value wins and the active tab shows a bottom border after any tab
+    switch (the first render was fine, which is why it looked intermittent).
+    Border colours are therefore spelled per side, in BOTH states, and no
+    4-side `border`/`borderColor` key is allowed on either.
     """
     text = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
     item = re.search(r"navItem: \{(.*?)\},\n", text)
@@ -98,9 +101,40 @@ def test_tab_styles_carry_the_same_border_keys_in_both_states():
     assert item and active
     item_keys = set(re.findall(r"(\w+): ", item.group(1)))
     active_keys = set(re.findall(r"(\w+): ", active.group(1)))
-    assert "border" not in item_keys, "no shorthand: longhands only, so the active variant never unsets a declaration"
-    assert {"borderWidth", "borderStyle", "borderColor", "borderBottomColor", "fontWeight", "color"} <= item_keys
+    sides = {"borderTopColor", "borderRightColor", "borderLeftColor", "borderBottomColor"}
+    for keys in (item_keys, active_keys):
+        assert "border" not in keys and "borderColor" not in keys, "no shorthand and no 4-side colour key: per-side longhands only"
+        assert sides <= keys, sides - keys
+    assert {"borderWidth", "borderStyle", "fontWeight", "color"} <= item_keys
     assert active_keys <= item_keys, active_keys - item_keys
+    # the active tab never paints a bottom border: it must stay transparent in both states
+    assert 'borderBottomColor: "transparent"' in item.group(1) and 'borderBottomColor: "transparent"' in active.group(1)
+
+
+def test_install_form_defaults_to_enabled_and_the_manual_yeet_button_is_gone():
+    """A confirmed install lands enabled (Requirement 11.7): the form's only switch is the plain-language
+    "install switched off"; the jargon "enable code parts right away" and the manual Yeet button are gone
+    (Disable/Uninstall cover the user-facing need; the automatic quarantine and its Restore stay)."""
+    mods = (UI / "app" / "pages" / "mods.mjs").read_text(encoding="utf-8")
+    assert "floofycrew-install-disabled" in mods and "install switched off" in mods
+    assert "enable code parts right away" not in mods
+    assert '"Yeet"' not in mods, "no manual yeet button; the terminal equivalent is shown instead"
+    assert "floofy yeet <id>" in mods, "Requirement 16.2: a capability the App lacks is shown with the command"
+    assert '"Restore set"' in mods, "the quarantine's restore stays"
+
+
+def test_update_check_shows_progress_and_a_result_line():
+    """Registry › Check for updates: a busy label while the check runs and a one-line verdict after it."""
+    registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
+    assert "floofycrew-update-check-busy" in registry and "floofycrew-update-check-result" in registry
+    assert '"Checking…"' in registry and "check failed" in registry
+
+
+def test_the_landing_page_reminds_about_mod_updates():
+    """Requirement 7.7: the Mods page shows a mod-updates notice (the trigger keeps the data fresh unattended)."""
+    mods = (UI / "app" / "pages" / "mods.mjs").read_text(encoding="utf-8")
+    assert "floofycrew-mod-updates-notice" in mods and "floofycrew-mod-updates-open" in mods
+    assert 'navigate("registry")' in mods, "the notice hands the user to the Registry page for the actions"
 
 
 def test_the_restart_and_update_buttons_reach_their_routes_and_the_pages_place_them():

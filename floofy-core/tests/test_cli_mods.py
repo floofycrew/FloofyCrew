@@ -99,7 +99,7 @@ def test_install_refuses_without_consent(env):
     assert result.exit == 3 and "consent" in result.stderr
 
 
-def test_install_discloses_and_needs_a_yes_for_code_kinds_then_lands_disabled(env):
+def test_install_discloses_and_needs_a_yes_for_code_kinds_then_lands_enabled(env):
     mod = env.hook_mod()
     declined = env.run("install", str(mod))  # non-interactive without --yes
     assert declined.exit == 1 and "explicit yes" in declined.stderr
@@ -109,14 +109,22 @@ def test_install_discloses_and_needs_a_yes_for_code_kinds_then_lands_disabled(en
     assert result.exit == 0, result.stderr
     disclosure = result.json["disclosure"]
     assert disclosure["parts"][0]["kind"] == "python-hook" and "Loader" in disclosure["parts"][0]["seam"] and disclosure["modifiesPayload"] is False
-    assert disclosure["confirmKinds"] == ["python-hook"] and disclosure["landsDisabled"] is True
-    assert "python-hook/gateway hook/ -> Loader" in result.stdout and "land DISABLED" in result.stdout
+    assert disclosure["confirmKinds"] == ["python-hook"] and disclosure["codeParts"] is True
+    assert "python-hook/gateway hook/ -> Loader" in result.stdout and "lands ENABLED" in result.stdout
     assert (env.paths.mods / "hooky" / "hook" / "__init__.py").is_file()
-    assert read_enabled(env.paths.enabled) == {"hooky": False}, "code mods land disabled (Requirement 11.7)"
+    assert read_enabled(env.paths.enabled) == {"hooky": True}, "a confirmed install lands enabled (Requirement 11.7)"
     assert read_source(env.paths.mods / "hooky")["source"] == "path"
     row = read_audit(env.paths.audit)[-1]
     assert row["op"] == "install" and row["mod"] == "hooky" and row["version"] == "1.0.0" and row["result"] == "ok" and row["consentRef"] and row["payload"]
     assert row["actor"] == "test"
+
+
+def test_install_disabled_flag_lands_the_mod_switched_off(env):
+    mod = env.hook_mod()
+    result = env.run("--yes", "install", str(mod), "--disabled")
+    assert result.exit == 0, result.stderr
+    assert read_enabled(env.paths.enabled) == {"hooky": False}, "--disabled is the opt-out"
+    assert "landed switched off" in result.stdout and "floofy enable hooky" in result.stdout
 
 
 def test_zero_code_mod_is_enabled_and_needs_no_confirmation(env):
@@ -124,7 +132,7 @@ def test_zero_code_mod_is_enabled_and_needs_no_confirmation(env):
     result = env.run("install", str(mod))
     assert result.exit == 0, result.stderr
     assert read_enabled(env.paths.enabled) == {"agenty": True}
-    assert result.json["disclosure"]["confirmKinds"] == [] and result.json["disclosure"]["landsDisabled"] is False
+    assert result.json["disclosure"]["confirmKinds"] == [] and result.json["disclosure"]["codeParts"] is False
 
 
 def test_install_enable_flag_and_disclosure_of_network_and_patch(env):
@@ -325,7 +333,7 @@ def test_install_stages_into_pending_while_a_gateway_runs_and_now_installs_direc
         assert staged.exit == 0, staged.stderr
         assert staged.json["placed"]["how"] == "staged" and (env.paths.pending / "stagey" / "floofy.json").is_file()
         assert "restart the gateway to apply" in staged.stdout
-        assert read_enabled(env.paths.enabled) == {"stagey": False}
+        assert read_enabled(env.paths.enabled) == {"stagey": True}, "staged installs land enabled too: the flag is read when the stage applies"
         status = env.run("--json", "status")
         assert status.json["pending"] == ["stagey"]
         # --now installs directly (the reload POST fails against the fake gateway: reported, never fatal)
@@ -424,9 +432,9 @@ def test_early_list_follows_install_enable_disable_uninstall(env):
         files={"hook/__init__.py": "def early(ctx):\n    pass\n\ndef activate(ctx):\n    pass\n"},
     )
     plain = env.hook_mod()  # no early part
-    assert env.run("--yes", "install", str(early)).exit == 0
-    assert env.run("--yes", "install", str(plain)).exit == 0
-    assert not env.paths.early.exists(), "code parts land disabled: nothing is early yet"
+    assert env.run("--yes", "install", str(early), "--disabled").exit == 0
+    assert env.run("--yes", "install", str(plain), "--disabled").exit == 0
+    assert not env.paths.early.exists(), "installed switched off (--disabled): nothing is early yet"
 
     assert env.run("enable", "earlybird").exit == 0
     document = json.loads(env.paths.early.read_text(encoding="utf-8"))

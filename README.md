@@ -48,7 +48,7 @@ release is out.
 > is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md) before
 > `floofy init`.
 
-Current release: **1.3.0** — what each release ships is in
+Current release: **1.3.1** — what each release ships is in
 [CHANGELOG.md](CHANGELOG.md); the KiroCrew versions it supports are in
 `pyproject.toml` (`[tool.floofycrew] supports`) and in the release's
 `supports.json`.
@@ -67,7 +67,7 @@ files are byte-identical across the two editions (the figures are in
 | `editions/toolbox/` | the internal edition adapter: the internal bundle's payloads, the internal registry, key and identity |
 | `loader-app/` | the Loader, a KiroCrew App (`app.json`, `floofy_loader/`, the early shim `floofy_early/`, the manager page in `ui/`) |
 | `spa-host/` | the dashboard-side runtime: `window.floofy`, surfaces, patch inspection, the reporter, the first-frame boot script |
-| `mods/` | first-party mods: `custom-themes` (the theme editor), `rimuru-branding` (a theme pack), `mochi-pet-zoom-fix`, `settings-demo` |
+| `mods/` | first-party mods: `custom-themes` (the theme editor), `rimuru-branding` (a theme pack), `display-comfort` (chat text size + arbitrary page zoom), `mochi-pet-zoom-fix`, `settings-demo` |
 | `registry-tools/` | build, sign and validate registry indexes; bootstrap a registry repository |
 | `packaging/` | the two release tracks: `internal/` (the `FloofyCrew` package) and `public/` (release assets, wheel, `install.sh`) |
 | `forge/` | release tracking: watches KiroCrew releases, re-tests every mod, fills the compatibility matrix |

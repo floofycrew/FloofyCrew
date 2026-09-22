@@ -11,6 +11,115 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- **One canonical spelling per payload file** (`floofy_core.payloads.make_payload`,
+  `floofy_core.deploy`). On a host whose `$HOME` is a symlink (a common
+  clouddesk layout, `/home/x -> /local/home/x`) the gateway spelled payload
+  paths through the symlink while a shell spelled them canonically. The
+  deployment manifest, keyed by raw string, collected one entry per spelling
+  for the same file; drift then classified the other process's write as
+  `user-edited`, and inside a single gateway apply `index.html` was committed
+  as two independent work items — the import-map commit (derived from the
+  pre-patch original) silently dropping the boot-script ops written a moment
+  earlier. Net effect: the first-frame theme sheet and the SPA-host loader tag
+  vanished on every gateway restart, so custom themes flashed the stale
+  pre-hydration theme and runtime parts never loaded. Payload roots are now
+  canonicalized at discovery, every manifest lookup and record goes through
+  `canonical_path`, and loading a manifest heals pre-existing duplicate
+  spellings (newest record kept, first-recorded original hash preserved).
+
+### Added
+
+- **`display-comfort` 1.0.0**, a quality-of-life mod answering the two
+  most-asked-for display requests upstream: a persistent chat text scale
+  (50–250 %, every message bubble, optionally the composer too) and an
+  arbitrary page zoom (25–300 % in 1 % steps, not just the browser's fixed
+  stops). A `ui` settings page with live-preview sliders persisting through
+  `floofy.mod(id).config` (no python-hook — the Loader's own config route),
+  a `spa` runtime part applying one custom property on `<html>` that the
+  mod's stylesheet turns into `zoom` on `[data-testid="message-bubble"]`
+  (explicit rem/px utility classes would ignore an inherited font-size),
+  and a `spa` boot part with a baked stylesheet plus a localStorage cache so
+  the chosen sizes paint on the first frame — a reload never flashes the
+  defaults. Fail-open everywhere: no settings, an out-of-range value, or a
+  renamed host marker leaves the dashboard stock.
+
+- **Update reminders without a terminal** (Requirement 7.7 extended). The
+  re-apply trigger's `floofy apply --if-changed` — the one run that happens
+  unattended, outside the gateway, with the user's own credentials — now also
+  performs the daily FloofyCrew release check (its own 24 h cache, so the
+  hourly trigger costs at most one request a day) and a registry-source
+  refresh at most once a day (`floofy_core/freshness.py`), so the App's
+  release banner and per-mod update rows stay fresh for users who never open
+  a terminal. Best-effort: an offline desk or a failed feed never fails the
+  trigger; a registry the user never fetched themselves is not fetched; and
+  `updates.check false` disables both. The Loader still performs no network
+  I/O itself. The Mods landing page now carries the mod-updates notice too
+  ("N mod update(s) available … Review on the Registry page") — before, only
+  the Registry page showed them.
+
+## 1.3.1 — 2026-09-22
+
+A patch on 1.3.0 that removes ceremony from installing mods. A git reference
+no longer needs a tag: a bare `ssh://…` / `https://….git` installs the
+repository's **default branch**, with the version and host compatibility read
+from the checkout's `floofy.json` — never derived from a tag or commit hash —
+and the resolved commit recorded (`@<tag>` and `--ref` stay for pinning). A
+confirmed install now lands **enabled**: the install confirmation is the
+consent, so the separate `floofy enable` step (and the "enable code parts
+right away" jargon) is gone; `--disabled` / the App's "install switched off"
+checkbox land a mod off on request. In the App, the manual Yeet button is
+retired (Disable/Uninstall cover it; the automatic quarantine and Restore
+stay), "Check for updates" shows a busy state and a one-line verdict, and the
+active tab no longer grows a bottom border after a tab switch. No API change:
+`floofy.api_version` stays 1.2.0.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
+### Changed
+
+- **A confirmed install lands enabled** (Requirement 11.7 reworded). The
+  install confirmation *is* the consent, so the separate `floofy enable` step —
+  which users (and the owner) kept forgetting — is gone. `--disabled` (CLI) and
+  the App's plain-language "install switched off (enable it later)" checkbox
+  land a mod off on request; the jargon "enable code parts right away" flag and
+  checkbox are retired (`--enable` is still accepted and ignored so pre-1.3
+  automation keeps working). The disclosure's `landsDisabled` field is now
+  `codeParts` — what the confirmation covers, not a promise about the flag.
+- **A git reference no longer needs a tag** (Requirement 8.8 reworded). A bare
+  `ssh://…` / `https://….git` reference installs the repository's **default
+  branch** (its HEAD); the mod's version and host compatibility are read from
+  the checkout's `floofy.json`, never derived from a tag or commit hash, and
+  the install is recorded with the commit the clone resolved to. `@<tag>` and
+  `--ref <branch|commit>` stay available to pin a point on purpose
+  (`UnpinnedReference` is no longer raised).
+- **The manual Yeet button is gone from the App.** Disable and Uninstall cover
+  the user-facing need; the automatic per-host-version quarantine, its Restore
+  button and the `floofy yeet` command are unchanged, and the quarantine card
+  now says in plain language when mods land there (and names the terminal
+  command for parking one by hand, Requirement 16.2).
+- **Registry › "Check for updates" reports what it did**: the button reads
+  "Checking…" with a busy note while the sources are asked, then a one-line
+  verdict — how many updates are available, "everything is at the newest
+  version known to work here", or the error when the check failed.
+
+### Fixed
+
+- **The active tab grew a bottom border after any tab switch.** React writes
+  only the changed inline-style keys, so the 4-side `borderColor` write on
+  activation repainted the bottom while `borderBottomColor` (unchanged,
+  transparent) was not re-written. Border colours are now spelled per side in
+  both tab states; the active tab never paints a bottom border, matching the
+  first render.
+
 ### Added
 
 - **License and third-party notices.** The repository gains its `LICENSE` (MIT)

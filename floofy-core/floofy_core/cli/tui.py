@@ -563,7 +563,7 @@ class TuiApp:
                 except Exception:  # noqa: BLE001
                     tier = "?"
                 labels.append(f"[{'on ' if flag else 'off'}] {mod.id} {mod.version}  tier={tier}" + (f"  PROBLEM: {mod.problem}" if mod.problem else "") + ("  (dev link)" if mod.is_link else ""))
-            extras = ["+ Install from the registry (search)…", "+ Install from a git reference (ssh://… or https://…@tag)…", "↺ Restore a quarantined set (yeet --restore)…", "≡ Show the quarantine", "≡ Status of every mod"]
+            extras = ["+ Install from the registry (search)…", "+ Install from a git reference (ssh://… or https://…, @tag optional)…", "↺ Restore a quarantined set (yeet --restore)…", "≡ Show the quarantine", "≡ Status of every mod"]
             choice = self.menu("Mods", labels + extras, header=[("installed mods: state, version and source tier (unlisted / listed / tested)", "muted")])
             if choice is None:
                 return

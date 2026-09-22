@@ -3,7 +3,7 @@
 // Every installed mod with its state and typed reason, the seam of every part
 // and whether it modifies payload files, the host-compat and source-tier badges,
 // warnings and governance warnings (never gates), update availability; the
-// actions Enable/Disable, Update, Yeet, Uninstall through the typed routes; the
+// actions Enable/Disable, Update, Uninstall through the typed routes; the
 // staged set with "Apply now" (POST /reload, Requirement 7.6); the quarantine
 // with per-version restore; and the install form — a registry id, a path, an
 // archive URL or a git reference, staged by default, "apply now" on request.
@@ -68,20 +68,20 @@ function Warnings({ row }) {
 export function InstallForm({ manager }) {
   const [source, setSource] = React.useState("");
   const [now, setNow] = React.useState(false);
-  const [enable, setEnable] = React.useState(false);
+  const [disabled, setDisabled] = React.useState(false);
   const submit = async (event) => {
     event.preventDefault();
     const text = source.trim();
     if (!text) return;
-    const result = await manager.act("/mods/install", { source: text, now, enable });
+    const result = await manager.act("/mods/install", { source: text, now, disabled });
     if (result && result.ok) setSource("");
   };
   return React.createElement(
     "form",
     { onSubmit: submit, style: { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }, "data-testid": "floofycrew-install-form" },
-    React.createElement("input", { style: { ...styles.input, minWidth: "26rem" }, value: source, onChange: (e) => setSource(e.target.value), placeholder: "registry id[@version], ssh://…@tag, https://…@tag, https://…/mod.zip or a local path", "data-testid": "floofycrew-install-source", "aria-label": "mod source" }),
+    React.createElement("input", { style: { ...styles.input, minWidth: "26rem" }, value: source, onChange: (e) => setSource(e.target.value), placeholder: "registry id[@version], a git repository URL (ssh://… or https://…, optional @tag), https://…/mod.zip or a local path", "data-testid": "floofycrew-install-source", "aria-label": "mod source" }),
     React.createElement("label", { style: styles.muted }, React.createElement("input", { type: "checkbox", checked: now, onChange: (e) => setNow(e.target.checked), "data-testid": "floofycrew-install-now" }), " apply now (default: staged for the next gateway start)"),
-    React.createElement("label", { style: styles.muted }, React.createElement("input", { type: "checkbox", checked: enable, onChange: (e) => setEnable(e.target.checked) }), " enable code parts right away"),
+    React.createElement("label", { style: styles.muted }, React.createElement("input", { type: "checkbox", checked: disabled, onChange: (e) => setDisabled(e.target.checked), "data-testid": "floofycrew-install-disabled" }), " install switched off (enable it later)"),
     React.createElement("button", { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: manager.busy || !source.trim(), "data-testid": "floofycrew-install-submit" }, "Install"),
   );
 }
@@ -95,6 +95,7 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
   const pending = (statusMeta && statusMeta.pending) || [];
   const quarantine = (statusMeta && statusMeta.quarantine) || {};
   const updates = (registry && registry.updates) || {};
+  const modUpdates = Object.entries(updates).filter(([, u]) => u && u.update);
   const mod = (id) => `/mods/${encodeURIComponent(id)}`;
 
   return React.createElement(
@@ -140,6 +141,16 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
             state.governance.map((warning, index) => React.createElement("li", { key: index }, `governance ${warning.code}: ${warning.message}`)),
           )
         : null,
+      // Requirement 7.7: the landing page reminds about MOD updates too (the data is kept fresh unattended
+      // by the re-apply trigger's daily check + registry refresh; the Registry page carries the actions)
+      modUpdates.length
+        ? React.createElement(
+            "div",
+            { style: { ...styles.ok, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem 0.6rem", marginTop: "0.4rem" }, "data-testid": "floofycrew-mod-updates-notice" },
+            React.createElement("span", null, `${modUpdates.length} mod update(s) available: ${modUpdates.map(([id, u]) => `${id} ${u.installed} → ${u.candidate}`).join(", ")}`),
+            navigate ? React.createElement("button", { style: { ...styles.button, ...styles.primary, marginBottom: 0 }, disabled: busy, "data-testid": "floofycrew-mod-updates-open", onClick: () => navigate("registry") }, "Review on the Registry page") : null,
+          )
+        : null,
     ),
     React.createElement(ModPagesList, { manager, navigate }),
     React.createElement("div", { style: styles.card, "data-testid": "floofycrew-install-card" }, React.createElement("h2", { style: styles.cardTitle }, "Install a mod"), React.createElement(InstallForm, { manager }), commandNote(React, "The same at a terminal:", "floofy install <id | path | archive | https URL | git reference> [--now]")),
@@ -176,7 +187,6 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
             React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-toggle-${row.id}`, onClick: () => act(`${mod(row.id)}/${row.enabled ? "disable" : "enable"}`) }, row.enabled ? "Disable" : "Enable"),
             update && update.update ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": `floofycrew-update-button-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, {}) }, `Update to ${update.candidate}`) : null,
             update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-update-now-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, { now: true }) }, "Update now") : null,
-            React.createElement("button", { style: styles.button, disabled: busy, onClick: async () => { const question = `Park ${row.id} in the quarantine for host ${host.version}?`; const yes = manager.ask ? await manager.ask({ kind: "yes-no", text: question }, {}) : null; if (yes) act(`${mod(row.id)}/yeet`, { reason: "manual yeet (app)" }); } }, "Yeet"),
             React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(`${mod(row.id)}/uninstall`, { now: true }) }, "Uninstall"),
             navigate && (row.parts || []).some((p) => p.kind === "ui") ? React.createElement("button", { style: styles.button, disabled: busy || !row.active, "data-testid": `floofycrew-row-open-page-${row.id}`, onClick: () => navigate("mods", row.id) }, "Open page") : null,
             navigate ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => navigate("registry", row.id) }, "Registry entry") : null,
@@ -188,10 +198,11 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
       ? React.createElement(
           "div",
           { style: styles.card, "data-testid": "floofycrew-quarantine" },
-          React.createElement("strong", null, "Quarantine (yeeted per host version)"),
+          React.createElement("strong", null, "Quarantine (parked automatically when a host update broke compatibility)"),
           Object.entries(quarantine)
             .filter(([key]) => key !== "requests")
             .map(([version, mods]) => React.createElement("div", { key: version }, React.createElement("code", null, version), `: ${(mods || []).join(", ") || "-"} `, React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act("/restore", { version }) }, "Restore set"))),
+          commandNote(React, "Parking a mod by hand is a terminal capability:", "floofy yeet <id>"),
         )
       : null,
   );

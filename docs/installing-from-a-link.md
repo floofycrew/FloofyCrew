@@ -12,7 +12,7 @@ manager page.
 
 | Tier | You get it when | Who vouched | What is verified before install |
 |---|---|---|---|
-| `unlisted` | `floofy install ssh://…@<tag>`, `https://…[.git]@<tag>`, a local directory, an archive, an `https://` archive URL | nobody but you | the mod's own claims: `floofy validate` (schema, every `files[]` hash, targets, network scan); the commit of the checkout is recorded |
+| `unlisted` | `floofy install ssh://…`, `https://…[.git]` (`@<tag>` optional), a local directory, an archive, an `https://` archive URL | nobody but you | the mod's own claims: `floofy validate` (schema, every `files[]` hash, targets, network scan); the commit of the checkout is recorded |
 | `listed` | `floofy install <id>` from a registry record | a curator merged the record; the index verified against the key pinned for your edition (or you allowed that source unsigned) | everything above, **plus** the checkout or archive is held to the record: commit, canonical-manifest hash and every file (link record) or archive hash and size (asset record) |
 | `tested` | a `listed` mod whose compatibility row for **your** host version says `tested` | the Forge ran it on exactly this host version | everything above; the matrix row is the evidence, and `floofy doctor` shows it |
 
@@ -24,26 +24,29 @@ beyond your consent, and the manager says so.
 ## Installing from a git reference
 
 ```bash
-floofy install ssh://<host>/<path>@<tag>                     # a repository holding the mod at its root
-floofy install https://<host>/<owner>/<repo>.git@<tag>       # the same over https
-floofy install ssh://<host>/<path>@<tag>#mods/<id>           # the mod lives in a subdirectory
-floofy install https://<host>/<owner>/<repo> --ref <branch|commit>   # unpinned, on purpose
+floofy install ssh://<host>/<path>                           # a repository holding the mod at its root, default branch
+floofy install https://<host>/<owner>/<repo>.git             # the same over https
+floofy install ssh://<host>/<path>#mods/<id>                 # the mod lives in a subdirectory
+floofy install ssh://<host>/<path>@<tag>                     # pin a point with a tag…
+floofy install https://<host>/<owner>/<repo>.git --ref <branch|commit>   # …or a branch/commit
 ```
 
-The grammar is strict on purpose:
+The grammar:
 
 - **the scheme is required** — `ssh://` or `https://`; a bare `host/owner/repo`
   is read as a registry id, `git://` and `http://` are refused (mod traffic and
   FloofyCrew's own traffic are encrypted-only; loopback is the one exception);
-- **the tag is required** — `@<tag>` after the repository, the last `@` of the
-  path starting it (an `ssh://git@host/…` user is fine). A reference without a
-  tag is refused unless you pass `--ref <branch|commit>` to say you want an
-  unpinned checkout; the install is still recorded with the commit it resolved to;
+- **the tag is optional** — a bare reference takes the repository's **default
+  branch** (its HEAD). The mod's version and host compatibility are read from
+  the checkout's `floofy.json`, never derived from a tag or a commit hash, and
+  the install is recorded with the commit the clone resolved to. `@<tag>` (the
+  last `@` of the path — an `ssh://git@host/…` user is fine) or
+  `--ref <branch|commit>` pin a point when you want one;
 - `#<subdirectory>` names the mod's directory inside the repository when it is
   not the root.
 
-What happens: a shallow clone at the tag (`git clone --depth 1 --branch <tag>
---single-branch`) into `<host home>/floofy/cache/sources/git/`, with **your**
+What happens: a shallow clone (`git clone --depth 1 --single-branch`, at the tag
+when one is given) into `<host home>/floofy/cache/sources/git/`, with **your**
 git credentials — the ssh agent, `GIT_SSH_COMMAND`, a credential helper; the
 manager only turns off git's terminal prompt so an unauthenticated clone fails
 instead of hanging. The commit is recorded, every `files[]` entry of the manifest
@@ -63,9 +66,9 @@ row). `--yes` never accepts it — `--yes` answers the ordinary yes/no questions
 install carries the source, the commit, the tier and how the line was accepted.
 
 After that the install is the normal one: staged into `pending/` while a gateway
-runs (or applied with `--now`), code parts land disabled, the seam handlers run.
-`floofy update` does not move an unlisted mod — re-run `floofy install` with the
-new tag when you want it.
+runs (or applied with `--now`), enabled (`--disabled` lands it switched off), the
+seam handlers run. `floofy update` does not move an unlisted mod — re-run
+`floofy install` when you want the repository's newer state.
 
 ## Installing from the registry
 

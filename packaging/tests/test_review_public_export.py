@@ -140,6 +140,35 @@ def test_a_drifted_chunk_recovers_on_the_retry(reviewer, tmp_path: Path):
     assert record["verdict"] == "clean"
 
 
+def test_committed_but_unpushed_changes_are_reviewed_against_the_upstream(reviewer, tmp_path: Path):
+    capture = tmp_path / "prompt"
+    upstream = tmp_path / "upstream.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(upstream)], check=True)
+    clone = _clone(tmp_path, committed={"a.md": "published\n"})
+    # a relative remote URL: an absolute one would carry the runner's home
+    # directory (an account name), which the internal-remote guard rightly refuses
+    subprocess.run(["git", "-C", str(clone), "remote", "add", "origin", "../upstream.git"], check=True)
+    subprocess.run(["git", "-C", str(clone), "push", "-q", "-u", "origin", "main"], check=True)
+    (clone / "a.md").write_text("published\nplus a committed-but-unpushed line marker-beta\n", encoding="utf-8")
+    env_id = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+              "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+    subprocess.run(["git", "-C", str(clone), "-c", "commit.gpgsign=false", "commit", "-q", "-am", "local"],
+                   check=True, env={**__import__("os").environ, **env_id})
+    record = reviewer.review(clone, model="m", effort="low", max_bytes=90_000, timeout=60,
+                             model_cmd=_fake_model(tmp_path, [], capture=capture), skip_scan=True)
+    assert record["verdict"] == "clean" and record["base"] == "origin/main"
+    assert "marker-beta" in capture.read_text(encoding="utf-8"), "the unpushed COMMIT is part of the reviewed delta"
+
+
+def test_base_full_reviews_every_tracked_file(reviewer, tmp_path: Path):
+    clone = _clone(tmp_path, committed={"a.md": "one marker-gamma\n", "sub/b.md": "two\n"})
+    capture = tmp_path / "prompt"
+    record = reviewer.review(clone, model="m", effort="low", max_bytes=90_000, timeout=60,
+                             model_cmd=_fake_model(tmp_path, [], capture=capture), skip_scan=True, base="full")
+    assert record["base"] is None and set(record["reviewedPaths"]) == {"a.md", "sub/b.md"}
+    assert "marker-gamma" in capture.read_text(encoding="utf-8")
+
+
 def test_refuses_a_clone_with_an_internal_remote(reviewer, tmp_path: Path):
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import check_no_internal_identifiers as checker  # noqa: PLC0415

@@ -4,9 +4,10 @@
   (a directory whose name differs from its manifest ``id`` is reported, not
   loaded — the same rule the Loader applies at boot);
 * :func:`read_enabled` / :func:`write_enabled` — ``enabled.json`` (``{"<id>": bool}``;
-  Requirement 11.7: an unlisted mod with code parts is off until enabled);
+  Requirement 11.7: a confirmed install lands enabled, ``--disabled`` lands it off;
+  a code mod with **no** entry — predating the flag — stays off until enabled);
 * :func:`code_kinds_of` — whether a manifest has ``python-hook``/``spa`` parts
-  (those land disabled after install);
+  (the kinds the install confirmation covers);
 * the install source record ``mods/<id>/.floofy/source.json`` the manager writes
   (``{"source": "path|archive|url|registry|git", "ref": ..., "sha256": ..., "installedAt": ...,
   "version": ..., "registryKey": ..., "tier": "unlisted|listed",
@@ -38,7 +39,7 @@ __all__ = [
     "write_source",
 ]
 
-#: Kinds whose code runs — they land disabled until the user enables them (Requirement 11.7).
+#: Kinds whose code runs — the install confirmation covers them, and an absent enabled.json entry means off (Requirement 11.7).
 CODE_KINDS = frozenset({"python-hook", "spa"})
 
 SOURCE_FILE = "source.json"

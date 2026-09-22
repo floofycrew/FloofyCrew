@@ -15,10 +15,12 @@ Requirement 11.6 refuses them for every other byte FloofyCrew itself moves.
 its local bare repositories, and never by default. The last ``@`` of the URL path
 starts the tag; a ``#`` fragment names the mod directory inside the checkout.
 
-Pinning is the rule, not the exception: a reference without ``@<tag>`` is refused
-unless the caller passes an explicit ``--ref <branch|commit>``; the install is
-then still recorded with the commit the clone resolved to, so an audit reader
-knows exactly what landed.
+A bare reference — no ``@<tag>``, no ``--ref`` — takes the repository's
+**default branch** (its HEAD): the mod's version and host compatibility are read
+from the checkout's ``floofy.json``, never derived from a tag or a commit hash,
+and the install is recorded with the commit the clone resolved to, so an audit
+reader knows exactly what landed. ``@<tag>`` and ``--ref <branch|commit>`` stay
+available to pin a point on purpose.
 
 The flow (:func:`fetch`) is the one Requirement 8.8 describes: a shallow clone
 at the tag (``git clone --depth 1 --branch <tag> --single-branch``) with the
@@ -253,8 +255,9 @@ class GitRef:
                 raise GitRefError("AmbiguousReference", f"{text!r} pins @{tag} and --ref {explicit} was given too; use one of them")
             if not (_HEX40.match(explicit) or _valid_ref_name(explicit)):
                 raise GitRefError("BadRef", f"--ref {explicit!r} is neither a branch name nor a 40-hex commit")
-        if tag is None and explicit is None:
-            raise GitRefError("UnpinnedReference", f"{text} names no tag: add @<tag> (the mod's version tag), or pass --ref <branch|commit> to install an unpinned checkout on purpose (the install is recorded with the commit it resolved to)")
+        # No @<tag> and no --ref: the repository's default branch (HEAD). The version and the
+        # host compatibility come from the checkout's floofy.json, never from a tag or a commit
+        # hash, and the install is recorded with the commit the clone resolved to.
         url = urllib.parse.urlunsplit((scheme, parsed.netloc, path, "", ""))
         return cls(url=url, tag=tag, ref=explicit, subdirectory=subdirectory)
 

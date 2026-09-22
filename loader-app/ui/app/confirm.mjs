@@ -99,7 +99,7 @@ export function Disclosure({ disclosure }) {
       ? React.createElement("div", { style: { ...styles.danger, marginTop: "0.4rem" }, "data-testid": "floofycrew-disclosure-governance" }, `GOVERNANCE-ALTERING target(s): ${disclosure.governanceTargets.join(", ")} — each needs its path typed to confirm (Requirement 11.4)`)
       : null,
     (disclosure.hostWarnings || []).length ? React.createElement("ul", { style: { ...styles.list, ...styles.warn, marginTop: "0.4rem" } }, disclosure.hostWarnings.map((w, index) => React.createElement("li", { key: index }, `host says: ${w.code}: ${w.message}`))) : null,
-    disclosure.landsDisabled ? React.createElement("div", { style: { ...styles.muted, marginTop: "0.4rem" } }, "Code parts (python-hook / spa) land DISABLED; enable the mod when you are ready (Requirement 11.7).") : null,
+    disclosure.codeParts ? React.createElement("div", { style: { ...styles.muted, marginTop: "0.4rem" } }, "Code parts (python-hook / spa) run once installed — confirming here installs the mod enabled; tick \u201cinstall switched off\u201d on the form to land it disabled.") : null,
   );
 }
 

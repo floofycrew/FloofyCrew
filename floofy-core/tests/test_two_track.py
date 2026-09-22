@@ -74,7 +74,7 @@ def test_the_same_mod_archives_install_and_activate_on_both_editions(tmp_path: P
         assert [tuple(p) for p in rimuru["boot"]["parts"]] == [("theme", "inactive")] and "patcherRan" not in rimuru["boot"]
         demo = record["mods"]["settings-demo"]
         assert demo["ok"] and demo["boot"]["active"]
-        assert demo["steps"]["install"]["landedEnabled"] is False, "the python-hook part lands it disabled; `enable` follows"
+        assert demo["steps"]["install"]["landedEnabled"] is True, "a confirmed install lands enabled (Requirement 11.7); the script's `enable` is an idempotent no-op"
         assert [tuple(p) for p in demo["boot"]["parts"]] == [("ui", "active"), ("python-hook", "active")]
         assert demo["boot"]["routes"] == [{"method": "GET", "path": "echo"}, {"method": "POST", "path": "echo"}]
         assert demo["boot"]["routeCalls"] == [{"route": "GET echo", "status": 200, "ok": True}], "the hook's route answers on this edition"

@@ -144,6 +144,8 @@ export function RegistryPage({ manager, rest }) {
   const [query, setQuery] = React.useState(rest || "");
   const [hits, setHits] = React.useState(null);
   const [reference, setReference] = React.useState("");
+  const [checking, setChecking] = React.useState(false);
+  const [checked, setChecked] = React.useState(null);
   const sources = (registry && registry.sources) || [];
   const cache = (registry && registry.cache) || {};
 
@@ -189,8 +191,29 @@ export function RegistryPage({ manager, rest }) {
           ),
       React.createElement(
         "div",
-        { style: { marginTop: "0.5rem" } },
-        React.createElement("button", { style: styles.button, disabled: busy, "data-testid": "floofycrew-update-check", onClick: () => manager.act("/mods/update-check", {}) }, "Check for updates"),
+        { style: { marginTop: "0.5rem", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.2rem 0.4rem" } },
+        React.createElement(
+          "button",
+          {
+            style: styles.button,
+            disabled: busy || checking,
+            "data-testid": "floofycrew-update-check",
+            onClick: async () => {
+              setChecking(true);
+              setChecked(null);
+              try {
+                const result = await manager.act("/mods/update-check", {});
+                setChecked(result && result.ok ? { ok: true } : { ok: false, error: (result && result.error) || "the check failed" });
+              } finally {
+                setChecking(false);
+              }
+            },
+          },
+          checking ? "Checking…" : "Check for updates",
+        ),
+        checking ? React.createElement("span", { style: styles.muted, "data-testid": "floofycrew-update-check-busy" }, "asking every source…") : null,
+        // `updates` re-renders from the refresh act() ran, so the count below is the post-check truth
+        checked ? React.createElement("span", { style: checked.ok ? (updates.length ? styles.ok : styles.muted) : styles.danger, "data-testid": "floofycrew-update-check-result" }, checked.ok ? (updates.length ? `checked — ${updates.length} update(s) available above` : "checked — everything is at the newest version known to work here") : `check failed: ${checked.error}`) : null,
         updates.length ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": "floofycrew-update-all", onClick: () => manager.act("/mods/update-all", {}) }, `Update all ${updates.length} (staged)`) : null,
         updates.length ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act("/mods/update-all", { now: true }) }, "Update all now") : null,
       ),
@@ -229,11 +252,11 @@ export function RegistryPage({ manager, rest }) {
       "div",
       { style: styles.card, "data-testid": "floofycrew-install-reference" },
       React.createElement("h2", { style: styles.cardTitle }, "Install from a git reference"),
-      React.createElement("div", { style: styles.muted }, "ssh://<host>/<path>@<tag> or https://<host>/<owner>/<repo>[.git]@<tag> (optional #<subdirectory>): a shallow clone with your own git credentials; the unlisted-source line is confirmed in the next step."),
+      React.createElement("div", { style: styles.muted }, "ssh://<host>/<path> or https://<host>/<owner>/<repo>[.git], optional @<tag> and #<subdirectory>: the repository's default branch unless a tag pins a point, shallow-cloned with your own git credentials; the version and host compatibility come from the mod's floofy.json, and the unlisted-source line is confirmed in the next step."),
       React.createElement(
         "form",
         { onSubmit: async (e) => { e.preventDefault(); if (reference.trim()) { const r = await manager.act("/mods/install", { source: reference.trim() }); if (r && r.ok) setReference(""); } }, style: { display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.4rem" } },
-        React.createElement("input", { style: { ...styles.input, minWidth: "28rem" }, value: reference, onChange: (e) => setReference(e.target.value), placeholder: "ssh://…@tag or https://…@tag", "aria-label": "git reference", "data-testid": "floofycrew-reference-input" }),
+        React.createElement("input", { style: { ...styles.input, minWidth: "28rem" }, value: reference, onChange: (e) => setReference(e.target.value), placeholder: "ssh://… or https://… (@tag optional — default branch without it)", "aria-label": "git reference", "data-testid": "floofycrew-reference-input" }),
         React.createElement("button", { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: busy || !reference.trim(), "data-testid": "floofycrew-reference-submit" }, "Install (staged)"),
       ),
     ),

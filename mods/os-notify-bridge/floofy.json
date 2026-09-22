@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "id": "os-notify-bridge",
+  "name": "OS notification bridge",
+  "version": "1.0.0",
+  "description": "Mirrors KiroCrew's in-app notifications to native OS banners: approval waits, cron reports, skill reviews and the rest of the feed reach the desktop even when the dashboard is in the background. Listens to the host's own notification fan-out (channel mutes keep their meaning), enriches banners from the feed API (title, body, deep link), and adds the settings surface the platform needs: a real permission button, a background-only policy, one switch per kind, and the host's hidden turn-complete flag surfaced as a switch. Unofficial; not part of KiroCrew.",
+  "authors": [
+    "Oscar Tseng"
+  ],
+  "license": "MIT",
+  "tags": [
+    "notifications",
+    "quality-of-life",
+    "ui"
+  ],
+  "kirocrew": {
+    "version": ">=0.7.0 <0.9.0",
+    "editions": [
+      "internal",
+      "external"
+    ],
+    "strict": false
+  },
+  "dependsOn": {
+    "floofycrew": ">=1.1.0 <2.0.0"
+  },
+  "network": {
+    "hosts": [],
+    "credentials": false
+  },
+  "parts": [
+    {
+      "kind": "spa",
+      "side": "spa",
+      "path": "spa/main.js",
+      "activation": "runtime",
+      "description": "the bridge: listens to the dashboard's mc-notification fan-out, enriches from GET /api/notifications, and raises rate-limited OS banners honouring the mod's settings"
+    },
+    {
+      "kind": "ui",
+      "side": "spa",
+      "path": "ui/",
+      "entry": "ui/page.mjs",
+      "title": "OS notification bridge",
+      "icon": "ui/icon.svg",
+      "description": "the settings page: permission surface (awaited requestPermission), master/background-only/per-kind switches persisted with floofy.mod(id).config, the host's turn-complete flag, and a test banner"
+    }
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "80e39cc2df99c96f5f61a44e4e1b54ffa85c45d1c2d12bff7313cc638e164454"
+    },
+    {
+      "path": "README.md",
+      "sha256": "ed8672c357207c322d8cfa987e41ac5c3d13197240606c4d8ca4962ccb27e317"
+    },
+    {
+      "path": "spa/main.js",
+      "sha256": "3291ffbc7b21a785a40e1191a16d64ce5f272a46250d2f88b8eadc433dd0845e"
+    },
+    {
+      "path": "ui/icon.svg",
+      "sha256": "ab9005416ba69ca608fc856a8a084d7b96da9e91146d195f3a4baad353ba8604"
+    },
+    {
+      "path": "ui/page.mjs",
+      "sha256": "87a3ac0531df623f2ab79aa516130dcde9a14350dd58efe02dd7a2f1633044a3"
+    },
+    {
+      "path": "tests/bridge.test.mjs",
+      "sha256": "8ecad80fd4f46a1d3f786b4ce5251d9ff6d67293f618a6113953b159c4f452ee"
+    }
+  ]
+}

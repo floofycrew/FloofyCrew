@@ -285,3 +285,23 @@ def test_stamp_with_one_segment_is_always_honoured(tmp_path_factory: pytest.Temp
 def test_path_token_is_short_and_deterministic(name: str) -> None:
     token = path_token(Path("/x") / name)
     assert len(token) == 8 and token == path_token(Path("/x") / name)
+
+
+
+def test_make_payload_canonicalizes_symlinked_spellings(tmp_path: Path) -> None:
+    """Two processes reaching one install through different $HOME spellings derive identical paths.
+
+    The gateway sees ``/home/x/…`` (a symlink) while a shell spells ``/local/home/x/…``;
+    without one canonical spelling the deployment manifest split per spelling and an
+    apply committed index.html as two work items (the later dropping the boot script).
+    """
+    real = tmp_path / "real"
+    package_dir = fake_payload(real, "0.7.0")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    via_link = make_payload(kind="test", root=link, package_dir=link / "kiro_crew", source="t")
+    via_real = make_payload(kind="test", root=real, package_dir=package_dir, source="t")
+    assert via_link.root == via_real.root == real.resolve()
+    assert via_link.package_dir == via_real.package_dir
+    assert via_link.index_html == via_real.index_html
+    assert via_link.id == via_real.id

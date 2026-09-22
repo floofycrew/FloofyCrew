@@ -113,7 +113,7 @@ def _use(ctx: CliContext, args: argparse.Namespace) -> int:
             source: ResolvedSource | None = None
             try:
                 source = resolve_source(step["ref"], home=ctx.home, base_version=base, edition=ctx.edition(), host_version=host_version, requested_version=step["version"] if "@" not in step["ref"] else None, opener_for=ctx.url_opener)
-                outcome = install_source(ctx, source, now=args.now, enable_code=step["enabled"], pre_confirmed=list(args.confirm_governance_target), accept_flags=ctx.assume_yes, accept_unlisted=bool(getattr(args, "accept_unlisted_source", False)))
+                outcome = install_source(ctx, source, now=args.now, disabled=not step["enabled"], pre_confirmed=list(args.confirm_governance_target), accept_flags=ctx.assume_yes, accept_unlisted=bool(getattr(args, "accept_unlisted_source", False)))
                 ctx.set_enabled(step["id"], step["enabled"])
                 changed = True
                 ctx.result["applied"].append({"id": step["id"], "action": step["action"], "version": step["version"], "how": outcome["placed"]["how"]})

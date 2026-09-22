@@ -69,6 +69,7 @@ __all__ = [
     "added_name",
     "atomic_write_bytes",
     "atomic_write_text",
+    "canonical_path",
     "classify_added",
     "classify_drift",
     "classify_file",
@@ -164,6 +165,21 @@ def manifest_filename(payload_id: str) -> str:
     return _UNSAFE_RE.sub("_", payload_id).strip("_") + ".json"
 
 
+def canonical_path(path: Path | str) -> str:
+    """One spelling per file: symlinks resolved (non-strict), used for every manifest key.
+
+    The gateway reaches a payload through ``$HOME`` (often a symlink, e.g.
+    ``/home/x -> /local/home/x``) while a shell spells the same file canonically.
+    Keyed by raw string, one file collected two manifest entries — each process
+    classifying the other's write as ``user-edited`` — so every lookup and every
+    recorded path goes through here.
+    """
+    try:
+        return str(Path(path).resolve())
+    except OSError:  # pragma: no cover - resolve() is non-strict; OS errors are exotic
+        return str(path)
+
+
 # --- records -------------------------------------------------------------------------
 
 
@@ -229,7 +245,7 @@ class DeployManifest:
         document = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(document, dict) or document.get("schema") != MANIFEST_SCHEMA:
             raise ValueError(f"{path}: not a schema-{MANIFEST_SCHEMA} deployment manifest")
-        return cls(
+        manifest = cls(
             payload=str(document["payload"]),
             host_version=str(document["hostVersion"]),
             edition=str(document.get("edition", "unknown")),
@@ -240,6 +256,35 @@ class DeployManifest:
             updated_at=str(document.get("updatedAt", "")),
             floofycrew_version=str(document.get("floofycrewVersion", "")),
         )
+        manifest._canonicalize()
+        return manifest
+
+    def _canonicalize(self) -> None:
+        """Heal a manifest written before paths were canonical: one entry per FILE.
+
+        Two spellings of one file (a ``$HOME`` symlink: the gateway's ``/home/x/…``
+        vs a shell's ``/local/home/x/…``) fold into the canonical spelling, keeping
+        the newest record (its ``patched_sha256`` describes the last actual write)
+        and the oldest entry's ``orig_sha256`` (first write recorded the host's
+        true original bytes).
+        """
+        for name in ("files", "added", "sidelined"):
+            entries = getattr(self, name)
+            by_path: dict[str, Any] = {}
+            for entry in entries:
+                key = canonical_path(entry.path)
+                entry.path = key
+                held = by_path.get(key)
+                if held is None:
+                    by_path[key] = entry
+                    continue
+                older, newer = sorted((held, entry), key=lambda e: e.ts)
+                if name == "files":
+                    newer.orig_sha256 = older.orig_sha256
+                    if newer.backup is None:
+                        newer.backup = older.backup
+                by_path[key] = newer
+            entries[:] = list(by_path.values())
 
     @classmethod
     def load_if_exists(cls, path: Path) -> "DeployManifest | None":
@@ -267,11 +312,11 @@ class DeployManifest:
     # -- recording ----------------------------------------------------------------------
 
     def find_file(self, path: Path | str) -> PatchedFile | None:
-        key = str(path)
+        key = canonical_path(path)
         return next((f for f in self.files if f.path == key), None)
 
     def find_added(self, path: Path | str) -> AddedFile | None:
-        key = str(path)
+        key = canonical_path(path)
         return next((a for a in self.added if a.path == key), None)
 
     def record_patch(self, path: Path | str, orig_sha256: str, patched_sha256: str, mod: str, part: str, backup: Path | str | None = None) -> PatchedFile:
@@ -283,7 +328,7 @@ class DeployManifest:
             existing.part = part
             existing.ts = utc_now()
             return existing
-        record = PatchedFile(str(path), orig_sha256, patched_sha256, mod, str(part), backup=str(backup) if backup else None)
+        record = PatchedFile(canonical_path(path), orig_sha256, patched_sha256, mod, str(part), backup=str(backup) if backup else None)
         self.files.append(record)
         return record
 
@@ -292,12 +337,12 @@ class DeployManifest:
         if existing is not None:
             existing.sha256, existing.mod, existing.ts = sha256, mod, utc_now()
             return existing
-        record = AddedFile(str(path), sha256, mod)
+        record = AddedFile(canonical_path(path), sha256, mod)
         self.added.append(record)
         return record
 
     def record_sidelined(self, path: Path | str, moved_to: Path | str, mod: str) -> SidelinedFile:
-        key = str(path)
+        key = canonical_path(path)
         existing = next((s for s in self.sidelined if s.path == key), None)
         if existing is not None:
             existing.moved_to, existing.mod, existing.ts = str(moved_to), mod, utc_now()
@@ -307,7 +352,7 @@ class DeployManifest:
         return record
 
     def forget(self, path: Path | str) -> None:
-        key = str(path)
+        key = canonical_path(path)
         self.files = [f for f in self.files if f.path != key]
         self.added = [a for a in self.added if a.path != key]
         self.sidelined = [s for s in self.sidelined if s.path != key]

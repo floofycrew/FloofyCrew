@@ -52,9 +52,8 @@ def _css_assets(payload: Path) -> Path:
 def _enable(home: Home) -> None:
     code, result, _ = home.cli("--yes", "install", str(MOD_DIR), "--now")
     assert code == 0, result
-    assert result.get("enabled") is False, "lands disabled: the python-hook and spa parts (Requirement 11.7)"
-    status, body = home.call("mods.enable", {"id": "custom-themes"})
-    assert status == 200 and body["ok"], body
+    assert result.get("enabled") is True, "a confirmed install lands enabled (Requirement 11.7)"
+    home.runtime.reload()  # the CLI ran outside the gateway: pick the newly-enabled mod up in-process
 
 
 def _route(home: Home, method: str, path: str, body: dict | None = None, query: dict | None = None):
