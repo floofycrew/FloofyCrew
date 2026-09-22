@@ -22,6 +22,7 @@ scripts/build_loader_app.py:toolbox:the --edition choice and adapter map name th
 scripts/build_wheel.py:toolbox:the --edition choice names the adapter directory
 scripts/artifact_identity_report.py:toolbox:the report builds both editions and names the adapter directory
 editions/public/tests/test_public_package.py:toolbox:asserts the internal adapter is ABSENT from public artifacts
+.github/workflows/release.yml:toolbox:the release skips the two-edition measurements when the adapter directory is absent
 
 # Apache-2.0 requires the upstream NOTICE attribution reproduced verbatim.
 NOTICE.md:*:the Apache-2.0 NOTICE attribution of upstream KiroCrew, reproduced as the license requires

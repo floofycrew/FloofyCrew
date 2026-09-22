@@ -103,10 +103,25 @@ class ExportError(RuntimeError):
     """A failed precondition or a dirty scan; the message says which."""
 
 
+def _untracked_mods() -> frozenset[str]:
+    """Mod directories with no git-tracked file: someone's work-in-progress.
+
+    An unreleased mod must not ship publicly, and an agent's in-flight scratch
+    work must not leak — only mods that are part of a commit are exportable.
+    """
+    result = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-files", "mods"], capture_output=True, text=True)
+    tracked = {line.split("/", 2)[1] for line in result.stdout.splitlines() if line.count("/") >= 1}
+    mods_dir = REPO_ROOT / "mods"
+    if not mods_dir.is_dir() or result.returncode != 0:
+        return frozenset()
+    return frozenset(p.name for p in mods_dir.iterdir() if p.is_dir() and p.name not in tracked)
+
+
 def _ignore(directory: str, names: list[str]) -> set[str]:
     ignored = {n for n in names if n in SKIP_NAMES}
     if Path(directory) == REPO_ROOT / "mods":
         ignored.update(n for n in names if n in EXCLUDED_MODS)
+        ignored.update(n for n in names if n in _untracked_mods())
     return ignored
 
 
