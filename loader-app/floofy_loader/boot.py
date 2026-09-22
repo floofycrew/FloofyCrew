@@ -53,7 +53,7 @@ from .paths import FloofyPaths
 from .pending import PendingReport, apply_pending, plan_boot, plan_patches, read_enabled
 from .state import LoaderState, ModState, PartState, utc_now
 
-__all__ = ["BootDeps", "BootResult", "ModActivation", "PatchJob", "boot", "deactivate_all", "default_governance_snapshot", "default_patch_runner", "run_deferred_patches"]
+__all__ = ["BootDeps", "BootResult", "ModActivation", "PatchJob", "boot", "deactivate_all", "default_governance_snapshot", "default_patch_runner", "patch_residue", "run_deferred_patches"]
 
 logger = logging.getLogger("floofy.loader.boot")
 
@@ -138,6 +138,29 @@ def default_governance_snapshot(facts: HostFacts) -> GovernanceSnapshot:
             source="loader",
         )
     return GovernanceSnapshot.read(governance_locations(facts.host_home, payload))
+
+
+def patch_residue(paths: FloofyPaths) -> bool:
+    """Whether a previous Patcher pass left work applied (a deployment manifest recording files).
+
+    The patch step may only be skipped when there is nothing to revert: when the
+    enabled set stops planning any patch (the last patch- or boot-carrying mod was
+    just disabled or removed), the revert-then-patch pass must still run once so
+    the payload returns to stock — otherwise the disabled mod's baked ops keep
+    running from ``index.html`` until a ``floofy apply`` from a terminal.
+    An unreadable record counts as residue; the Patcher self-heals from it.
+    """
+    deploy = Path(paths.data_home) / "deploy"
+    if not deploy.is_dir():
+        return False
+    for record in deploy.glob("*.json"):
+        try:
+            document = json.loads(record.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return True
+        if isinstance(document, dict) and (document.get("files") or document.get("added") or document.get("sidelined")):
+            return True
+    return False
 
 
 def default_patch_runner(planned: list, facts: HostFacts, paths: FloofyPaths) -> dict[str, Any]:
@@ -470,14 +493,17 @@ def boot(deps: BootDeps) -> BootResult:
         state.errors.extend(f"boot descriptor: {p}" for p in boot_problems)
         if boot_plan is not None:
             planned.append(boot_plan)
-        if planned or vanilla:
+        if planned or vanilla or patch_residue(paths):
+            # the pass also runs with an EMPTY plan when a previous apply left work
+            # behind: revert-then-patch restores stock after the last patch-carrying
+            # mod is disabled or removed (the Patcher's "dropped out of the set" promise)
             if deps.defer_patches:
                 result.patch_job = PatchJob(planned, vanilla)
                 state.patches = {"ran": False, "detail": "deferred: the Patcher pass runs off the event loop after this boot"}
             else:
                 _patch_step(deps, state, planned, vanilla)
         else:
-            state.patches = {"ran": False, "detail": "no patch parts enabled"}
+            state.patches = {"ran": False, "detail": "no patch parts enabled, nothing deployed to revert"}
 
     result.refresh_exports()
     state.duration_ms = int((time.monotonic() - started) * 1000)

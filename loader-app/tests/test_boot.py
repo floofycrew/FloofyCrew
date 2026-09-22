@@ -287,6 +287,34 @@ def test_enabled_patch_parts_go_to_the_patch_runner(env, tmp_path: Path):
     assert state.mods["patchy"].parts[0].to_dict()["modifiesPayload"] is True
 
 
+def test_empty_plan_still_runs_the_patcher_when_a_deployment_left_work(env):
+    """Disabling the last patch-carrying mod must revert its ops: the pass runs with an
+    EMPTY plan whenever a deployment manifest records applied work, and is skipped only
+    when there is nothing to revert (no manifest, or one recording nothing)."""
+    consent(env)
+    descriptor = json.dumps({"schema": 1, "target": "kiro_crew/static/dist/index.html", "ops": [{"op": "append-head", "content": "<meta name=\"x\">", "marker": 'name="x"'}]})
+    make_mod(env.paths, "patchy", code=None, parts=[{"kind": "patch", "side": "spa", "path": "patches/boot.json"}], files={"patches/boot.json": descriptor})
+    enable(env, patchy=False)
+
+    # no deployment record at all: the step is skipped
+    state = boot(env.deps).state
+    assert state.patches == {"ran": False, "detail": "no patch parts enabled, nothing deployed to revert"}
+
+    # a manifest recording zero work: still nothing to revert
+    deploy = Path(env.paths.data_home) / "deploy"
+    deploy.mkdir(parents=True, exist_ok=True)
+    (deploy / "payload.json").write_text(json.dumps({"schema": 1, "files": [], "added": [], "sidelined": []}), encoding="utf-8")
+    assert boot(env.deps).state.patches == {"ran": False, "detail": "no patch parts enabled, nothing deployed to revert"}
+
+    # a manifest recording applied files: the Patcher runs with the empty set (revert-then-patch → stock)
+    (deploy / "payload.json").write_text(json.dumps({"schema": 1, "files": [{"target": "kiro_crew/static/dist/index.html"}], "added": [], "sidelined": []}), encoding="utf-8")
+    assert boot(env.deps).state.patches == {"ran": True, "planned": []}
+
+    # an unreadable record counts as residue — the Patcher self-heals from it
+    (deploy / "payload.json").write_text("{broken", encoding="utf-8")
+    assert boot(env.deps).state.patches == {"ran": True, "planned": []}
+
+
 def test_spa_parts_are_published_only_while_active(env):
     consent(env)
     make_mod(env.paths, "ui", code=None, parts=[{"kind": "spa", "side": "spa", "path": "spa/main.js"}, {"kind": "spa", "side": "spa", "path": "boot/first.js", "activation": "boot"}], files={"spa/main.js": "export default 1;\n", "spa/lib/util.js": "export const u = 1;\n", "boot/first.js": "// boot\n"})

@@ -49,6 +49,16 @@ terminal.
 
 ### Fixed
 
+- **Disabling the last patch-carrying mod now reverts its baked ops**
+  (`floofy_loader.boot`). The Loader's patch step used to be skipped whenever
+  the enabled set planned no patches, so disabling or removing the last mod
+  with a `patch` part or a `boot` activation through the App left its ops
+  baked into `index.html` — the "disabled" mod's boot hook and stylesheet
+  kept running on every load until a `floofy apply` from a terminal. The
+  step now also runs (with an empty plan — the Patcher's revert-then-patch
+  restores stock) whenever a deployment manifest records applied work, and
+  is skipped only when there is genuinely nothing to revert.
+
 - **One canonical spelling per payload file** (`floofy_core.payloads.make_payload`,
   `floofy_core.deploy`). On a host whose `$HOME` is a symlink (a common
   clouddesk layout, `/home/x -> /local/home/x`) the gateway spelled payload
