@@ -84,7 +84,10 @@ def self_command(host_home: Path | None = None) -> list[str]:
 
 def systemd_units(command: list[str], *, minute: int = REAPPLY_MINUTE, environment: dict[str, str] | None = None) -> dict[str, str]:
     """The ``.service`` and ``.timer`` texts for the hourly re-apply."""
-    exec_start = " ".join(shlex.quote(part) for part in [*command, "apply", "--if-changed", "--quiet"])
+    # ``--quiet`` is a GLOBAL flag: it must precede the subcommand. Emitted after
+    # ``apply`` (as until 1.3.2) the subparser rejected it and the hourly re-apply
+    # unit failed on every fire — patches silently stopped surviving host updates.
+    exec_start = " ".join(shlex.quote(part) for part in [*command, "--quiet", "apply", "--if-changed"])
     env_lines = "".join(f"Environment={shlex.quote(f'{k}={v}')}\n" for k, v in sorted((environment or {}).items()))
     service = (
         "[Unit]\n"
@@ -118,7 +121,7 @@ def launchd_plist(command: list[str], *, minute: int = REAPPLY_MINUTE, label: st
     """The launchd agent plist: ``StartCalendarInterval`` every hour at ``minute``."""
     document: dict[str, Any] = {
         "Label": label,
-        "ProgramArguments": [*command, "apply", "--if-changed", "--quiet"],
+        "ProgramArguments": [*command, "--quiet", "apply", "--if-changed"],
         "StartCalendarInterval": {"Minute": minute},
         "RunAtLoad": False,
         "ProcessType": "Background",
@@ -133,7 +136,7 @@ def launchd_plist(command: list[str], *, minute: int = REAPPLY_MINUTE, label: st
 
 def path_wrapper_script(real_launcher: Path, command: list[str]) -> str:
     """``~/.local/bin/kirocrew``: re-apply if the payload changed, then ``exec`` the real launcher."""
-    reapply = " ".join(shlex.quote(part) for part in [*command, "apply", "--if-changed", "--quiet"])
+    reapply = " ".join(shlex.quote(part) for part in [*command, "--quiet", "apply", "--if-changed"])
     return (
         "#!/bin/sh\n"
         "# FloofyCrew (unofficial) re-apply wrapper — written by `floofy init`, removed by `floofy deinit`.\n"

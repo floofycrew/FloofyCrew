@@ -11,6 +11,18 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- **The hourly re-apply trigger never ran** (`floofy_core.triggers`,
+  `floofy_core.cli.main`). The generated systemd unit and launchd agent
+  invoked `floofy … apply --if-changed --quiet` — but `--quiet` is a global
+  flag, so the `apply` subparser rejected it and every fire exited 2 before
+  doing anything: patches silently stopped surviving host updates, and the
+  1.3.1 unattended freshness pass never got to run. The units now emit
+  `--quiet` before the subcommand, and every subcommand also accepts a
+  trailing `--quiet`/`-q`, which heals the units already written on user
+  machines without regenerating them.
+
 ### Added
 
 - **`display-comfort` 1.0.0**, a quality-of-life mod answering the two

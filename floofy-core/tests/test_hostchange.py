@@ -206,3 +206,16 @@ def test_hold_is_explicit_confirmed_and_audited(world, monkeypatch: pytest.Monke
     monkeypatch.setattr(context_module.CliContext, "adapters", lambda self: [types.SimpleNamespace(EDITION="internal")])
     none = world.run("--yes", "--json", "hold")
     assert none.exit == 0 and none.json["available"] is False and read_audit(world.paths.audit)[-1]["result"] == "unavailable"
+
+
+
+def test_trailing_quiet_is_accepted_after_the_subcommand(world):
+    """Re-apply units written until 1.3.2 spell ``apply --if-changed --quiet``.
+
+    ``--quiet`` is a global flag, so the subparser rejected it and the hourly
+    trigger failed on every fire. Each subcommand now accepts a trailing
+    ``--quiet``/``-q``, healing every unit already on disk.
+    """
+    result = world.run("--json", "apply", "--if-changed", "--no-verify", "--quiet")
+    assert result.exit == 0, result.stderr
+    assert result.json["change"]["firstRun"] is True
