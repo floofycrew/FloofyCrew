@@ -9,7 +9,7 @@ bundle, inside an error boundary, and calls its default export (or `activate`):
 export default function activate(ctx) {
   ctx.log.info("hello from", ctx.modId, "on", ctx.host.version);
   const nav = ctx.surfaces.get("sidebar.nav");          // a live node or null
-  ctx.events.subscribe("surfaces.changed", () => { /* re-render */ });
+  ctx.events.on("surfaces.changed", () => { /* re-render */ });   // on/once/off/emit — there is no subscribe/publish
   return () => { /* optional cleanup */ };
 }
 export function deactivate(ctx) {}
@@ -35,7 +35,7 @@ Frozen after the first state read.
 | `unofficial` | `true` |
 | `host` | `{version, edition, channel, …}` — the Loader's host facts |
 | `api_version` | the FloofyCrew API version (the same string as `floofy.api_version` on the Python side) |
-| `events` | the document-wide event bus (`subscribe`, `publish`) |
+| `events` | the document-wide event bus (`on`, `once`, `off`, `emit`, `inspect`) |
 | `surfaces` | stable names for host UI surfaces (below) |
 | `patches` | inspection of the module patches in force (below) |
 | `report(options)` | the reporter (below) |
