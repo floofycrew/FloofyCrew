@@ -13,6 +13,7 @@
 // down — the shell, its navigation and the other pages keep working.
 import React from "react";
 
+import { ensureStarted } from "../../host.mjs";
 import { API } from "../api.mjs";
 import { commandNote, styles } from "../palette.mjs";
 
@@ -72,8 +73,12 @@ export function ModPage({ manager, modId, navigate }) {
         const mount = typeof module.default === "function" ? module.default : module.mount;
         if (typeof mount !== "function") throw new Error(`${page.entry} has no default export mount(container, api)`);
         where = "mount";
+        // The host may have given up on a cold, session-less load (it now resumes on
+        // demand); wait for it rather than reading a stale window.floofy.
+        await ensureStarted().catch(() => undefined);
+        if (cancelled) return;
         const api = window.floofy && typeof window.floofy.mod === "function" ? window.floofy.mod(modId) : null;
-        if (!api) throw new Error("window.floofy.mod is not available: the SPA host did not start");
+        if (!api) throw new Error("window.floofy.mod is not available: the SPA host did not start (no dashboard session yet? sign in, then reopen this page)");
         const result = await mount(target, api);
         if (cancelled) return;
         cleanupRef.current = typeof result === "function" ? result : result && typeof result.unmount === "function" ? () => result.unmount() : null;

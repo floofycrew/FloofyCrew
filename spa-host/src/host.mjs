@@ -35,6 +35,16 @@ export const API_BASE = "/api/apps/floofycrew";
 export const SPA_PREFIX = `${API_BASE}/spa/`;
 /** Backoff schedule (ms) while the dashboard finishes its token exchange; ~10 s total. */
 export const AUTH_BACKOFF_MS = Object.freeze([250, 500, 1000, 2000, 3000, 3250]);
+/**
+ * Once the cold path gave up (no session yet — e.g. the shell shows "Session expired,
+ * paste a token URL"), the host stays idle but keeps trying: one `/state` probe every
+ * `IDLE_RETRY_MS`, `IDLE_RETRIES` times (~20 min), plus a nudge whenever the window
+ * regains focus or the manager page asks for it. Before this the host pinned `null` for
+ * the document's lifetime, and a sign-in through the banner (which never reloads the
+ * document) left every mod page failing with "the SPA host did not start".
+ */
+export const IDLE_RETRY_MS = 15000;
+export const IDLE_RETRIES = 80;
 
 /**
  * The runtime `spa` parts of every active mod, in Loader order.
@@ -142,6 +152,8 @@ const sleep = (ms, setTimer = setTimeout) => new Promise((resolve) => setTimer(r
  * @param {Console} [env.console]
  * @param {typeof setTimeout} [env.setTimeout]
  * @param {number[]} [env.backoff] override the auth backoff schedule
+ * @param {number} [env.idleRetryMs] override the idle retry period
+ * @param {number} [env.idleRetries] override the idle retry count (0 disables resuming)
  * @param {any[]} [env.surfaceDefinitions] override the surface registry (tests)
  */
 export function createHost(env = {}) {
@@ -152,12 +164,18 @@ export function createHost(env = {}) {
   const importer = env.importer ?? ((url) => import(url));
   const setTimer = env.setTimeout ?? ((fn, ms) => setTimeout(fn, ms));
   const backoff = env.backoff ?? AUTH_BACKOFF_MS;
+  const idleRetryMs = env.idleRetryMs ?? IDLE_RETRY_MS;
+  const idleRetries = env.idleRetries ?? IDLE_RETRIES;
 
   const bus = createBus({ log: (message, error) => log.warn(`[floofy] ${message}`, error ?? "") });
   /** @type {Map<string, {module: any, ctx: any}>} */
   const loaded = new Map();
+  /** The in-flight or successful start; cleared again when a start gave up so it can resume. */
   let started = null;
   let latestState = null;
+  let idleTimer = null;
+  let idleAttempts = 0;
+  let nudgesInstalled = false;
 
   async function getJson(path) {
     const response = await fetchImpl(`${API_BASE}${path}`, { credentials: "same-origin", headers: { Accept: "application/json" } });
@@ -165,11 +183,11 @@ export function createHost(env = {}) {
     return { ok: true, status: response.status, body: await response.json() };
   }
 
-  /** Read `/state`, waiting out the token exchange on the cold path. */
-  async function fetchState() {
+  /** Read `/state`, waiting out the token exchange on the cold path (`schedule` = backoff to spend). */
+  async function fetchState(schedule = backoff) {
     let reply = await getJson("/state").catch((error) => ({ ok: false, status: 0, body: null, error }));
-    for (let attempt = 0; !reply.ok && attempt < backoff.length; attempt += 1) {
-      await sleep(backoff[attempt], setTimer);
+    for (let attempt = 0; !reply.ok && attempt < schedule.length; attempt += 1) {
+      await sleep(schedule[attempt], setTimer);
       const health = await getJson("/health").catch(() => ({ ok: false }));
       if (!health.ok) continue;
       reply = await getJson("/state").catch((error) => ({ ok: false, status: 0, body: null, error }));
@@ -276,14 +294,16 @@ export function createHost(env = {}) {
     return true;
   }
 
-  async function start() {
+  async function start({ resume = false } = {}) {
     if (win.floofy) return win.floofy;
-    const state = await fetchState();
+    // The first attempt waits out the token exchange; a resume is a single cheap probe.
+    const state = await fetchState(resume ? [] : backoff);
     if (!state) {
-      log.debug?.("[floofy] Loader state unavailable (not authenticated or the Loader is not installed); the SPA host stays idle");
+      if (!resume) log.debug?.("[floofy] Loader state unavailable (not authenticated or the Loader is not installed); the SPA host stays idle until a session appears");
       win.__floofyHostStatus = "unavailable";
       return null;
     }
+    win.__floofyHostStatus = "started";
     const surfaces = createSurfaces({ document: doc, window: win, bus, definitions: env.surfaceDefinitions, fetch: fetchImpl });
     const patches = createPatches({ document: doc, fetch: fetchImpl, state });
     const reporter = createReporter({ surfaces, patches, state: () => latestState, document: doc, window: win, fetch: fetchImpl });
@@ -300,11 +320,59 @@ export function createHost(env = {}) {
     return floofy;
   }
 
+  /** Run a start attempt; when it gives up, forget it and arrange to resume later. */
+  function runStart(options) {
+    const attempt = start(options).then(
+      (floofy) => {
+        if (!floofy) {
+          started = null;
+          scheduleResume();
+        }
+        return floofy;
+      },
+      (error) => {
+        started = null;
+        throw error;
+      },
+    );
+    started = attempt;
+    return attempt;
+  }
+
+  /** A resume attempt, unless one is in flight or the host already runs. */
+  function nudge() {
+    if (win.floofy || started) return;
+    void runStart({ resume: true }).catch((error) => log.warn("[floofy] SPA host resume failed", error));
+  }
+
+  function scheduleResume() {
+    if (win.floofy) return;
+    if (!nudgesInstalled) {
+      nudgesInstalled = true;
+      win.addEventListener?.("focus", nudge);
+      doc?.addEventListener?.("visibilitychange", () => {
+        if (doc.visibilityState !== "hidden") nudge();
+      });
+    }
+    if (idleTimer !== null || idleAttempts >= idleRetries) return;
+    idleAttempts += 1;
+    let pending = true;
+    idleTimer = setTimer(() => {
+      pending = false;
+      idleTimer = null;
+      nudge();
+    }, idleRetryMs);
+    if (!pending) idleTimer = null; // a synchronous timer already fired
+  }
+
   return Object.freeze({
-    /** Start once; later calls return the same promise. */
+    /**
+     * Start once; later calls return the same promise while a start is in flight or
+     * succeeded. After a start gave up (no session yet) a call tries again at once, so a
+     * page opened after signing in gets a live host instead of the stale `null`.
+     */
     ensureStarted() {
-      if (!started) started = start();
-      return started;
+      return started ?? runStart({ resume: idleAttempts > 0 });
     },
     fetchState,
     boundary,
