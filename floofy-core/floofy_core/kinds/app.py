@@ -29,6 +29,37 @@ from . import SEAMS, KindContext, PartOutcome
 __all__ = ["AppHandler"]
 
 
+def _agent_config(config_path: Path) -> dict[str, Any]:
+    """The ``agent`` block of the host's ``config.json`` as it is on disk right now (``{}`` when unreadable)."""
+    try:
+        doc = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    agent = doc.get("agent") if isinstance(doc, dict) else None
+    return agent if isinstance(agent, dict) else {}
+
+
+def _granted(config_path: Path, name: str) -> bool:
+    """Is ``name`` in the operator-writable per-app grant, read fresh from disk?"""
+    agent = _agent_config(config_path)
+    trusted = agent.get("apps_trusted")
+    return isinstance(trusted, list) and name in trusted
+
+
+def _allowed_now(config_path: Path, name: str, snapshot: Any) -> bool | None:
+    """The App Kit verdict for ``name`` against the config on disk (the snapshot may predate a host CLI edit)."""
+    agent = _agent_config(config_path)
+    third_party = agent.get("apps_allow_third_party")
+    trusted = agent.get("apps_trusted") if isinstance(agent.get("apps_trusted"), list) else []
+    local = agent.get("apps_trusted_local") if isinstance(agent.get("apps_trusted_local"), list) else []
+    if third_party is None and not trusted and not local:
+        # nothing on disk says anything: fall back to the snapshot's (policy-aware) reading
+        return snapshot.app_execution_allowed(name) if snapshot is not None else None
+    if third_party:
+        return True
+    return name in trusted or name in local
+
+
 @dataclass
 class AppHandler:
     kind: str = "app"
@@ -81,16 +112,31 @@ class AppHandler:
             outcome.governance = [w.to_dict() for w in warnings_for(ctx.governance, app_targets=[name]) if w.code in ("ThirdPartyAppsDisabled", "AppAdmissionEnforced", "AppAdmissionBanned")]
             for warning in outcome.governance:
                 ctx.warn(f"host says {warning['code']}: {warning['message']}")
+        config_path = Path(ctx.host_home) / "config.json"
+        granted_before = _granted(config_path, name)
         if self._installed_meta(ctx, name) is not None:
             ok, output = self._host(ctx, ["app", "uninstall", name], ("POST", f"/api/apps/{name}/uninstall", {}))
             outcome.extra["refresh"] = {"uninstall": ok, "output": output[-200:]}
+            # `kirocrew app uninstall` also drops the app from agent.apps_trusted (apps/manager.py
+            # "Remove *name* from agent.apps_trusted"; seen on every mod update on a live 0.7.0.5:
+            # the refreshed app came back ungranted and `app enable` was refused while this handler,
+            # judging from the snapshot taken BEFORE the uninstall, reported "grant: not-needed").
+            # Restoring a grant the user already gave is not a new decision: re-record it without
+            # asking, audited as a restore — the same rule `floofy init` applies to the Loader.
+            if granted_before and not _granted(config_path, name):
+                restored = grant_app_trust(config_path, name)
+                outcome.extra["grantRestored"] = restored.to_dict()
+                ctx.record("grant-apps-trusted", mod=mod_id, files=[str(restored.path)], result="restored" if restored.written else "unchanged", detail=f"re-recorded after `kirocrew app uninstall` dropped it: {restored.detail}", governanceFlags=["ThirdPartyAppsDisabled"])
+                ctx.say(f"grant: restored — `kirocrew app uninstall` had dropped {name!r} from agent.apps_trusted; {restored.detail}")
         ok, output = self._host(ctx, ["app", "install", str(app_dir)], ("POST", "/api/apps/install", {"source": str(app_dir)}))
         if not ok:
             outcome.ok, outcome.status, outcome.detail = False, "error", f"the host refused to install app {name!r}: {output[-300:]}"
             return outcome
         outcome.files = [str(Path(ctx.host_home) / "apps" / name)]
-        allowed = ctx.governance.app_execution_allowed(name) if ctx.governance is not None else None
-        grant = "not-needed"
+        # Judge from the config as it is NOW (the host CLI may have edited it above), not from
+        # the snapshot the command started with.
+        allowed = _allowed_now(config_path, name, ctx.governance)
+        grant = "restored" if "grantRestored" in outcome.extra else "not-needed"
         if allowed is not True:
             ctx.say(f"host verdict: the App Kit execution gate would refuse to run app {name!r} (agent.apps_allow_third_party is off and it is not in agent.apps_trusted).")
             if ctx.confirm(f"Record the per-app grant agent.apps_trusted += [\"{name}\"] in {Path(ctx.host_home) / 'config.json'}?"):

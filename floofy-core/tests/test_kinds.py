@@ -199,6 +199,63 @@ def test_app_installs_through_the_host_cli_offers_the_grant_and_enables(kctx, tm
     assert "app uninstall example-app" in log.read_text(encoding="utf-8")
 
 
+def test_app_reinstall_restores_the_grant_the_host_uninstall_dropped(kctx, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Every mod update refreshes its app through `kirocrew app uninstall` + `install`; the host's
+    uninstall revokes agent.apps_trusted, so the refreshed app came back disabled while the handler
+    (judging from the pre-uninstall snapshot) said "grant: not-needed" — three times on the sandbox."""
+    launcher = tmp_path / "bin" / "kirocrew"
+    launcher.parent.mkdir()
+    launcher.write_text(FAKE_KIROCREW, encoding="utf-8")
+    launcher.chmod(0o755)
+    log = tmp_path / "calls.log"
+    monkeypatch.setenv("FAKE_KIROCREW_LOG", str(log))
+    kctx.launcher = launcher
+    root, manifest = copy_example("app", tmp_path)
+    part = manifest["parts"][0]
+    asked: list[str] = []
+
+    def confirm(prompt: str) -> bool:
+        asked.append(prompt)
+        return True
+
+    kctx.confirm = confirm
+    first = AppHandler().install(kctx, "example-app", root, part, 0)
+    assert first.ok and first.extra["grant"] == "written" and first.extra["enabled"] is True, first.detail
+    assert len(asked) == 1
+    config_path = kctx.host_home / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert "example-app" in config["agent"]["apps_trusted"] and "example-app" in config["agent"]["apps_trusted_local"]
+    # another app's grant sits next to ours and must survive untouched
+    config["agent"]["apps_trusted"].append("other-app")
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    # The snapshot the command started with still says "granted" — exactly the stale reading that hid the bug.
+    kctx.governance = GovernanceSnapshot(apps_allow_third_party=False, apps_trusted=["example-app", "other-app"], apps_trusted_local=["example-app"])
+    second = AppHandler().install(kctx, "example-app", root, part, 0)
+    assert second.ok and second.status == "installed", second.detail
+    assert second.extra["refresh"]["uninstall"] is True
+    assert second.extra["grant"] == "restored", second.extra
+    assert second.extra["grantRestored"]["written"] is True
+    assert second.extra["enabled"] is True, "the refreshed app is enabled again without a manual re-grant"
+    assert len(asked) == 1, "restoring a grant the user already gave asks nothing"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["agent"]["apps_trusted"] == ["other-app", "example-app"], "restored in the host's shape, the neighbour kept"
+    assert config["agent"]["apps_trusted_local"] == ["example-app"]
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert calls[-3:] == ["app uninstall example-app", f"app install {root / 'app'}", "app enable example-app"]
+    rows = read_audit(kctx.data_home / "audit.jsonl")
+    restore = [r for r in rows if r["op"] == "grant-apps-trusted" and r["result"] == "restored"]
+    assert len(restore) == 1 and "kirocrew app uninstall" in restore[0]["detail"]
+
+    # A never-granted app is still OFFERED the grant (not silently granted) on a refresh.
+    config_path.write_text(json.dumps({"agent": {"apps_allow_third_party": False, "apps_trusted": ["other-app"]}}), encoding="utf-8")
+    kctx.governance = GovernanceSnapshot(apps_allow_third_party=False, apps_trusted=["other-app"])
+    kctx.confirm = lambda _p: (asked.append(_p), False)[1]
+    third = AppHandler().install(kctx, "example-app", root, part, 0)
+    assert third.extra["grant"] == "declined" and "grantRestored" not in third.extra and third.extra["enabled"] is False
+    assert len(asked) == 2
+
+
 def test_install_command_runs_the_seam_handlers_and_status_shows_presence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("FLOOFY_NO_ADAPTERS", "1")
     monkeypatch.setenv("KIRO_HOME", str(tmp_path / "kiro"))
