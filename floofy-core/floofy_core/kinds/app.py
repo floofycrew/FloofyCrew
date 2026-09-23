@@ -18,6 +18,7 @@ Uninstall is ``kirocrew app uninstall <name>`` / ``POST /api/apps/{name}/uninsta
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -147,7 +148,18 @@ class AppHandler:
                 grant = "declined"
                 ctx.record("grant-apps-trusted", mod=mod_id, result="declined", detail=f"user declined the grant for app {name!r}")
         outcome.extra["grant"] = grant
+        # The enable can be refused TRANSIENTLY: a `floofy install --now` reloads the
+        # Loader in the running gateway at the same moment, and the host refuses app
+        # lifecycle ops while a startup hook / reconcile is in flight (observed live:
+        # the identical `kirocrew app enable` succeeded by hand seconds later, with
+        # both grants already on disk). Distinguish that from a real trust refusal by
+        # retrying briefly before reporting.
         enabled_ok, enable_output = self._host(ctx, ["app", "enable", name], ("POST", f"/api/apps/{name}/enable", {}))
+        for _attempt in range(3):
+            if enabled_ok:
+                break
+            time.sleep(1.5)
+            enabled_ok, enable_output = self._host(ctx, ["app", "enable", name], ("POST", f"/api/apps/{name}/enable", {}))
         outcome.extra["enabled"] = enabled_ok
         if enabled_ok:
             outcome.status = "installed"
