@@ -108,7 +108,21 @@ def test_double_apply_is_byte_identical_and_writes_nothing(two_payloads) -> None
     assert snapshot(pa.root) == once
     assert set(second.drift.values()) == {"clean"}
     kept = json.loads(patcher.manifest_path(pa).read_text())
-    assert {k: v for k, v in kept.items() if k != "updatedAt"} == {k: v for k, v in json.loads(manifest_once).items() if k != "updatedAt"}
+    assert _timeless(kept) == _timeless(json.loads(manifest_once))
+
+
+def _timeless(manifest: dict) -> dict:
+    """The manifest minus its clocks: ``updatedAt`` at the top and each record's ``ts``.
+
+    ``record_patch`` refreshes a record's ``ts`` on every apply, so two applies that
+    straddle a second boundary differ there and nowhere else — a real content
+    difference is what this comparison is for.
+    """
+    return {
+        k: ([{kk: vv for kk, vv in item.items() if kk != "ts"} for item in v] if isinstance(v, list) else v)
+        for k, v in manifest.items()
+        if k != "updatedAt"
+    }
 
 
 def test_mod_dropping_out_restores_to_vanilla(two_payloads) -> None:
