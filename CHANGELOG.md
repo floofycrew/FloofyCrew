@@ -9,10 +9,54 @@ reports `loader: ok` per edition and channel — repeated here, in
 `supports.json`. FloofyCrew is unofficial and not affiliated with Kiro or
 KiroCrew; it never ships a rebuilt host.
 
-## Unreleased
+## 1.3.3 — 2026-09-24
+
+A patch on 1.3.2 from building a large mod (the KiroCrew IDE) against a live
+host: three failures a mod update could trigger are fixed — mod pages dead
+after signing back in through the token banner, a refreshed mod app coming
+back disabled because the host's uninstall had dropped its trust grant, and
+an app landing disabled when its enable raced the Loader reload. The
+hourly re-apply trigger, broken since it shipped, now runs. Also new: the
+`display-comfort` mod.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
 
 ### Fixed
 
+- **Mod pages stayed dead after a session-less cold load** (`spa-host`).
+  A document loaded without a dashboard session (expired token, the "paste
+  a token URL" banner) made the SPA host give up after its 10 s backoff and
+  pin `null` for the document's lifetime; signing in through the banner
+  never reloads the document, so every mod page then failed with
+  `window.floofy.mod is not available: the SPA host did not start` until a
+  hard reload. The host now forgets a failed start: `ensureStarted()`
+  retries on demand (the manager and the mod page await it), a
+  focus/visibility nudge and a bounded idle timer resume it in the
+  background, and `__floofyHostStatus` reports `started` once it runs.
+- **A refreshed mod app came back disabled** (`floofy_core.kinds.app`). A
+  mod update refreshes its app through the host's `app uninstall` +
+  `install`, and the host's uninstall also revokes the app's
+  `agent.apps_trusted` entry — so `app enable` was refused while the kind,
+  judging from a governance snapshot taken before the uninstall, reported
+  `grant: not-needed`. The kind now reads the grant from `config.json`
+  before and after the uninstall, re-records a grant the user had already
+  given (no new decision; audited as a restore, the same rule `floofy init`
+  applies to the Loader) and judges the verdict from the config on disk. A
+  never-granted app is still offered the grant, never granted silently.
+- **An app enable refused during the Loader reload** (`floofy_core.kinds.app`).
+  `floofy install --now` reloads the Loader inside the running gateway at
+  the same moment the kind calls `app enable`; the host refuses lifecycle
+  operations while its startup hook runs, so the app landed disabled with
+  both grants on disk (the identical enable succeeded by hand seconds
+  later). The kind retries the enable up to three times over ~5 s before
+  reporting it disabled.
 - **The hourly re-apply trigger never ran** (`floofy_core.triggers`,
   `floofy_core.cli.main`). The generated systemd unit and launchd agent
   invoked `floofy … apply --if-changed --quiet` — but `--quiet` is a global
