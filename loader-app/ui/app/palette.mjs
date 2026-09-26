@@ -38,17 +38,30 @@ const borderStrong = "1px solid var(--border-strong, rgba(127,127,127,.6))";
 /** The one corner radius of the App: squared. Cards, banners, buttons, inputs, badges, the modal — nothing rounder than this. */
 export const RADIUS = "2px";
 
+/** The page's outer padding and the gap between its blocks — the masthead glow starts a padding above the header (see `mastheadGlow`). */
+const PAGE_GAP = "1.25rem";
+
+/** The glow's top feather: transparent at the window edge, solid by the time it reaches the wordmark. The bottom edge is
+ * the tabs' rule, so it ends there cleanly (the tab row is meant to be covered). */
+export const MASTHEAD_FEATHER = "linear-gradient(180deg, rgba(0,0,0,0) 0, #000 2.5rem)";
+
 export const styles = Object.freeze({
   // the bottom padding leaves room under the footer so the page never ends flush against the viewport edge
-  page: { padding: "1.25rem 1.25rem 6rem", display: "flex", flexDirection: "column", gap: "1.25rem", fontSize: "0.9rem", color: "var(--text, inherit)", minHeight: "100%" },
+  page: { padding: `${PAGE_GAP} ${PAGE_GAP} 6rem`, display: "flex", flexDirection: "column", gap: PAGE_GAP, fontSize: "0.9rem", color: "var(--text, inherit)", minHeight: "100%" },
   // the footer: a rule, then the unofficial line and the author, small and muted; the extra top margin sets it apart from the last card
   footer: { borderTop: border, marginTop: "1.5rem", paddingTop: "0.9rem", display: "flex", flexWrap: "wrap", gap: "0.3rem 1.2rem", fontSize: "0.8rem", opacity: 0.75 },
   // the banner's "don't show this again": a plain text button on the banner's right edge
   bannerDismiss: { marginLeft: "auto", padding: "0.1rem 0.45rem", border: "none", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "0.78rem", fontWeight: 500, textDecoration: "underline", opacity: 0.85, whiteSpace: "nowrap" },
   // a page is a column of cards with the same gap as the shell around it
   pageBody: { display: "flex", flexDirection: "column", gap: "1.25rem" },
-  // the header: a soft sunset gradient behind the wordmark (the brand's pink → orange, at low alpha so host text stays legible)
-  header: { display: "flex", alignItems: "center", gap: "0.9rem", flexWrap: "wrap", padding: "0.75rem 1rem", borderRadius: RADIUS, background: "linear-gradient(90deg, rgba(255,107,139,.22) 0%, rgba(255,154,61,.18) 55%, rgba(255,154,61,0) 100%)", border: `1px solid rgba(255,154,61,.25)` },
+  // the masthead groups the header, the banner and the tabs (same gap as the page, so the layout is unchanged) and owns
+  // the sunset glow: the brand's pink → orange at low alpha (host text stays legible) on a backdrop layer behind all
+  // three, fading out towards the right. Vertically it starts a page padding above the header (the window edge) and
+  // runs down to the tabs' bottom rule, covering the tab row; the selected tab is cut out of it (see `mastheadGlowMask`
+  // in index.mjs), so it shows the plain page and reads as joined to the content below. No border, no box.
+  masthead: { position: "relative", isolation: "isolate", display: "flex", flexDirection: "column", gap: PAGE_GAP },
+  mastheadGlow: { position: "absolute", top: `-${PAGE_GAP}`, bottom: 0, left: 0, right: 0, zIndex: -1, pointerEvents: "none", background: "linear-gradient(90deg, rgba(255,107,139,.22) 0%, rgba(255,154,61,.18) 55%, rgba(255,154,61,0) 100%)", WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat", WebkitMaskComposite: "source-out", maskComposite: "subtract" },
+  header: { display: "flex", alignItems: "center", gap: "0.9rem", flexWrap: "wrap", padding: "0.9rem 1rem" },
   // the wordmark (mark + "FloofyCrew" text, the peach-on-dark lockup) replaces the plain title
   wordmark: { height: "2.4rem", width: "auto", display: "block" },
   // visually hidden but read by screen readers (and counted by innerText): the page still has an h1 "FloofyCrew"

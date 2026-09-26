@@ -42,7 +42,10 @@ KiroCrew; it never ships a rebuilt host.
   Settings panel; the parts list is collapsed behind its count and kinds, with the
   "modifies payload files" warning kept on the summary line. The Registry page
   collapses long descriptions to one line that expands on click. The header wears
-  the FloofyCrew wordmark on a peach-to-orange gradient.
+  the FloofyCrew wordmark — the dark-text lockup on a light host theme, the peach
+  one on a dark theme, following theme switches — over a borderless peach-to-orange
+  glow that feathers in from the window edge and runs down over the tabs to their
+  rule; the selected tab is cut out of it, showing the plain page.
 - The internal source repository has one branch, `mainline` (its forge's default);
   the historical `main` head is retired and `ci.yml` triggers on `mainline`.
 

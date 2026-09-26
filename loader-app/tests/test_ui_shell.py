@@ -175,7 +175,7 @@ def test_pages_are_columns_of_cards_and_the_sources_are_a_table():
     """1.1.6: the shell's page section is a flex column with the card gap, the page ends with room below, Sources is a table, Profiles explains itself."""
     palette = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
     assert re.search(r'pageBody: \{ display: "flex", flexDirection: "column", gap: "1\.25rem" \}', palette)
-    assert re.search(r'page: \{ padding: "1\.25rem 1\.25rem 6rem"', palette), "room under the footer"
+    assert re.search(r'const PAGE_GAP = "1\.25rem";', palette) and re.search(r'page: \{ padding: `\$\{PAGE_GAP\} \$\{PAGE_GAP\} 6rem`', palette), "room under the footer"
     shell = (UI / "index.mjs").read_text(encoding="utf-8")
     assert 'React.createElement("section", { style: styles.pageBody' in shell
     registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
@@ -203,7 +203,7 @@ def test_corners_are_squared_footer_and_banner_preference():
     assert "floofycrew-banner-dismiss" in shell and 'localStorage.getItem(BANNER_PREFERENCE_KEY) === "1"' in shell
     settings = (UI / "app" / "pages" / "settings.mjs").read_text(encoding="utf-8")
     assert "floofycrew-banner-toggle" in settings and "banner.show" in settings, "Settings brings the banner back"
-    assert re.search(r'page: \{ padding: "1\.25rem 1\.25rem 6rem"', palette), "room under the footer"
+    assert re.search(r'const PAGE_GAP = "1\.25rem";', palette) and re.search(r'page: \{ padding: `\$\{PAGE_GAP\} \$\{PAGE_GAP\} 6rem`', palette), "room under the footer"
 
 
 def test_the_shell_talks_to_the_loader_same_origin_only():

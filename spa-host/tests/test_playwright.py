@@ -397,6 +397,47 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         art = client.get("/apps/floofycrew/art/art/icon.svg")  # /apps/<name>/art/<iconPath verbatim>
         assert art.status == 200 and art.body == (REPO_ROOT / "branding" / "logo.svg").read_bytes(), f"the host serves the declared iconPath: HTTP {art.status} {art.body[:200]!r}"
         page.wait_for_function("() => { const img = document.querySelector('[data-testid=\"floofycrew-header\"] img'); return img && img.complete && img.naturalWidth > 0; }", timeout=30000)
+        # the header wears the wordmark for the host's colour mode (the -dark/-light suffix of <html data-theme>) and follows
+        # a theme switch; the gradient is a borderless, top-feathered backdrop on the masthead (header + banner + tabs), not a
+        # box around the logo: it runs from the page's top edge (the window border) down to the tabs' bottom rule, covering
+        # the tab row, and the SELECTED tab is cut out of it (a subtracted mask layer over the tab, down to the rule)
+        glow_js = "() => { const h = document.querySelector('[data-testid=\"floofycrew-header\"]'); const g = document.querySelector('[data-testid=\"floofycrew-header-glow\"]'); const cs = getComputedStyle(h); const glow = getComputedStyle(g); const hr = h.getBoundingClientRect(); const gr = g.getBoundingClientRect(); const pr = document.querySelector('[data-testid=\"floofycrew-manager\"]').getBoundingClientRect(); const n = document.querySelector('[data-testid=\"floofycrew-nav\"]'); const nr = n.getBoundingClientRect(); const tr = n.querySelector('[aria-current=\"page\"]').getBoundingClientRect(); return { border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, glowImage: glow.backgroundImage, mask: glow.maskImage || glow.webkitMaskImage, composite: glow.maskComposite || glow.webkitMaskComposite, maskSize: glow.maskSize || glow.webkitMaskSize, maskPosition: glow.maskPosition || glow.webkitMaskPosition, above: hr.top - gr.top, glowTop: gr.top, pageTop: pr.top, glowBottom: gr.bottom, navBottom: nr.bottom, tabX: tr.left - gr.left, tabY: tr.top - gr.top, tabWidth: tr.width, tabToRule: gr.bottom - tr.top, active: n.querySelector('[aria-current=\"page\"]').dataset.testid }; }"
+
+        def check_glow(expected_tab: str) -> dict:
+            s = page.evaluate(glow_js)
+            assert s["active"] == f"floofycrew-nav-{expected_tab}", s
+            assert s["border"] == "0px" and s["radius"] == "0px", s
+            assert "linear-gradient" in s["glowImage"], s
+            assert s["mask"].count("linear-gradient") == 2 and s["composite"].split(",")[0].strip() in ("subtract", "source-out"), s
+            assert s["above"] > 12 and abs(s["glowTop"] - s["pageTop"]) < 1.5, s
+            assert abs(s["glowBottom"] - s["navBottom"]) < 1.5, s
+            # the second mask layer (the cut-out) sits exactly over the selected tab and reaches the rule
+            size = s["maskSize"].split(",")[1].split()
+            pos = s["maskPosition"].split(",")[1].split()
+            assert abs(float(size[0].rstrip("px")) - s["tabWidth"]) < 1.5 and abs(float(size[1].rstrip("px")) - s["tabToRule"]) < 1.5, s
+            assert abs(float(pos[0].rstrip("px")) - s["tabX"]) < 1.5 and abs(float(pos[1].rstrip("px")) - s["tabY"]) < 1.5, s
+            return s
+
+        mods_glow = check_glow("mods")
+        page.click('[data-testid="floofycrew-nav-registry"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-nav-registry\"]').getAttribute('aria-current') === 'page'", timeout=15000)
+        page.wait_for_function(f"() => (getComputedStyle(document.querySelector('[data-testid=\"floofycrew-header-glow\"]')).maskPosition || '') !== {json.dumps(mods_glow['maskPosition'])}", timeout=15000)
+        registry_glow = check_glow("registry")
+        assert registry_glow["tabX"] > mods_glow["tabX"], (mods_glow, registry_glow)
+        page.click('[data-testid="floofycrew-nav-mods"]')
+        page.wait_for_selector('[data-testid="floofycrew-page-mods"]', timeout=15000)
+        theme_before = page.evaluate("() => document.documentElement.getAttribute('data-theme')")
+        assert theme_before.endswith("-dark"), theme_before
+        assert page.get_attribute('[data-testid="floofycrew-icon"]', "src").endswith("/art/wordmark-dark.svg")
+        try:
+            page.evaluate("() => document.documentElement.setAttribute('data-theme', 'default-light')")
+            page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-icon\"]').getAttribute('src').endsWith('/art/wordmark-light.svg')", timeout=15000)
+            assert page.get_attribute('[data-testid="floofycrew-header"]', "data-mode") == "light"
+            light = client.get("/apps/floofycrew/ui/art/wordmark-light.svg")
+            assert light.status == 200 and light.body == (REPO_ROOT / "branding" / "wordmark.svg").read_bytes()
+        finally:
+            page.evaluate(f"() => document.documentElement.setAttribute('data-theme', {json.dumps(theme_before)})")
+            page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-icon\"]').getAttribute('src').endsWith('/art/wordmark-dark.svg')", timeout=15000)
         assert page.locator('[data-testid="floofycrew-page-mods"]').count() == 1, "the manager page is the landing page"
         nav = page.inner_text('[data-testid="floofycrew-nav"]')
         assert [w for w in nav.split() if w] == ["Mods", "Registry", "Profiles", "Doctor", "Audit", "Settings"], nav

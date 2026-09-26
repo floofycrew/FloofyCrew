@@ -31,7 +31,7 @@ import { ensureStarted } from "./host.mjs";
 import { RestartButton } from "./app/actions.mjs";
 import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf, waitForGateway } from "./app/api.mjs";
 import { ConfirmationHost, useAsker } from "./app/confirm.mjs";
-import { UNOFFICIAL, styles } from "./app/palette.mjs";
+import { MASTHEAD_FEATHER, UNOFFICIAL, styles } from "./app/palette.mjs";
 import { AuditPage } from "./app/pages/audit.mjs";
 import { DoctorPage } from "./app/pages/doctor.mjs";
 import { ModsPage } from "./app/pages/mods.mjs";
@@ -46,8 +46,34 @@ export { compatBadge, tierBadge } from "./app/pages/mods.mjs";
 
 /** app.json `iconPath` — the branding mark (`branding/logo.svg`), served by the host from `/apps/floofycrew/art/<iconPath>`. */
 export const ICON_PATH = "art/icon.svg";
-/** The header's wordmark (the peach-on-dark lockup, `branding/wordmark-dark.svg`), served from the App's own `ui/art/`. */
-export const WORDMARK_URL = new URL("./art/wordmark.svg", import.meta.url).href;
+/** The header's wordmark per colour mode (`branding/wordmark-dark.svg`: peach text on dark surfaces; `branding/wordmark.svg`: dark text on light ones), served from the App's own `ui/art/`. */
+export const WORDMARK_URLS = { dark: new URL("./art/wordmark-dark.svg", import.meta.url).href, light: new URL("./art/wordmark-light.svg", import.meta.url).href };
+
+/** The host's colour mode: the `-dark` / `-light` suffix of `<html data-theme>` (every host theme carries one), else the OS preference. */
+export function hostMode(doc = document) {
+  const theme = (doc.documentElement && doc.documentElement.getAttribute("data-theme")) || "";
+  if (theme.endsWith("-light")) return "light";
+  if (theme.endsWith("-dark")) return "dark";
+  const media = doc.defaultView && doc.defaultView.matchMedia ? doc.defaultView.matchMedia("(prefers-color-scheme: light)") : null;
+  return media && media.matches ? "light" : "dark";
+}
+
+/** `hostMode()` as state: follows theme switches (a `data-theme` mutation) and, absent a host theme, the OS preference. */
+function useHostMode() {
+  const [mode, setMode] = React.useState(() => hostMode());
+  React.useEffect(() => {
+    const update = () => setMode(hostMode());
+    const observer = new MutationObserver(update);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    const media = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+    if (media) media.addEventListener("change", update);
+    return () => {
+      observer.disconnect();
+      if (media) media.removeEventListener("change", update);
+    };
+  }, []);
+  return mode;
+}
 
 /** The navigation, in order; the first entry is the landing page (Requirement 16.1). */
 export const PAGES = Object.freeze([
@@ -171,13 +197,16 @@ export function useManager({ ask } = {}) {
 function Header({ manager }) {
   const state = manager.state;
   const host = (state && state.host) || {};
+  const mode = useHostMode();
   return React.createElement(
     "div",
-    { style: styles.header, "data-testid": "floofycrew-header" },
-    // the h1 stays for screen readers and the document outline; the wordmark (mark + text, ui/art/wordmark.svg, shipped
-    // with the App's own ui/ tree) is what shows. The store icon (app.json iconPath) is the sidebar's, not repeated here.
+    { style: styles.header, "data-testid": "floofycrew-header", "data-mode": mode },
+    // the gradient behind the header is the masthead's (see Masthead) — no border, no box here
+    // the h1 stays for screen readers and the document outline; the wordmark (mark + text, ui/art/wordmark-{dark,light}.svg
+    // per the host's colour mode, shipped with the App's own ui/ tree) is what shows. The store icon (app.json iconPath) is
+    // the sidebar's, not repeated here.
     React.createElement("h1", { style: { ...styles.title, ...styles.srOnly } }, "FloofyCrew"),
-    React.createElement("img", { src: WORDMARK_URL, alt: "FloofyCrew", style: styles.wordmark, "data-testid": "floofycrew-icon" }),
+    React.createElement("img", { src: WORDMARK_URLS[mode], alt: "FloofyCrew", style: styles.wordmark, "data-testid": "floofycrew-icon" }),
     React.createElement("span", { style: styles.muted }, state ? `Loader ${state.loader} · FloofyCrew ${state.loaderVersion || "?"} · API ${state.api_version || "?"}` : "loading…"),
     React.createElement("span", { style: styles.muted }, `host ${host.edition || "?"} ${host.version || "?"} (${host.channel || "channel unknown"})`),
     React.createElement("div", { style: styles.headerActions }, React.createElement(RestartButton, { manager, testid: "floofycrew-restart-header" })),
@@ -236,10 +265,10 @@ function Footer({ state }) {
   );
 }
 
-function Nav({ current, onSelect }) {
+function Nav({ current, onSelect, navRef }) {
   return React.createElement(
     "nav",
-    { style: styles.nav, "data-testid": "floofycrew-nav", "aria-label": "FloofyCrew sections" },
+    { ref: navRef, style: styles.nav, "data-testid": "floofycrew-nav", "aria-label": "FloofyCrew sections" },
     PAGES.map((page) =>
       React.createElement(
         "button",
@@ -247,6 +276,61 @@ function Nav({ current, onSelect }) {
         page.label,
       ),
     ),
+  );
+}
+
+/**
+ * The glow's mask: the top feather, minus the selected tab. Two mask layers composited with `subtract`: the feather
+ * (full size) and a solid rectangle placed over the selected tab, from the tab's top edge down to the glow's bottom (the
+ * tabs' rule) — so the tab shows the plain page, whatever the host paints there (a flat colour or a gradient body), and
+ * reads as joined to the content below. `hole` is in px relative to the glow's own box; `null` (not measured yet, or no
+ * tab selected) is just the feather.
+ */
+export function mastheadGlowMask(hole) {
+  const image = hole ? `${MASTHEAD_FEATHER}, linear-gradient(#000, #000)` : MASTHEAD_FEATHER;
+  const size = hole ? `100% 100%, ${hole.width}px ${hole.height}px` : "100% 100%";
+  const position = hole ? `0 0, ${hole.x}px ${hole.y}px` : "0 0";
+  return { WebkitMaskImage: image, maskImage: image, WebkitMaskSize: size, maskSize: size, WebkitMaskPosition: position, maskPosition: position };
+}
+
+/** The tab cut-out, measured from the DOM: the selected tab's box relative to the glow's box, extended to the glow's bottom edge. */
+function measureHole(glow, nav) {
+  const tab = nav && nav.querySelector('[aria-current="page"]');
+  if (!glow || !tab) return null;
+  const g = glow.getBoundingClientRect();
+  const t = tab.getBoundingClientRect();
+  return { x: Math.round((t.left - g.left) * 100) / 100, y: Math.round((t.top - g.top) * 100) / 100, width: Math.round(t.width * 100) / 100, height: Math.round((g.bottom - t.top) * 100) / 100 };
+}
+
+function sameHole(a, b) {
+  if (!a || !b) return a === b;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+}
+
+/** Header, banner and tabs on one glow. Re-measures the tab cut-out when the selection, the banner or the layout changes. */
+function Masthead({ manager, banner, current, onSelect }) {
+  const glowRef = React.useRef(null);
+  const navRef = React.useRef(null);
+  const [hole, setHole] = React.useState(null);
+  React.useLayoutEffect(() => {
+    const update = () => setHole((prev) => {
+      const next = measureHole(glowRef.current, navRef.current);
+      return sameHole(prev, next) ? prev : next;
+    });
+    update();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(update);
+    if (glowRef.current) observer.observe(glowRef.current);
+    if (navRef.current) observer.observe(navRef.current);
+    return () => observer.disconnect();
+  }, [current, banner.hidden]);
+  return React.createElement(
+    "div",
+    { style: styles.masthead, "data-testid": "floofycrew-masthead" },
+    React.createElement("div", { ref: glowRef, style: { ...styles.mastheadGlow, ...mastheadGlowMask(hole) }, "aria-hidden": "true", "data-testid": "floofycrew-header-glow" }),
+    React.createElement(Header, { manager }),
+    React.createElement(Banner, { banner }),
+    React.createElement(Nav, { current, onSelect, navRef }),
   );
 }
 
@@ -281,9 +365,7 @@ export default function FloofyCrewApp({ ask: askOverride, initialPage } = {}) {
   return React.createElement(
     "div",
     { style: styles.page, "data-testid": "floofycrew-manager" },
-    React.createElement(Header, { manager }),
-    React.createElement(Banner, { banner }),
-    React.createElement(Nav, { current: page.key, onSelect: select }),
+    React.createElement(Masthead, { manager, banner, current: page.key, onSelect: select }),
     manager.restarting ? React.createElement("div", { style: { ...styles.card, ...styles.warn }, "data-testid": "floofycrew-restarting", role: "status" }, "Restarting the KiroCrew gateway — the dashboard reloads when the new gateway answers (up to two minutes). If it does not come back, run `kirocrew restart` at a terminal.") : null,
     React.createElement("section", { style: styles.pageBody, "data-testid": `floofycrew-page-${page.key}` }, React.createElement(page.component, { manager, rest: route.rest, navigate: select, openConsent, banner })),
     manager.error ? React.createElement("div", { style: { ...styles.card, ...styles.danger }, "data-testid": "floofycrew-error" }, manager.error) : null,
