@@ -88,8 +88,20 @@ class AppHandler:
         return record if isinstance(record, dict) else None
 
     def _host(self, ctx: KindContext, args: list[str], route: tuple[str, str, Any] | None) -> tuple[bool, str]:
-        """Run a host verb through the launcher, else the route; returns (ok, output)."""
-        if ctx.launcher is not None and not ctx.in_gateway:
+        """Run a host verb through the launcher, else the route; returns (ok, output).
+
+        The launcher is used from INSIDE the gateway too (the manager App's install
+        path): ``kirocrew app install|enable|uninstall`` is a separate process doing
+        file work under ``<host home>/apps/`` (``cli_commands.py`` ``_handle_app``
+        calls ``install_app``/``enable_app`` directly, never the gateway), and a
+        running gateway reconciles the on-disk change itself (``apps/hook_reconcile.py``).
+        Only the HTTP route is off-limits in-gateway — the manager's handler runs on
+        the gateway's own executor and a loopback request would wait on itself.
+        Measured 2026-09-26 on 0.7.0.5: with the launcher refused in-gateway every
+        mod installed from the FloofyCrew App landed with its app part silently
+        missing ("App Not Found") while the install itself reported ok.
+        """
+        if ctx.launcher is not None:
             result = run_host_cli(ctx.launcher, args, host_home=ctx.host_home, extra_env=ctx.host_cli_env)
             return result.ok, result.output
         if route is not None and ctx.session is not None and not ctx.in_gateway:
@@ -99,6 +111,8 @@ class AppHandler:
             except Exception as exc:  # noqa: BLE001
                 return False, f"{path}: {type(exc).__name__}: {exc}"
             return reply.status == 200, reply.body[:300].decode("utf-8", "replace")
+        if ctx.in_gateway:
+            return False, "no kirocrew launcher found from inside the gateway (not on PATH, no bin/kirocrew in the running payload)"
         return False, "no kirocrew launcher (--kirocrew) and no reachable gateway"
 
     def install(self, ctx: KindContext, mod_id: str, mod_dir: Path, part: dict[str, Any], index: int) -> PartOutcome:

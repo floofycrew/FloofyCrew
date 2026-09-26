@@ -405,6 +405,13 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabl
     outcome["parts"] = [o.to_dict() for o in outcomes]
     for part in outcomes:
         ctx.say(f"  part {part.index} {part.kind}: {part.status} — {part.detail}")
+    # A seam that refused is not a footnote: the mod is placed, but that part of it is missing
+    # (an `app` part refused = "App Not Found" in the sidebar). Say so where the user looks.
+    failed_parts = [p for p in outcomes if not p.ok]
+    if failed_parts:
+        outcome["partErrors"] = [{"index": p.index, "kind": p.kind, "detail": p.detail} for p in failed_parts]
+        for part in failed_parts:
+            ctx.warn(f"{mod_id}: the {part.kind} part (#{part.index}) was NOT installed — {part.detail}")
     previous = ctx.enabled().get(mod_id)
     # Requirement 11.7: the confirmation above IS the consent — a confirmed install lands enabled;
     # `--disabled` (the App's "install switched off") lands it off on request.
@@ -423,8 +430,8 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabl
         payload=current.id if current else None,
         files=[p["path"] for p in disclosure.parts],
         governanceFlags=sorted({f["code"] for f in disclosure.flags} | ({"GovernanceAltering"} if confirmed else set())),
-        result="ok",
-        detail=f"{placed} into {target}; enabled={enabled_now}; confirmed governance targets: {confirmed or '-'}; source {source.kind} {source.ref}" + (f" at commit {source.commit}" if source.commit else "") + (f"; unlisted source accepted ({unlisted_how})" if unlisted_how else ""),
+        result="ok" if not failed_parts else "partial",
+        detail=f"{placed} into {target}; enabled={enabled_now}; confirmed governance targets: {confirmed or '-'}; source {source.kind} {source.ref}" + (f" at commit {source.commit}" if source.commit else "") + (f"; unlisted source accepted ({unlisted_how})" if unlisted_how else "") + ("; parts refused: " + ", ".join(f"{p.kind}#{p.index} ({p.detail})" for p in failed_parts) if failed_parts else ""),
         source=source.to_dict(),
         commit=source.commit,
         tier=source.tier,

@@ -199,6 +199,31 @@ def test_app_installs_through_the_host_cli_offers_the_grant_and_enables(kctx, tm
     assert "app uninstall example-app" in log.read_text(encoding="utf-8")
 
 
+def test_app_installs_through_the_launcher_from_inside_the_gateway(kctx, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The manager App installs with in_gateway=True. The launcher is a separate process doing file
+    work (never an HTTP call back into the gateway), so it must be used there too — refusing it left
+    every app-kind mod installed from the App with its app silently missing ("App Not Found")."""
+    launcher = tmp_path / "bin" / "kirocrew"
+    launcher.parent.mkdir()
+    launcher.write_text(FAKE_KIROCREW.replace("'floofycrew' in c.get", "'example-app' in c.get").replace('"floofycrew", "version"', '"example-app", "version"').replace("/apps/floofycrew/installed", "/apps/example-app/installed").replace("enabled floofycrew", "enabled example-app"), encoding="utf-8")
+    launcher.chmod(0o755)
+    log = tmp_path / "calls.log"
+    monkeypatch.setenv("FAKE_KIROCREW_LOG", str(log))
+    kctx.launcher = launcher
+    kctx.in_gateway = True
+    kctx.session = None  # never a loopback session inside the gateway
+    kctx.confirm = lambda _p: True
+    root, manifest = copy_example("app", tmp_path)
+    outcome = AppHandler().install(kctx, "example-app", root, manifest["parts"][0], 0)
+    assert outcome.ok and outcome.status == "installed" and outcome.extra["enabled"] is True, outcome.detail
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert calls[0].startswith("app install ") and calls[-1] == "app enable example-app"
+    # no launcher at all inside the gateway: a clear refusal naming the reason, not a generic one
+    kctx.launcher = None
+    missing = AppHandler().install(kctx, "example-app", root, manifest["parts"][0], 0)
+    assert not missing.ok and "inside the gateway" in missing.detail
+
+
 def test_app_reinstall_restores_the_grant_the_host_uninstall_dropped(kctx, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Every mod update refreshes its app through `kirocrew app uninstall` + `install`; the host's
     uninstall revokes agent.apps_trusted, so the refreshed app came back disabled while the handler
