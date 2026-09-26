@@ -52,7 +52,7 @@ Five maps of `id → range` (or `id → {"range", "reason"}`):
 
 | Map | Effect |
 |---|---|
-| `dependsOn` | hard: missing or out of range → reason `Dependency`, propagated to dependents. Must contain `floofycrew` — the **framework** version is the hard dependency, never the host version |
+| `dependsOn` | hard: missing or out of range → reason `Dependency`, propagated to dependents. Must contain `floofycrew` — the **framework** version is the hard dependency, never the host version. At **install time** the manager resolves every other entry no installed mod satisfies against the registry cache and installs those first — the disclosure lists what will also be installed, so one confirmation covers the plan, and the outcome says what was brought along; an entry the registry cannot supply is reported and the mod still installs, inactive until it is satisfied |
 | `recommends`, `suggests` | warnings only |
 | `conflicts` | mutual: when both are active the declaring mod is disabled with reason `Conflict` (ties broken by id) |
 | `breaks` | one-directional: the declaring mod is disabled, the other stays |

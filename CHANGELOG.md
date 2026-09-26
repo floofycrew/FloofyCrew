@@ -9,6 +9,31 @@ reports `loader: ok` per edition and channel — repeated here, in
 `supports.json`. FloofyCrew is unofficial and not affiliated with Kiro or
 KiroCrew; it never ships a rebuilt host.
 
+## Unreleased
+
+### Added
+
+- **Dependencies install themselves** (Requirement 1.4 at install time). Installing a
+  mod now resolves every `dependsOn` entry no installed mod satisfies against the
+  registry cache and installs those first — `rimuru-branding` brings
+  `custom-themes` along instead of landing inactive with `Dependency`. The plan is
+  part of the disclosure ("ALSO INSTALLS (dependencies, from the registry): …"; the
+  App's confirm modal lists them), so one confirmation covers it; each dependency's
+  own disclosure names who asked for it; the outcome carries a `dependencies[]`
+  report and the summary line says what was brought along. A dependency that is
+  unavailable, out of range or declined is reported plainly and the mod still
+  installs, inactive until it is satisfied — the same state as before, never
+  silently different.
+- **Registry refresh shows its work.** "Refresh" on a source and "Refresh every
+  source" read "Refreshing…" while the fetch runs and then report what happened —
+  sources fetched, mods merged, and any refusal with its reason — instead of
+  leaving the user to guess whether anything ran.
+
+### Changed
+
+- The internal source repository has one branch, `mainline` (its forge's default);
+  the historical `main` head is retired and `ci.yml` triggers on `mainline`.
+
 ## 1.3.3 — 2026-09-24
 
 A patch on 1.3.2 from building a large mod (the KiroCrew IDE) against a live

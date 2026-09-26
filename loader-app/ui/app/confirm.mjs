@@ -100,6 +100,25 @@ export function Disclosure({ disclosure }) {
       : null,
     (disclosure.hostWarnings || []).length ? React.createElement("ul", { style: { ...styles.list, ...styles.warn, marginTop: "0.4rem" } }, disclosure.hostWarnings.map((w, index) => React.createElement("li", { key: index }, `host says: ${w.code}: ${w.message}`))) : null,
     disclosure.codeParts ? React.createElement("div", { style: { ...styles.muted, marginTop: "0.4rem" } }, "Code parts (python-hook / spa) run once installed — confirming here installs the mod enabled; tick \u201cinstall switched off\u201d on the form to land it disabled.") : null,
+    // Requirement 1.4 at install time: the dependency plan is part of what one "yes" covers
+    disclosure.dependencyOf
+      ? React.createElement("div", { style: { ...styles.accent, marginTop: "0.4rem" }, "data-testid": "floofycrew-disclosure-dependency-of" }, `Installed as a dependency of ${disclosure.dependencyOf.id} (needs ${disclosure.dependencyOf.range || "*"}${disclosure.dependencyOf.reason ? `; ${disclosure.dependencyOf.reason}` : ""})`)
+      : null,
+    (disclosure.dependencies || []).some((d) => d.status === "install")
+      ? React.createElement(
+          "div",
+          { style: { marginTop: "0.4rem" }, "data-testid": "floofycrew-disclosure-dependencies" },
+          React.createElement("div", { style: { fontWeight: 600 } }, "Also installs (dependencies, from the registry)"),
+          React.createElement("ul", { style: styles.list }, disclosure.dependencies.filter((d) => d.status === "install").map((d) => React.createElement("li", { key: d.id }, `${d.id} ${d.version || ""}`, d.tier ? React.createElement("span", { style: { ...styles.badge, marginLeft: "0.3rem" } }, `tier: ${d.tier}`) : null, d.reason ? React.createElement("div", { style: styles.muted }, d.reason) : null))),
+        )
+      : null,
+    (disclosure.dependencies || []).some((d) => ["unavailable", "out-of-range", "cycle", "invalid"].includes(d.status))
+      ? React.createElement(
+          "ul",
+          { style: { ...styles.list, ...styles.warn, marginTop: "0.4rem" }, "data-testid": "floofycrew-disclosure-dependencies-missing" },
+          disclosure.dependencies.filter((d) => ["unavailable", "out-of-range", "cycle", "invalid"].includes(d.status)).map((d) => React.createElement("li", { key: d.id }, `requires ${d.id} ${d.range || ""}: ${d.status} — ${d.detail || ""}; the mod stays inactive (Dependency) until it is installed`)),
+        )
+      : null,
   );
 }
 

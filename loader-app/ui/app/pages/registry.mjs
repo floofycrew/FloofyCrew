@@ -23,6 +23,45 @@ export function sourceVerdict(source) {
   return { signature: (cache.signature || {}).status || "—", fetch: `refused: ${cache.refusal || cache.error || "?"}`, tone: "danger" };
 }
 
+/** The verdict of one refresh act() for the feedback line: what was fetched, what was refused, or the error. */
+export function refreshVerdict(result) {
+  if (!result) return { tone: "danger", text: "refresh failed: no answer" };
+  if (result.declined) return { tone: "muted", text: "refresh not confirmed; nothing changed" };
+  if (!result.ok) return { tone: "danger", text: `refresh failed: ${result.error || `HTTP ${result.httpStatus}`}` };
+  // the route document carries the CLI's --json payload under `json` (app_routes._document); `registry refresh` puts its per-source records in `sources[]`
+  const payload = result.json && typeof result.json === "object" ? result.json : {};
+  const sources = Array.isArray(payload.sources) ? payload.sources : [];
+  const usable = sources.filter((s) => s && s.usable);
+  const refused = sources.filter((s) => s && !s.usable);
+  const mods = usable.reduce((n, s) => n + (Number(s.mods) || 0), 0);
+  if (!sources.length) return { tone: "ok", text: "refreshed" };
+  return { tone: refused.length ? (usable.length ? "warn" : "danger") : "ok", text: `refreshed ${usable.length} source(s), ${mods} mod(s)${refused.length ? `; refused ${refused.length}: ${refused.map((s) => `${s.label || s.url} (${s.refusal || s.error || "?"})`).join(", ")}` : ""}` };
+}
+
+/** A button that shows it is working and reports what happened: `label` → `busyLabel` while `run()` is in flight, then a verdict line beside it. */
+function FeedbackButton({ label, busyLabel, run, verdictOf, disabled, style, testid }) {
+  const [running, setRunning] = React.useState(false);
+  const [verdict, setVerdict] = React.useState(null);
+  const click = async () => {
+    setRunning(true);
+    setVerdict(null);
+    try {
+      setVerdict(verdictOf(await run()));
+    } catch (exc) {
+      setVerdict({ tone: "danger", text: `failed: ${exc}` });
+    } finally {
+      setRunning(false);
+    }
+  };
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement("button", { style: style || styles.button, disabled: disabled || running, "data-testid": testid, onClick: click }, running ? busyLabel : label),
+    running ? React.createElement("span", { style: styles.muted, "data-testid": testid ? `${testid}-busy` : undefined }, "working…") : null,
+    verdict ? React.createElement("span", { style: styles[verdict.tone] || styles.muted, "data-testid": testid ? `${testid}-result` : undefined, title: verdict.text }, verdict.text) : null,
+  );
+}
+
 /** One source as a table row: name and URL, trust, signature policy and pinned key, the last refresh, the actions. */
 function SourceRow({ source, manager }) {
   const key = encodeURIComponent(source.key);
@@ -38,7 +77,7 @@ function SourceRow({ source, manager }) {
     React.createElement(
       "td",
       { style: { ...styles.td, whiteSpace: "nowrap" } },
-      React.createElement("button", { style: styles.button, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}/refresh`) }, "Refresh"),
+      React.createElement(FeedbackButton, { label: "Refresh", busyLabel: "Refreshing…", disabled: manager.busy, testid: `floofycrew-source-refresh-${source.label}`, run: () => manager.act(`/registries/${key}/refresh`), verdictOf: refreshVerdict }),
       React.createElement("button", { style: styles.button, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}/trust`, { trust: flip, allowUnsigned: Boolean(source.allowUnsigned) }) }, `Trust → ${flip}`),
       React.createElement("br", null),
       React.createElement("button", { style: { ...styles.button, ...(source.allowUnsigned ? {} : styles.warn) }, disabled: manager.busy, "data-testid": `floofycrew-source-unsigned-${source.label}`, onClick: () => manager.act(`/registries/${key}/trust`, { trust: source.trust, allowUnsigned: !source.allowUnsigned }) }, source.allowUnsigned ? "Require a signature again" : "Accept unsigned…"),
@@ -228,8 +267,8 @@ export function RegistryPage({ manager, rest }) {
       sources.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.4rem 0" } }, "no registry source configured") : React.createElement(SourcesTable, { sources, manager }),
       React.createElement(
         "div",
-        { style: { marginTop: "0.8rem" } },
-        React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act("/registries/refresh") }, "Refresh every source"),
+        { style: { marginTop: "0.8rem", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.2rem 0.4rem" } },
+        React.createElement(FeedbackButton, { label: "Refresh every source", busyLabel: "Refreshing every source…", disabled: busy, testid: "floofycrew-registry-refresh-all", run: () => manager.act("/registries/refresh"), verdictOf: refreshVerdict }),
         React.createElement("button", { style: styles.button, disabled: busy, "data-testid": "floofycrew-registry-defaults", onClick: () => manager.act("/registries/defaults", { refresh: true, hostRegistry: true }) }, "Record the edition's default source"),
       ),
       React.createElement("h3", { style: { ...styles.cardTitle, marginTop: "0.8rem", fontSize: "0.9rem" } }, "Add a source"),

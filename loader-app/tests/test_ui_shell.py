@@ -130,6 +130,22 @@ def test_update_check_shows_progress_and_a_result_line():
     assert '"Checking…"' in registry and "check failed" in registry
 
 
+def test_registry_refresh_buttons_show_progress_and_a_verdict():
+    """Registry › Refresh (per source and every source): a busy label while the fetch runs, then what was fetched or refused."""
+    registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
+    assert "function FeedbackButton" in registry and "export function refreshVerdict" in registry
+    assert "floofycrew-registry-refresh-all" in registry and "floofycrew-source-refresh-${source.label}" in registry
+    assert '"Refreshing every source…"' in registry and '"Refreshing…"' in registry
+    assert "payload.sources" in registry, "the verdict reads the CLI's per-source records from the route document's `json`"
+
+
+def test_confirm_modal_shows_the_dependency_plan():
+    """Requirement 1.4 at install time: the one 'yes' covers what will also be installed, so the modal must show it."""
+    confirm = (UI / "app" / "confirm.mjs").read_text(encoding="utf-8")
+    assert "floofycrew-disclosure-dependencies" in confirm and "floofycrew-disclosure-dependencies-missing" in confirm
+    assert "floofycrew-disclosure-dependency-of" in confirm and "Also installs (dependencies, from the registry)" in confirm
+
+
 def test_the_landing_page_reminds_about_mod_updates():
     """Requirement 7.7: the Mods page shows a mod-updates notice (the trigger keeps the data fresh unattended)."""
     mods = (UI / "app" / "pages" / "mods.mjs").read_text(encoding="utf-8")
