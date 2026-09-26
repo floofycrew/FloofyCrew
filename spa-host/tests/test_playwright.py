@@ -332,8 +332,17 @@ def test_4_import_map_remap_is_what_the_host_evaluates(harness: Harness):
 
 
 
+def open_settings(page, mod_id: str, *, parts: bool = False) -> None:
+    """Open a compact mod row's Settings panel (and, on request, its collapsed parts list) — the badges and actions live there."""
+    if page.locator(f'[data-testid="floofycrew-mod-settings-{mod_id}"]').count() == 0:
+        page.click(f'[data-testid="floofycrew-settings-{mod_id}"]')
+        page.wait_for_selector(f'[data-testid="floofycrew-mod-settings-{mod_id}"]', timeout=30000)
+    if parts and not page.evaluate(f"() => document.querySelector('[data-testid=\"floofycrew-parts-{mod_id}\"]').open"):
+        page.click(f'[data-testid="floofycrew-parts-{mod_id}"] summary')
+
+
 def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
-    """The manager page (task 6.7, 7.10): unofficial banner, mod rows with state/seam/compat/tier badges, disable through the in-process CLI."""
+    """The manager page (task 6.7, 7.10): unofficial banner, compact mod rows (icon | name | id | Settings) whose panel carries state/seam/compat/tier badges, disable through the in-process CLI."""
     client = harness.gw.client()
     assert client.post(f"{API}/reload").status == 200
     enabled_path = FloofyPaths(harness.gw.data_home).enabled
@@ -345,13 +354,19 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         banner = page.inner_text('[data-testid="floofycrew-banner"]')
         assert "UNOFFICIAL" in banner and "not affiliated" in banner, banner
         page.wait_for_selector('[data-testid="floofycrew-mod-row-rimuru-branding"]', timeout=30000)
+        compact = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
+        assert "rimuru-branding" in compact and "active" in compact and "theme/gateway" not in compact and "Settings" in compact, f"a compact row: icon | name | id | Settings — the details wait behind Settings: {compact!r}"
+        assert page.locator('[data-testid="floofycrew-mod-icon-fallback-rimuru-branding"], [data-testid="floofycrew-mod-icon-rimuru-branding"]').count() == 1, "every row has a face: the manifest icon or the puzzle glyph"
+        open_settings(page, "rimuru-branding", parts=True)
         row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
-        assert "rimuru-branding 2.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" not in row, row
+        assert "2.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" not in row, row
+        open_settings(page, "custom-themes")
         themes_row = page.inner_text('[data-testid="floofycrew-mod-row-custom-themes"]')
-        assert "custom-themes 1.0.1" in themes_row and "active" in themes_row and "modifies payload files" in themes_row, themes_row
+        assert "1.0.1" in themes_row and "active" in themes_row and "modifies payload files" in themes_row, f"the payload warning stays visible on the collapsed parts summary: {themes_row!r}"
         assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
         assert page.inner_text('[data-testid="floofycrew-tier-rimuru-branding"]') == "tier: unlisted", "copied in without a registry record: the source tier badge says so (Requirement 8.11)"
         assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')
+        open_settings(page, "spa-healthy", parts=True)
         healthy = page.inner_text('[data-testid="floofycrew-mod-row-spa-healthy"]')
         assert "spa/spa" in healthy and "SPA host" in healthy
         assert page.inner_text('[data-testid="floofycrew-enabled-spa-healthy"]').startswith("enabled")
@@ -404,7 +419,9 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         try:
             page.reload(wait_until="load")
             page.wait_for_selector('[data-testid="floofycrew-update-spa-healthy"]', timeout=60000)
-            assert "update available: 1.1.0 (expected here)" in page.inner_text('[data-testid="floofycrew-update-spa-healthy"]')
+            assert page.inner_text('[data-testid="floofycrew-update-spa-healthy"]') == "↑ 1.1.0", "the compact row carries the candidate; the verdict is the badge's tooltip"
+            assert page.get_attribute('[data-testid="floofycrew-update-spa-healthy"]', "title") == "update available: 1.1.0 (expected here)"
+            open_settings(page, "spa-healthy")
             assert page.get_attribute('[data-testid="floofycrew-changelog-spa-healthy"]', "href") == "https://forge.example/spa-healthy/releases/1.1.0"
             assert page.locator('[data-testid="floofycrew-update-button-spa-healthy"]').count() == 1 and page.locator('[data-testid="floofycrew-update-now-spa-healthy"]').count() == 1
             page.click('[data-testid="floofycrew-nav-registry"]')

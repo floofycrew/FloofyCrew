@@ -12,6 +12,7 @@
 import React from "react";
 
 import { RestartButton, UpdateAndRestartButton } from "../actions.mjs";
+import { API } from "../api.mjs";
 import { commandNote, styles } from "../palette.mjs";
 import { ModPage, ModPagesList } from "./modpage.mjs";
 
@@ -86,8 +87,57 @@ export function InstallForm({ manager }) {
   );
 }
 
+/** The mod's face: its manifest `icon` through the Loader (`GET /mods/{id}/icon`, any installed mod), else a puzzle glyph. */
+function ModIcon({ row }) {
+  const [failed, setFailed] = React.useState(false);
+  if (!row.icon || failed) return React.createElement("div", { style: styles.modIconFallback, "aria-hidden": "true", "data-testid": `floofycrew-mod-icon-fallback-${row.id}` }, "🧩");
+  return React.createElement("img", { src: `${API}/mods/${encodeURIComponent(row.id)}/icon`, alt: "", style: styles.modIcon, onError: () => setFailed(true), "data-testid": `floofycrew-mod-icon-${row.id}` });
+}
+
+/** The Settings panel under a compact row: state detail, badges and warnings, the collapsed parts list, the update, the actions. */
+function ModSettings({ row, update, busy, act, navigate, mod }) {
+  const uiPart = (row.parts || []).some((p) => p.kind === "ui");
+  return React.createElement(
+    "div",
+    { style: styles.modPanel, "data-testid": `floofycrew-mod-settings-${row.id}` },
+    React.createElement("div", { style: styles.panelLabel }, "Version"),
+    React.createElement("div", null, React.createElement("code", null, row.version), row.description ? React.createElement("div", { style: styles.muted }, row.description) : null),
+    React.createElement("div", { style: styles.panelLabel }, "State"),
+    React.createElement("div", null, stateBadge(row), row.detail ? React.createElement("div", { style: styles.muted, title: row.detail }, row.detail) : null),
+    React.createElement("div", { style: styles.panelLabel }, "Host compat · source tier"),
+    React.createElement("div", null, compatBadge(row), tierBadge(row), React.createElement("div", null, React.createElement(Warnings, { row }))),
+    React.createElement("div", { style: styles.panelLabel }, "Parts (seam)"),
+    React.createElement(
+      "details",
+      { "data-testid": `floofycrew-parts-${row.id}` },
+      React.createElement(
+        "summary",
+        { style: { cursor: "pointer" } },
+        `${(row.parts || []).length} part(s) — ${[...new Set((row.parts || []).map((p) => p.kind))].join(", ") || "none"}`,
+        (row.parts || []).some((p) => p.modifiesPayload) ? React.createElement("span", { style: { ...styles.badge, ...styles.warn, marginLeft: "0.3rem" } }, "modifies payload files") : null,
+      ),
+      React.createElement(Parts, { parts: row.parts }),
+    ),
+    update && update.update
+      ? React.createElement(React.Fragment, null, React.createElement("div", { style: styles.panelLabel }, "Update"), React.createElement("div", { style: styles.ok }, `${update.candidate} available${update.verdict ? ` (${update.verdict} here)` : ""} `, update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: styles.accent, "data-testid": `floofycrew-changelog-${row.id}` }, "release notes") : null))
+      : null,
+    React.createElement("div", { style: styles.panelLabel }, "Actions"),
+    React.createElement(
+      "div",
+      null,
+      React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-toggle-${row.id}`, onClick: () => act(`${mod(row.id)}/${row.enabled ? "disable" : "enable"}`) }, row.enabled ? "Disable" : "Enable"),
+      update && update.update ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": `floofycrew-update-button-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, {}) }, `Update to ${update.candidate}`) : null,
+      update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-update-now-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, { now: true }) }, "Update now") : null,
+      navigate && uiPart ? React.createElement("button", { style: styles.button, disabled: busy || !row.active, "data-testid": `floofycrew-row-open-page-${row.id}`, onClick: () => navigate("mods", row.id) }, "Open page") : null,
+      navigate ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => navigate("registry", row.id) }, "Registry entry") : null,
+      React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(`${mod(row.id)}/uninstall`, { now: true }) }, "Uninstall"),
+    ),
+  );
+}
+
 export function ModsPage({ manager, navigate, openConsent, rest }) {
   const { state, rows, statusMeta, registry, busy, act, applyNow } = manager;
+  const [open, setOpen] = React.useState(() => new Set());
   if (rest) return React.createElement(ModPage, { manager, modId: rest, navigate });
   const host = (state && state.host) || {};
   const selfUpdate = (state && state.selfUpdate) || null; // Requirement 7.7: the CLI's cached daily check, re-graded by the Loader
@@ -157,40 +207,25 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
     React.createElement(
       "div",
       { style: styles.card },
-      React.createElement("div", { style: { ...styles.row, ...styles.head } }, React.createElement("span", null, "Mod"), React.createElement("span", null, "State"), React.createElement("span", null, "Host compat · source tier"), React.createElement("span", null, "Parts (seam)"), React.createElement("span", null, "Actions")),
+      React.createElement("h2", { style: styles.cardTitle }, `Installed mods (${rows.length})`),
       rows.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.6rem 0" } }, "no mods installed — use the form above, or the Registry page") : null,
       rows.map((row) => {
         const update = updates[row.id];
+        const opened = open.has(row.id);
         return React.createElement(
           "div",
-          { key: row.id, style: styles.row, "data-testid": `floofycrew-mod-row-${row.id}` },
+          { key: row.id, style: styles.modRow, "data-testid": `floofycrew-mod-row-${row.id}` },
+          React.createElement(ModIcon, { row }),
           React.createElement(
             "div",
-            null,
-            React.createElement("div", null, React.createElement("strong", null, row.name || row.id), " ", React.createElement("code", null, `${row.id} ${row.version}`)),
-            React.createElement("div", { style: styles.muted, "data-testid": `floofycrew-enabled-${row.id}` }, row.enabled ? "enabled" : "disabled", row.link ? " · dev link" : ""),
-            update && update.update
-              ? React.createElement(
-                  "div",
-                  { style: styles.ok, "data-testid": `floofycrew-update-${row.id}` },
-                  `update available: ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : ""} `,
-                  update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: styles.accent, "data-testid": `floofycrew-changelog-${row.id}` }, "release notes") : null,
-                )
-              : null,
+            { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+            React.createElement("strong", null, row.name || row.id),
+            React.createElement("span", { style: styles.modId, title: `${row.id} ${row.version}` }, row.id),
+            update && update.update ? React.createElement("span", { style: { ...styles.badge, ...styles.ok, marginLeft: "0.5rem" }, "data-testid": `floofycrew-update-${row.id}`, title: `update available: ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : ""}` }, `↑ ${update.candidate}`) : null,
           ),
-          React.createElement("div", null, stateBadge(row), row.detail ? React.createElement("div", { style: styles.muted, title: row.detail }, row.detail.length > 90 ? `${row.detail.slice(0, 90)}…` : row.detail) : null),
-          React.createElement("div", null, compatBadge(row), tierBadge(row), React.createElement("div", null, React.createElement(Warnings, { row }))),
-          React.createElement(Parts, { parts: row.parts }),
-          React.createElement(
-            "div",
-            null,
-            React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-toggle-${row.id}`, onClick: () => act(`${mod(row.id)}/${row.enabled ? "disable" : "enable"}`) }, row.enabled ? "Disable" : "Enable"),
-            update && update.update ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": `floofycrew-update-button-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, {}) }, `Update to ${update.candidate}`) : null,
-            update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-update-now-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, { now: true }) }, "Update now") : null,
-            React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(`${mod(row.id)}/uninstall`, { now: true }) }, "Uninstall"),
-            navigate && (row.parts || []).some((p) => p.kind === "ui") ? React.createElement("button", { style: styles.button, disabled: busy || !row.active, "data-testid": `floofycrew-row-open-page-${row.id}`, onClick: () => navigate("mods", row.id) }, "Open page") : null,
-            navigate ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => navigate("registry", row.id) }, "Registry entry") : null,
-          ),
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem", whiteSpace: "nowrap" } }, stateBadge(row), React.createElement("span", { style: { ...styles.muted, fontSize: "0.78rem" }, "data-testid": `floofycrew-enabled-${row.id}` }, row.enabled ? "enabled" : "disabled", row.link ? " · dev link" : "")),
+          React.createElement("button", { style: { ...styles.button, marginBottom: 0, ...(opened ? styles.primary : {}) }, "aria-expanded": opened, "data-testid": `floofycrew-settings-${row.id}`, onClick: () => setOpen((current) => { const next = new Set(current); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; }) }, opened ? "Close" : "Settings"),
+          opened ? React.createElement(ModSettings, { row, update, busy, act, navigate, mod }) : null,
         );
       }),
     ),

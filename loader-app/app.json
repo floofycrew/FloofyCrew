@@ -90,6 +90,11 @@
       },
       {
         "method": "GET",
+        "path": "/mods/{id}/icon",
+        "purpose": "the manifest's icon (.svg/.png, files[]-listed) of ANY installed mod, active or not — the face in the App's mod rows"
+      },
+      {
+        "method": "GET",
         "path": "/mods/{id}/config",
         "purpose": "the mod's .floofy/config.json (floofy.mod(id).config.get)"
       },

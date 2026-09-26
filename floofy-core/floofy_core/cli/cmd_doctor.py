@@ -393,6 +393,9 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
             "governance": _merge_governance(published.get("governance") or [], seam_status),
             "link": mod.is_link,
             "stateSource": "published" if published else "manifest",
+            # for the App's rows: the manifest's icon (served by the Loader's /mods/{id}/icon) and the one-line description
+            "icon": mod.manifest.get("icon") if isinstance(mod.manifest.get("icon"), str) else None,
+            "description": str(mod.manifest.get("description") or "") or None,
         }
         rows.append(row)
     pending = ctx.home.staged_mods()

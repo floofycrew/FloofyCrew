@@ -31,7 +31,7 @@ import { ensureStarted } from "./host.mjs";
 import { RestartButton } from "./app/actions.mjs";
 import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf, waitForGateway } from "./app/api.mjs";
 import { ConfirmationHost, useAsker } from "./app/confirm.mjs";
-import { RADIUS, UNOFFICIAL, styles } from "./app/palette.mjs";
+import { UNOFFICIAL, styles } from "./app/palette.mjs";
 import { AuditPage } from "./app/pages/audit.mjs";
 import { DoctorPage } from "./app/pages/doctor.mjs";
 import { ModsPage } from "./app/pages/mods.mjs";
@@ -46,6 +46,8 @@ export { compatBadge, tierBadge } from "./app/pages/mods.mjs";
 
 /** app.json `iconPath` — the branding mark (`branding/logo.svg`), served by the host from `/apps/floofycrew/art/<iconPath>`. */
 export const ICON_PATH = "art/icon.svg";
+/** The header's wordmark (the peach-on-dark lockup, `branding/wordmark-dark.svg`), served from the App's own `ui/art/`. */
+export const WORDMARK_URL = new URL("./art/wordmark.svg", import.meta.url).href;
 
 /** The navigation, in order; the first entry is the landing page (Requirement 16.1). */
 export const PAGES = Object.freeze([
@@ -172,9 +174,10 @@ function Header({ manager }) {
   return React.createElement(
     "div",
     { style: styles.header, "data-testid": "floofycrew-header" },
-    // the host serves an installed app's declared art at /apps/<name>/art/<iconPath verbatim> (kiro_crew/apps/routes.py handle_app_art_file)
-    React.createElement("img", { src: `/apps/floofycrew/art/${ICON_PATH}`, alt: "", width: 36, height: 36, style: { borderRadius: RADIUS }, "data-testid": "floofycrew-icon" }),
-    React.createElement("h1", { style: styles.title }, "FloofyCrew"),
+    // the h1 stays for screen readers and the document outline; the wordmark (mark + text, ui/art/wordmark.svg, shipped
+    // with the App's own ui/ tree) is what shows. The store icon (app.json iconPath) is the sidebar's, not repeated here.
+    React.createElement("h1", { style: { ...styles.title, ...styles.srOnly } }, "FloofyCrew"),
+    React.createElement("img", { src: WORDMARK_URL, alt: "FloofyCrew", style: styles.wordmark, "data-testid": "floofycrew-icon" }),
     React.createElement("span", { style: styles.muted }, state ? `Loader ${state.loader} · FloofyCrew ${state.loaderVersion || "?"} · API ${state.api_version || "?"}` : "loading…"),
     React.createElement("span", { style: styles.muted }, `host ${host.edition || "?"} ${host.version || "?"} (${host.channel || "channel unknown"})`),
     React.createElement("div", { style: styles.headerActions }, React.createElement(RestartButton, { manager, testid: "floofycrew-restart-header" })),

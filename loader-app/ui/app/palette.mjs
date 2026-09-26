@@ -47,7 +47,19 @@ export const styles = Object.freeze({
   bannerDismiss: { marginLeft: "auto", padding: "0.1rem 0.45rem", border: "none", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "0.78rem", fontWeight: 500, textDecoration: "underline", opacity: 0.85, whiteSpace: "nowrap" },
   // a page is a column of cards with the same gap as the shell around it
   pageBody: { display: "flex", flexDirection: "column", gap: "1.25rem" },
-  header: { display: "flex", alignItems: "center", gap: "0.9rem", flexWrap: "wrap" },
+  // the header: a soft sunset gradient behind the wordmark (the brand's pink → orange, at low alpha so host text stays legible)
+  header: { display: "flex", alignItems: "center", gap: "0.9rem", flexWrap: "wrap", padding: "0.75rem 1rem", borderRadius: RADIUS, background: "linear-gradient(90deg, rgba(255,107,139,.22) 0%, rgba(255,154,61,.18) 55%, rgba(255,154,61,0) 100%)", border: `1px solid rgba(255,154,61,.25)` },
+  // the wordmark (mark + "FloofyCrew" text, the peach-on-dark lockup) replaces the plain title
+  wordmark: { height: "2.4rem", width: "auto", display: "block" },
+  // visually hidden but read by screen readers (and counted by innerText): the page still has an h1 "FloofyCrew"
+  srOnly: { position: "absolute", width: "1px", height: "1px", padding: 0, margin: "-1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 },
+  // the compact mod row: icon | name + id | state | Settings (Requirement 16.1); details live in the Settings panel below it
+  modRow: { borderTop: border, padding: "0.45rem 0", display: "grid", gridTemplateColumns: "1.75rem minmax(12rem, 1fr) auto auto", gap: "0.75rem", alignItems: "center" },
+  modIcon: { width: "1.75rem", height: "1.75rem", borderRadius: RADIUS, objectFit: "contain", display: "block", background: "rgba(127,127,127,.12)" },
+  modIconFallback: { width: "1.75rem", height: "1.75rem", borderRadius: RADIUS, display: "grid", placeItems: "center", background: "rgba(127,127,127,.12)", fontSize: "1rem", lineHeight: 1 },
+  modId: { fontFamily: "var(--mono, ui-monospace, monospace)", fontSize: "0.78rem", opacity: 0.7, marginLeft: "0.5rem" },
+  modPanel: { gridColumn: "1 / -1", padding: "0.4rem 0 0.6rem 2.5rem", display: "grid", gridTemplateColumns: "minmax(10rem, 1fr) minmax(14rem, 2fr)", gap: "0.5rem 1.2rem", alignItems: "start", fontSize: "0.85rem" },
+  panelLabel: { fontWeight: 600, opacity: 0.8 },
   headerActions: { marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" },
   title: { fontSize: "1.25rem", fontWeight: 700, color: PALETTE.heading, margin: 0 },
   banner: { border: `1px solid ${PALETTE.warn}`, background: "rgba(255,179,71,.12)", padding: "0.6rem 0.9rem", borderRadius: RADIUS, fontWeight: 600, display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" },

@@ -146,6 +146,24 @@ export function compatCell(version, hostVersion) {
   return cell || "untested";
 }
 
+const DESCRIPTION_PREVIEW = 96;
+
+/** The record's description, collapsed: one clipped line as the summary, the whole text on demand. */
+export function HitDescription({ hit }) {
+  const text = (hit.description || "").trim();
+  if (!text) return null;
+  const firstLine = text.split(/\r?\n/, 1)[0];
+  const clipped = firstLine.length < text.length || firstLine.length > DESCRIPTION_PREVIEW;
+  const preview = clipped ? `${firstLine.slice(0, DESCRIPTION_PREVIEW).trimEnd()}…` : firstLine;
+  if (!clipped) return React.createElement("div", { style: styles.muted, "data-testid": `floofycrew-hit-description-${hit.key}` }, text);
+  return React.createElement(
+    "details",
+    { "data-testid": `floofycrew-hit-description-${hit.key}` },
+    React.createElement("summary", { style: { ...styles.muted, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, preview),
+    React.createElement("div", { style: { ...styles.muted, whiteSpace: "pre-wrap", padding: "0.2rem 0 0 1rem" } }, text),
+  );
+}
+
 /** One search hit: the tier an install would have here, the version known to work, every version's compat cell for this host, Install. */
 export function SearchHit({ hit, manager }) {
   const hostVersion = ((manager.state || {}).host || {}).version;
@@ -155,7 +173,7 @@ export function SearchHit({ hit, manager }) {
     "div",
     { style: { borderTop: styles.row.borderTop, padding: "0.5rem 0" }, "data-testid": `floofycrew-hit-${hit.key}` },
     React.createElement("div", null, React.createElement("strong", null, hit.name || hit.key), " ", React.createElement("code", null, hit.key), " ", React.createElement("span", { style: styles.muted }, `newest ${hit.newest || "?"}`), hit.installed ? React.createElement("span", { style: { ...styles.badge, marginLeft: "0.4rem" } }, `installed ${hit.installed}`) : null),
-    React.createElement("div", { style: styles.muted }, hit.description || ""),
+    React.createElement(HitDescription, { hit }),
     React.createElement(
       "div",
       { style: { marginTop: "0.3rem" } },

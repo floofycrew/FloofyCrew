@@ -29,8 +29,20 @@ KiroCrew; it never ships a rebuilt host.
   sources fetched, mods merged, and any refusal with its reason — instead of
   leaving the user to guess whether anything ran.
 
+- **Mods show their face.** A new Loader route `GET /mods/{id}/icon` serves the
+  manifest's `icon` (`.svg`/`.png`, `files[]`-listed) of any installed mod, active
+  or not; `floofy status` rows carry `icon` and `description`. A mod without one
+  gets a puzzle glyph.
+
 ### Changed
 
+- **A tidier manager.** The Mods page lists compact rows — icon | name | id | state |
+  **Settings** — and keeps everything else (version and description, badges and
+  warnings, the update, Enable/Disable, Update, Open page, Uninstall) in the row's
+  Settings panel; the parts list is collapsed behind its count and kinds, with the
+  "modifies payload files" warning kept on the summary line. The Registry page
+  collapses long descriptions to one line that expands on click. The header wears
+  the FloofyCrew wordmark on a peach-to-orange gradient.
 - The internal source repository has one branch, `mainline` (its forge's default);
   the historical `main` head is retired and `ci.yml` triggers on `mainline`.
 

@@ -16,7 +16,7 @@ from floofy_loader import api
 from floofy_loader.consent import write_consent
 from floofy_loader.events import EVENTS, EventBus, ModEvents
 from floofy_loader.paths import FloofyPaths
-from floofy_loader.routes import ROUTE_TABLE, SPA_MAX_DEPTH, content_type_for, fault_response, health_response, spa_response, state_response
+from floofy_loader.routes import ROUTE_TABLE, SPA_MAX_DEPTH, content_type_for, fault_response, health_response, icon_response, spa_response, state_response
 from floofy_loader.runtime import LoaderRuntime
 from floofy_loader.storage import RUNTIME_DIR, ModConfig, mod_data_dir, mod_logger
 
@@ -142,6 +142,46 @@ def test_spa_response_serves_only_enabled_files_safely(tmp_path: Path):
         assert spa_response(spa, "ui", bad)[0] == 404, bad
     assert spa_response(spa, "other", ["main.js"])[0] == 404 and spa_response(spa, "..", ["main.js"])[0] == 404
     assert content_type_for("x.json").startswith("application/json") and content_type_for("x.bin") == "application/octet-stream"
+
+
+def test_icon_response_serves_the_listed_manifest_icon_of_any_installed_mod(tmp_path: Path):
+    """``GET /mods/{id}/icon``: the manifest's ``icon`` when it is ``.svg``/``.png`` and ``files[]``-listed, whether or not the mod is active; anything else 404."""
+    from floofy_core.datahome import DataHome
+
+    paths = DataHome.for_host_home(tmp_path / "home").ensure()
+    runtime = LoaderRuntime()
+    runtime.paths = paths
+
+    def install(mod_id: str, icon, listed: bool = True, *, write: bool = True) -> Path:
+        mod_dir = paths.mod_dir(mod_id)
+        mod_dir.mkdir(parents=True, exist_ok=True)
+        files = []
+        if isinstance(icon, str) and write and not icon.startswith(("/", "..")):
+            target = mod_dir / icon
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"<svg xmlns='http://www.w3.org/2000/svg'/>" if icon.endswith(".svg") else b"\x89PNG")
+            if listed:
+                files.append({"path": icon, "sha256": "0" * 64})
+        manifest = {"schema": 1, "id": mod_id, "name": mod_id, "version": "1.0.0", "files": files}
+        if icon is not None:
+            manifest["icon"] = icon
+        (mod_dir / "floofy.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return mod_dir
+
+    install("faced", "art/face.svg")
+    status, headers, body = icon_response(runtime, "faced")
+    assert status == 200 and headers["Content-Type"].startswith("image/svg+xml") and headers["Cache-Control"] == "no-cache" and body.startswith(b"<svg"), "an inactive, merely installed mod still shows its face"
+    install("pixel", "icon.png")
+    assert icon_response(runtime, "pixel")[1]["Content-Type"].startswith("image/png")
+    install("faceless", None)
+    install("unlisted", "art/face.svg", listed=False)
+    install("missing", "art/face.svg", write=False)
+    install("script", "face.js")
+    install("escape", "../../home/floofy.json")
+    (paths.mod_dir("escape") / "floofy.json").write_text(json.dumps({"schema": 1, "id": "escape", "icon": "../../home/floofy.json", "files": [{"path": "../../home/floofy.json", "sha256": "0" * 64}]}), encoding="utf-8")
+    for mod_id in ("faceless", "unlisted", "missing", "script", "escape", "not-installed", "", "../faced", "Faced"):
+        assert icon_response(runtime, mod_id)[0] == 404, mod_id
+    assert icon_response(LoaderRuntime(), "faced")[0] == 404, "no data home yet: nothing to serve"
 
 
 def test_state_health_and_fault_responses_through_a_booted_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
