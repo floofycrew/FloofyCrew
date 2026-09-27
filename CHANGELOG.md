@@ -11,6 +11,25 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.4 — 2026-09-27
+
+A patch on 1.3.3 from installing mods through the FloofyCrew App on a live
+host: a mod's App Kit app never installed from the App (the `app` kind refused
+the host launcher inside the gateway), so app-kind mods came up "App Not Found"
+while the install reported ok — fixed, and a refused part is now said out loud.
+Also in this release: dependencies install themselves, a tidier manager with
+mod icons, a wordmark header and per-row Settings panels, registry refreshes
+that report what they did, and the new `kiro-spec-plan` mod.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Added
 
 - **Dependencies install themselves** (Requirement 1.4 at install time). Installing a
