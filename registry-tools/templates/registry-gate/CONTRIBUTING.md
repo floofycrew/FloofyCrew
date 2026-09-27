@@ -75,7 +75,9 @@ its `floofy.json` and pins the commit it read:
 5. Run the gate — `{{GATE_COMMAND}}`, or `PYTHONPATH=src python -m {{GATE_MODULE}}`
    without the build system — and open the review. The gate fetches every link
    record at its pinned commit with **your** credentials (`{{GATE_ENV_PREFIX}}_SKIP_CLONE=1`
-   skips that step for an offline run; the merge gate never does).
+   skips that step for an offline run). Run it locally before opening the review:
+   the CR's own dry-run build has no route to the forge, so there the clone step is
+   reported as not run and only steps 1–5 are checked.
 
 A reviewer looks at what the manager will disclose to users — the parts, the
 seams they use, the declared network hosts, any governance flag — and merges.

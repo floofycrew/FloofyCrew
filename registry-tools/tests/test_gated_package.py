@@ -134,7 +134,7 @@ def test_the_rendered_gate_passes_in_a_fresh_interpreter_and_rejects_a_bad_recor
     assert "1 record(s), 1 cloned" in gate.stdout and gate.stdout.rstrip().endswith("OK")
     suite = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "test"], cwd=str(target), env=env, capture_output=True, text=True, timeout=600)
     assert suite.returncode == 0, suite.stdout[-3000:] + suite.stderr[-2000:]
-    assert "8 passed" in suite.stdout
+    assert "9 passed" in suite.stdout
     # offline: the clone step is skipped and says so; a broken record still fails without a clone
     offline = subprocess.run([sys.executable, "-m", module, "--no-clone"], cwd=str(target), env=env, capture_output=True, text=True, timeout=120)
     assert offline.returncode == 0 and "clone step skipped" in offline.stdout

@@ -40,8 +40,38 @@ def test_the_committed_registry_passes_the_gate():
     report = gate.validate_registry(ROOT)
     assert report.ok, report.format()
     assert report.records >= 1
-    if os.environ.get(gate.SKIP_CLONE_ENV) != "1":
+    if os.environ.get(gate.SKIP_CLONE_ENV) == "1":
+        return
+    if report.forge_unreachable:
+        # the package build fleet: no git, or no route to the forge — the gate says so instead of failing
+        assert report.cloned == 0 and any("clone step not run" in n for n in report.notes), report.format()
+    else:
         assert report.cloned == sum(1 for _ in _link_records(ROOT)), "every link record was cloned at its tag and compared"
+
+
+def test_an_unreachable_forge_is_reported_not_counted_as_a_record_problem(monkeypatch: pytest.MonkeyPatch):
+    """The dry-run build of a CR runs on a fleet without git or forge DNS; that is a fact about the environment, not about the records."""
+    assert gate.forge_host(r"^ssh://git\.example\.com/pkg/[A-Za-z0-9_.-]+$") == "git.example.com"
+    assert gate.forge_host(r"^https://github\.com/[^/]+/[^/]+$") == "github.com"
+    assert gate.forge_host(None) is None
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    assert "git is not on PATH" in gate.forge_unreachable(r"^ssh://git\.example\.com/pkg/x$")
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/git")
+    import socket
+
+    def refuse(*_a, **_k):
+        raise socket.gaierror("Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    reason = gate.forge_unreachable(r"^ssh://git\.example\.com/pkg/x$")
+    assert reason and "git.example.com does not resolve" in reason
+    report = gate.validate_registry(ROOT)
+    assert report.ok, report.format()
+    assert report.cloned == 0 and report.forge_unreachable and "does not resolve" in report.forge_unreachable
+    assert any("clone step not run" in n for n in report.notes)
+    # with a route, the clone step is attempted (and counted) again
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_a, **_k: [])
+    assert gate.forge_unreachable(r"^ssh://git\.example\.com/pkg/x$") is None
 
 
 def _link_records(root: Path):
