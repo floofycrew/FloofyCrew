@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "Adds Kiro's built-in modes to the agent list \u2014 Spec, Quick Spec, Bug Fix and Plan \u2014 the same structured workflows as Kiro IDE, run by the kiro-cli v3 engine (KAS). Needs agent.acp_backend = kas.",
   "authors": [
-    "***REMOVED***"
+    "Oscar Tseng"
   ],
   "license": "MIT",
   "tags": [
