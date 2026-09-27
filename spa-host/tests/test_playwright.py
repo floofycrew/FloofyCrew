@@ -30,6 +30,7 @@ Skipped without a payload copy. The copy's ``index.html`` is patched on purpose
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import time
@@ -401,7 +402,7 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         # a theme switch; the gradient is a borderless, top-feathered backdrop on the masthead (header + banner + tabs), not a
         # box around the logo: it runs from the page's top edge (the window border) down to the tabs' bottom rule, covering
         # the tab row, and the SELECTED tab is cut out of it (a subtracted mask layer over the tab, down to the rule)
-        glow_js = "() => { const h = document.querySelector('[data-testid=\"floofycrew-header\"]'); const g = document.querySelector('[data-testid=\"floofycrew-header-glow\"]'); const cs = getComputedStyle(h); const glow = getComputedStyle(g); const hr = h.getBoundingClientRect(); const gr = g.getBoundingClientRect(); const pr = document.querySelector('[data-testid=\"floofycrew-manager\"]').getBoundingClientRect(); const n = document.querySelector('[data-testid=\"floofycrew-nav\"]'); const nr = n.getBoundingClientRect(); const tr = n.querySelector('[aria-current=\"page\"]').getBoundingClientRect(); return { border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, glowImage: glow.backgroundImage, mask: glow.maskImage || glow.webkitMaskImage, composite: glow.maskComposite || glow.webkitMaskComposite, maskSize: glow.maskSize || glow.webkitMaskSize, maskPosition: glow.maskPosition || glow.webkitMaskPosition, above: hr.top - gr.top, glowTop: gr.top, pageTop: pr.top, glowBottom: gr.bottom, navBottom: nr.bottom, tabX: tr.left - gr.left, tabY: tr.top - gr.top, tabWidth: tr.width, tabToRule: gr.bottom - tr.top, active: n.querySelector('[aria-current=\"page\"]').dataset.testid }; }"
+        glow_js = "() => { const h = document.querySelector('[data-testid=\"floofycrew-header\"]'); const g = document.querySelector('[data-testid=\"floofycrew-header-glow\"]'); const cs = getComputedStyle(h); const glow = getComputedStyle(g); const hr = h.getBoundingClientRect(); const gr = g.getBoundingClientRect(); const pr = document.querySelector('[data-testid=\"floofycrew-manager\"]').getBoundingClientRect(); const n = document.querySelector('[data-testid=\"floofycrew-nav\"]'); const nr = n.getBoundingClientRect(); const tr = n.querySelector('[aria-current=\"page\"]').getBoundingClientRect(); return { border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, glowImage: glow.backgroundImage, mask: glow.maskImage || glow.webkitMaskImage, composite: glow.maskComposite || glow.webkitMaskComposite, maskSize: glow.maskSize || glow.webkitMaskSize, maskPosition: glow.maskPosition || glow.webkitMaskPosition, above: hr.top - gr.top, glowTop: gr.top, pageTop: pr.top, glowBottom: gr.bottom, navBottom: nr.bottom, tabX: tr.left - gr.left, tabY: tr.top - gr.top, tabWidth: tr.width, tabToRule: gr.bottom - tr.top, rowTop: nr.top - gr.top, tabHeight: tr.height, tabBottom: tr.bottom, ruleBottom: getComputedStyle(n.querySelector('[aria-current=\"page\"]')).borderBottomColor, ruleInactive: getComputedStyle(n.querySelector('button:not([aria-current])')).borderBottomColor, ruleSpacer: getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-rule\"]')).borderBottomWidth, active: n.querySelector('[aria-current=\"page\"]').dataset.testid }; }"
 
         def check_glow(expected_tab: str) -> dict:
             s = page.evaluate(glow_js)
@@ -411,6 +412,14 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
             assert s["mask"].count("linear-gradient") == 2 and s["composite"].split(",")[0].strip() in ("subtract", "source-out"), s
             assert s["above"] > 12 and abs(s["glowTop"] - s["pageTop"]) < 1.5, s
             assert abs(s["glowBottom"] - s["navBottom"]) < 1.5, s
+            # the feather fades the glow out across the tab row: solid at the row's top, gone at the rule
+            feather = s["mask"].split("), linear-gradient(")[0]
+            m = re.search(r"rgb\(0, 0, 0\) (\d+(\.\d+)?)px, rgba\(0, 0, 0, 0\) 100%\)?$", feather)
+            assert m and abs(float(m.group(1)) - s["rowTop"]) < 1.5, s
+            # the tabs sit on the rule (no padding under them), the row is compact, and the rule stops under the selected tab:
+            # inactive tabs and the trailing spacer carry it, the selected tab's bottom is transparent
+            assert abs(s["tabBottom"] - s["navBottom"]) < 1.5 and s["tabHeight"] < 30, s
+            assert s["ruleBottom"] == "rgba(0, 0, 0, 0)" and s["ruleInactive"] != "rgba(0, 0, 0, 0)" and s["ruleSpacer"] == "1px", s
             # the second mask layer (the cut-out) sits exactly over the selected tab and reaches the rule
             size = s["maskSize"].split(",")[1].split()
             pos = s["maskPosition"].split(",")[1].split()
@@ -954,10 +963,12 @@ def test_7_ui_polish_and_the_restart_button(harness: Harness):
         page.wait_for_selector('[data-testid="floofycrew-page-registry"] [data-testid="floofycrew-sources"]', timeout=60000)
         page.click('[data-testid="floofycrew-nav-mods"]')
         page.wait_for_selector('[data-testid="floofycrew-page-mods"]', timeout=60000)
+        # (its bottom is the row's rule, which every inactive tab carries — see styles.nav)
         left_tab = page.evaluate("() => { const s = getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-registry\"]')); return [s.borderTopColor, s.borderLeftColor, s.borderRightColor, s.borderBottomColor]; }")
-        assert all(c in transparent for c in left_tab), f"a tab that was clicked once keeps a grey frame: {left_tab}"
-        active_tab = page.evaluate("() => getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-mods\"]')).borderTopColor")
-        assert active_tab not in transparent, "the active tab is framed in the accent colour"
+        assert all(c in transparent for c in left_tab[:3]), f"a tab that was clicked once keeps a grey frame: {left_tab}"
+        assert left_tab[3] not in transparent, f"an inactive tab's bottom is the row's rule: {left_tab}"
+        active_tab = page.evaluate("() => { const s = getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-mods\"]')); return [s.borderTopColor, s.borderBottomColor]; }")
+        assert active_tab[0] not in transparent and active_tab[1] in transparent, f"the active tab is framed in the accent colour and open at the bottom: {active_tab}"
         # pages are flex columns with the card gap; the page leaves room below the last card
         assert page.evaluate("() => getComputedStyle(document.querySelector('[data-testid=\"floofycrew-page-mods\"]')).display") == "flex"
         gap = page.evaluate("() => parseFloat(getComputedStyle(document.querySelector('[data-testid=\"floofycrew-page-mods\"]')).rowGap)")

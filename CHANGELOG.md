@@ -86,8 +86,10 @@ that report what they did, and the new `kiro-spec-plan` mod.
   collapses long descriptions to one line that expands on click. The header wears
   the FloofyCrew wordmark — the dark-text lockup on a light host theme, the peach
   one on a dark theme, following theme switches — over a borderless peach-to-orange
-  glow that feathers in from the window edge and runs down over the tabs to their
-  rule; the selected tab is cut out of it, showing the plain page.
+  glow that feathers in from the window edge and fades out again across the tab
+  row; the selected tab is cut out of it, showing the plain page. The tab row is
+  shorter, its tabs sit on the rule, and the rule stops under the selected tab
+  so the tab opens onto the page instead of sitting above a line.
 - The internal source repository has one branch, `mainline` (its forge's default);
   the historical `main` head is retired and `ci.yml` triggers on `mainline`.
 

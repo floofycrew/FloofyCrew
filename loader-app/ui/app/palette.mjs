@@ -32,7 +32,8 @@ export function tone(name) {
 
 export const UNOFFICIAL = "FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew.";
 
-const border = "1px solid var(--border, rgba(127,127,127,.35))";
+const borderColor = "var(--border, rgba(127,127,127,.35))";
+const border = `1px solid ${borderColor}`;
 const borderStrong = "1px solid var(--border-strong, rgba(127,127,127,.6))";
 
 /** The one corner radius of the App: squared. Cards, banners, buttons, inputs, badges, the modal — nothing rounder than this. */
@@ -41,9 +42,15 @@ export const RADIUS = "2px";
 /** The page's outer padding and the gap between its blocks — the masthead glow starts a padding above the header (see `mastheadGlow`). */
 const PAGE_GAP = "1.25rem";
 
-/** The glow's top feather: transparent at the window edge, solid by the time it reaches the wordmark. The bottom edge is
- * the tabs' rule, so it ends there cleanly (the tab row is meant to be covered). */
-export const MASTHEAD_FEATHER = "linear-gradient(180deg, rgba(0,0,0,0) 0, #000 2.5rem)";
+/**
+ * The glow's vertical feather: transparent at the window edge, solid by the time it reaches the wordmark, solid down to
+ * the top of the tab row, then fading to nothing across the tab row so it is gone by the tabs' rule. `fadeFrom` is the
+ * tab row's top in px from the glow's top (measured; `null` before the first measurement falls back to the last 2.5rem).
+ */
+export function mastheadFeather(fadeFrom) {
+  const from = typeof fadeFrom === "number" ? `${fadeFrom}px` : "calc(100% - 2.5rem)";
+  return `linear-gradient(180deg, rgba(0,0,0,0) 0, #000 2.5rem, #000 ${from}, rgba(0,0,0,0) 100%)`;
+}
 
 export const styles = Object.freeze({
   // the bottom padding leaves room under the footer so the page never ends flush against the viewport edge
@@ -76,14 +83,20 @@ export const styles = Object.freeze({
   headerActions: { marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" },
   title: { fontSize: "1.25rem", fontWeight: 700, color: PALETTE.heading, margin: 0 },
   banner: { border: `1px solid ${PALETTE.warn}`, background: "rgba(255,179,71,.12)", padding: "0.6rem 0.9rem", borderRadius: RADIUS, fontWeight: 600, display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" },
-  nav: { display: "flex", gap: "0.35rem", flexWrap: "wrap", borderBottom: border, paddingBottom: "0.5rem" },
+  // The tab row's rule is NOT one border on the nav: it is each tab's bottom border plus a trailing spacer that carries
+  // the rest of the line. That way the selected tab, whose bottom is transparent, opens onto the page — the rule stops
+  // at its left edge and resumes at its right — instead of running underneath it (which left the frame looking
+  // unfinished: side borders ending above a line that continued beneath). No gap between tabs, or the rule would break;
+  // the tabs' own padding spaces them. No padding under the tabs: they sit on the rule, so the tab box is the cut-out.
+  nav: { display: "flex", alignItems: "flex-end", flexWrap: "wrap" },
+  navSpacer: { flex: "1 1 0", alignSelf: "stretch", borderBottom: border, minWidth: "0.5rem" },
   // Tab borders are spelled PER SIDE, never with the 4-side `borderColor` key. React diffs inline styles key by
-  // key and writes only what changed: on inactive→active, a 4-side `borderColor` write (transparent→accent) would
-  // repaint ALL FOUR sides — including the bottom — while `borderBottomColor` compares equal ("transparent" both
-  // sides) and is NOT re-written, so the css `border-color` shorthand's bottom value wins and a bottom border
-  // appears on any tab selected after first render (the active tab must never have one). Per-side keys diff
-  // independently, so the bottom stays transparent through every state change.
-  navItem: { padding: "0.35rem 0.8rem", borderRadius: `${RADIUS} ${RADIUS} 0 0`, borderWidth: "1px", borderStyle: "solid", borderTopColor: "transparent", borderRightColor: "transparent", borderLeftColor: "transparent", borderBottomColor: "transparent", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "0.9rem", fontWeight: 400, outlineOffset: "-2px" },
+  // key and writes only what changed: on inactive→active, a 4-side `borderColor` write would repaint ALL FOUR sides —
+  // including the bottom — while `borderBottomColor` is NOT re-written when it compares equal, so the css
+  // `border-color` shorthand's bottom value wins and the active tab grows a bottom border after any tab switch (the
+  // first render was fine, which is why it looked intermittent). Per-side keys diff independently, so the active tab's
+  // bottom stays transparent through every state change while the inactive tabs' bottoms carry the rule.
+  navItem: { padding: "0.2rem 0.75rem 0.25rem", borderRadius: `${RADIUS} ${RADIUS} 0 0`, borderWidth: "1px", borderStyle: "solid", borderTopColor: "transparent", borderRightColor: "transparent", borderLeftColor: "transparent", borderBottomColor: borderColor, background: "transparent", color: "inherit", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1.4, fontWeight: 400, outlineOffset: "-2px" },
   navItemActive: { borderTopColor: PALETTE.accent, borderRightColor: PALETTE.accent, borderLeftColor: PALETTE.accent, borderBottomColor: "transparent", color: PALETTE.accent, fontWeight: 600 },
   card: { border, borderRadius: RADIUS, padding: "0.9rem 1.1rem", background: "var(--card, transparent)" },
   cardIntro: { opacity: 0.75, margin: "-0.2rem 0 0.7rem", lineHeight: 1.45 },

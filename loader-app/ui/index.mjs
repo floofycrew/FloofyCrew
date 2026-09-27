@@ -31,7 +31,7 @@ import { ensureStarted } from "./host.mjs";
 import { RestartButton } from "./app/actions.mjs";
 import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf, waitForGateway } from "./app/api.mjs";
 import { ConfirmationHost, useAsker } from "./app/confirm.mjs";
-import { MASTHEAD_FEATHER, UNOFFICIAL, styles } from "./app/palette.mjs";
+import { UNOFFICIAL, mastheadFeather, styles } from "./app/palette.mjs";
 import { AuditPage } from "./app/pages/audit.mjs";
 import { DoctorPage } from "./app/pages/doctor.mjs";
 import { ModsPage } from "./app/pages/mods.mjs";
@@ -276,35 +276,41 @@ function Nav({ current, onSelect, navRef }) {
         page.label,
       ),
     ),
+    // the rest of the rule, after the last tab (see styles.nav)
+    React.createElement("span", { style: styles.navSpacer, "aria-hidden": "true", "data-testid": "floofycrew-nav-rule" }),
   );
 }
 
 /**
- * The glow's mask: the top feather, minus the selected tab. Two mask layers composited with `subtract`: the feather
- * (full size) and a solid rectangle placed over the selected tab, from the tab's top edge down to the glow's bottom (the
- * tabs' rule) — so the tab shows the plain page, whatever the host paints there (a flat colour or a gradient body), and
- * reads as joined to the content below. `hole` is in px relative to the glow's own box; `null` (not measured yet, or no
- * tab selected) is just the feather.
+ * The glow's mask: the vertical feather, minus the selected tab. Two mask layers composited with `subtract`: the
+ * feather (full size; it fades out across the tab row, from the row's measured top) and a solid rectangle placed over
+ * the selected tab, from the tab's top edge down to the glow's bottom (the tabs' rule) — so the tab shows the plain
+ * page, whatever the host paints there (a flat colour or a gradient body), and reads as joined to the content below.
+ * `hole` is in px relative to the glow's own box; `null` (not measured yet, or no tab selected) is just the feather.
  */
 export function mastheadGlowMask(hole) {
-  const image = hole ? `${MASTHEAD_FEATHER}, linear-gradient(#000, #000)` : MASTHEAD_FEATHER;
+  const feather = mastheadFeather(hole ? hole.rowTop : null);
+  const image = hole ? `${feather}, linear-gradient(#000, #000)` : feather;
   const size = hole ? `100% 100%, ${hole.width}px ${hole.height}px` : "100% 100%";
   const position = hole ? `0 0, ${hole.x}px ${hole.y}px` : "0 0";
   return { WebkitMaskImage: image, maskImage: image, WebkitMaskSize: size, maskSize: size, WebkitMaskPosition: position, maskPosition: position };
 }
 
-/** The tab cut-out, measured from the DOM: the selected tab's box relative to the glow's box, extended to the glow's bottom edge. */
+/** The tab cut-out, measured from the DOM: the selected tab's box relative to the glow's box, extended to the glow's
+ * bottom edge, plus the tab row's top (`rowTop`, where the glow starts fading out). */
 function measureHole(glow, nav) {
   const tab = nav && nav.querySelector('[aria-current="page"]');
   if (!glow || !tab) return null;
+  const px = (n) => Math.round(n * 100) / 100;
   const g = glow.getBoundingClientRect();
   const t = tab.getBoundingClientRect();
-  return { x: Math.round((t.left - g.left) * 100) / 100, y: Math.round((t.top - g.top) * 100) / 100, width: Math.round(t.width * 100) / 100, height: Math.round((g.bottom - t.top) * 100) / 100 };
+  const n = nav.getBoundingClientRect();
+  return { x: px(t.left - g.left), y: px(t.top - g.top), width: px(t.width), height: px(g.bottom - t.top), rowTop: px(n.top - g.top) };
 }
 
 function sameHole(a, b) {
   if (!a || !b) return a === b;
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rowTop === b.rowTop;
 }
 
 /** Header, banner and tabs on one glow. Re-measures the tab cut-out when the selection, the banner or the layout changes. */

@@ -94,6 +94,10 @@ def test_tab_styles_use_per_side_border_colors_only():
     switch (the first render was fine, which is why it looked intermittent).
     Border colours are therefore spelled per side, in BOTH states, and no
     4-side `border`/`borderColor` key is allowed on either.
+
+    The row's rule is the inactive tabs' bottom border plus a trailing spacer,
+    not a border on the nav: the active tab's transparent bottom then opens onto
+    the page instead of sitting above a line that runs underneath it.
     """
     text = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
     item = re.search(r"navItem: \{(.*?)\},\n", text)
@@ -107,8 +111,13 @@ def test_tab_styles_use_per_side_border_colors_only():
         assert sides <= keys, sides - keys
     assert {"borderWidth", "borderStyle", "fontWeight", "color"} <= item_keys
     assert active_keys <= item_keys, active_keys - item_keys
-    # the active tab never paints a bottom border: it must stay transparent in both states
-    assert 'borderBottomColor: "transparent"' in item.group(1) and 'borderBottomColor: "transparent"' in active.group(1)
+    # the active tab never paints a bottom border; the inactive tabs' bottoms are the rule
+    assert 'borderBottomColor: "transparent"' in active.group(1) and "borderBottomColor: borderColor" in item.group(1)
+    nav = re.search(r"\n  nav: \{(.*?)\},\n", text)
+    assert nav and "borderBottom" not in nav.group(1) and "paddingBottom" not in nav.group(1) and "gap" not in nav.group(1), nav.group(1)
+    assert re.search(r"navSpacer: \{.*borderBottom: border", text), "the spacer carries the rest of the rule"
+    shell = (UI / "index.mjs").read_text(encoding="utf-8")
+    assert 'style: styles.navSpacer, "aria-hidden": "true"' in shell
 
 
 def test_install_form_defaults_to_enabled_and_the_manual_yeet_button_is_gone():
