@@ -33,6 +33,29 @@ KiroCrew; it never ships a rebuilt host.
   manifest's `icon` (`.svg`/`.png`, `files[]`-listed) of any installed mod, active
   or not; `floofy status` rows carry `icon` and `description`. A mod without one
   gets a puzzle glyph.
+- **New first-party mod: `kiro-spec-plan`.** Kiro's own Spec, Quick Spec, Bug Fix
+  and Plan modes as KiroCrew agents: four `agent` drop-ins named after the kiro-cli
+  v3 (KAS) bundled mode ids, so picking one runs Kiro's real workflow with nothing
+  copied out of Kiro; a read-only `python-hook` publishes the `agent.acp_backend`
+  verdict as exports (a doctor warning when KAS is off) and a `spa` part badges the
+  four rows in the agent selector.
+
+### Fixed
+
+- **A mod's app never installed from the FloofyCrew App** (`floofy_core.kinds.app`,
+  `floofy_core.cli.cmd_mods`). The manager App runs every install inside the
+  gateway (`in_gateway=True`), and the `app` kind refused the `kirocrew` launcher
+  there — a guard meant for the loopback HTTP route, which would wait on the
+  gateway's own loop — so every app-kind mod installed from the App landed with
+  its python-hook and ui parts active and its App Kit app silently missing: the
+  install reported ok, the sidebar said "App Not Found" (seen live with
+  `kirocrew-ide`; `floofy install` from a terminal was never affected). The host
+  CLI's `app install|enable|uninstall` is a separate process doing file work under
+  `<host home>/apps/`, reconciled from disk by a running gateway, so the launcher
+  is now used in-gateway too; only the HTTP route stays off-limits there. A part
+  that refuses is no longer a footnote: the install warns
+  "the <kind> part was NOT installed — <reason>", the result carries
+  `partErrors[]`, and the audit row reads `partial` instead of `ok`.
 
 ### Changed
 
