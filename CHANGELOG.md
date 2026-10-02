@@ -11,6 +11,26 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.5 — 2026-10-02
+
+A patch on 1.3.4 that ships what landed right after its cut: the finished
+manager tab row (described in 1.3.4's notes, but committed two hours after that
+release), the registry gate's handling of a CR build fleet that cannot reach
+the forge, and two first-party mods — `agent-backend-router` (0.1.1; routes
+new sessions across agent backends) and the new `model-retry-policy` (0.1.0;
+a retry count of your own, retry forever at a fixed interval or with
+exponential backoff, or fallback profiles across models when the model or its
+API fails transiently).
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Added
 
 - **New first-party mod: `model-retry-policy`** (0.1.0). Chooses what KiroCrew

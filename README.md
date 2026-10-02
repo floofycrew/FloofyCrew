@@ -50,7 +50,7 @@ release is out.
 > is yours. Read [docs/consent-and-trust.md](docs/consent-and-trust.md) before
 > `floofy init`.
 
-Current release: **1.3.4** — what each release ships is in
+Current release: **1.3.5** — what each release ships is in
 [CHANGELOG.md](CHANGELOG.md); the KiroCrew versions it supports are in
 `pyproject.toml` (`[tool.floofycrew] supports`) and in the release's
 `supports.json`.
