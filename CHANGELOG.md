@@ -11,6 +11,42 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- **New first-party mod: `model-retry-policy`** (0.1.0). Chooses what KiroCrew
+  does when the model or its API fails transiently (throttling, overload, 5xx, a
+  dropped stream) instead of the host's fixed three same-model retries: a
+  `python-hook` that replaces the shared retry seams at every surface —
+  dashboard chats, cron and Slack turns, sub-agents — with one of four
+  mechanisms: a retry count of your own, retry forever at a fixed interval,
+  retry forever with exponential backoff, or fallback profiles (the primary N
+  times, then each model in the profile for its own count, then stop or stay on
+  the last forever). The default leaves the host byte-for-byte. A `ui` page
+  carries the mechanism cards, the parameters, a profiles editor, a "what will
+  happen" attempt timeline and a live retry/switch log. Runs alongside
+  `agent-backend-router` (different seams).
+- **`agent-backend-router` ships in the package** (0.1.1). The router landed in
+  the source tree as 0.1.0 after the 1.3.4 cut and the internal registry already
+  carries that record; 0.1.1 is the same mod with its author named in the
+  manifest instead of an alias, which the public export refuses.
+
+### Fixed
+
+- **The manager's tab row is finished.** 1.3.4's notes described the finished
+  row, but the commit (`63242da`) landed two hours after that release was cut;
+  it ships here. The tab row is shorter, its tabs sit on the rule, the rule
+  stops under the selected tab so the tab opens onto the page instead of sitting
+  above a line, and the masthead glow fades out across the row.
+- **The registry gate on a build fleet without the forge.** The gate's clone
+  step treated "cannot clone" as a record problem, so the first CR against the
+  registry package failed on every existing link record (the fleet has no `git`
+  on one platform and no route to the forge on the other). The gate now probes
+  the environment once — `git` on PATH, the forge hostname from
+  `repoUrlPattern` resolving — and when it provably cannot clone it records
+  that as a note and steps 1–5 are the verdict; a clone that runs and disagrees
+  with a record is still a failure. The templates say where step 6 is verified
+  instead: the contributor's own gate run, and every client at install.
+
 ## 1.3.4 — 2026-09-27
 
 A patch on 1.3.3 from installing mods through the FloofyCrew App on a live
