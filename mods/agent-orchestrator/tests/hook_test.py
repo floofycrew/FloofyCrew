@@ -303,3 +303,42 @@ def test_graph_route_rebuilds_a_run_from_disk_when_its_sessions_are_gone(hook):
     # the slots snapshot comes back (tabs still open): live again, no disk marker
     tap(object(), {"_type": "slots", "_slots_list": _slots(2)})
     assert "from_disk" not in graph(types.SimpleNamespace(query={"run": ["dashboard:orch"]}))
+
+
+def test_kas_identity_bridge_gives_only_our_bus_server_the_session_key(hook):
+    """KAS withholds env for every non-managed server; the bridge puts the host's own session key on OUR bus server."""
+    activate(hook)
+    assert hook.ctx.state["kas_identity_bridge"] is True
+    after = hook.ctx.hooks.find("after", "kiro_crew.acp.kas_agents:_project_mcp_servers")
+    ours = str(ROOT / "mcp" / "server.py")
+    projected = {
+        "agent-orchestrator-bus": {"command": sys.executable, "args": [ours, "--socket", "/tmp/x.sock"]},  # env withheld by the host
+        "kirocrew-work": {"command": "/opt/kc/bin/kirocrew", "args": ["mcp-work"], "env": {"KIROCREW_SESSION_KEY": "dashboard:w0"}},
+        "some-other-server": {"command": "npx", "args": ["foo"]},
+    }
+    out = after(projected, {"name": "agent-orchestrator-worker"}, "agent-orchestrator-worker", frozenset(), "dashboard:w0")
+    assert out["agent-orchestrator-bus"]["env"] == {"KIROCREW_SESSION_KEY": "dashboard:w0"}
+    assert "env" not in out["some-other-server"]  # a third-party server stays as the host left it
+    assert out["kirocrew-work"]["env"] == {"KIROCREW_SESSION_KEY": "dashboard:w0"}
+    # the key as a keyword, the way a future host might pass it
+    out = after({"agent-orchestrator-bus": {"command": sys.executable, "args": [ours, "--socket", "/tmp/x.sock"]}},
+                {"name": "x"}, "x", frozenset(), session_key="dashboard:w1")
+    assert out["agent-orchestrator-bus"]["env"]["KIROCREW_SESSION_KEY"] == "dashboard:w1"
+    # no session key (a host without the parameter): nothing is invented
+    out = after({"agent-orchestrator-bus": {"command": sys.executable, "args": [ours]}}, {"name": "x"}, "x", frozenset())
+    assert "env" not in out["agent-orchestrator-bus"]
+    # a server merely wearing our name (different argv) is not vouched for
+    out = after({"agent-orchestrator-bus": {"command": "python", "args": ["/elsewhere/server.py"]}}, {"name": "x"}, "x", frozenset(), "dashboard:w0")
+    assert "env" not in out["agent-orchestrator-bus"]
+
+
+def test_activate_tolerates_a_host_without_the_kas_seam(hook):
+    def failing_after(target, fn, _orig=hook.ctx.hooks.after):
+        if target.startswith("kiro_crew.acp.kas_agents:"):
+            raise LookupError("no such attribute on this host")
+        return _orig(target, fn)
+
+    hook.ctx.hooks.after = failing_after
+    activate(hook)
+    assert hook.ctx.state["active"] is True and hook.ctx.state["kas_identity_bridge"] is False
+    assert any("KAS identity bridge unavailable" in line for _, line in hook.ctx.log.lines)

@@ -92,6 +92,15 @@ KiroCrew; it never ships a rebuilt host.
   empty; disk-only runs no longer count the orchestrator as a worker in the
   picker. The page probe now runs end to end through the real `createModApi`
   and the real Loader route dispatch — the stub that hid the bug is gone.
+  Also 0.2.1: **the bus now has an identity on the KAS backend.** The host
+  projects a spec's `mcpServers` onto the KAS wire and withholds `env` for
+  every server it does not own, so `KIROCREW_SESSION_KEY` never reached the
+  bus server there and every bus call in the demo run failed
+  `caller_unidentified` (the agents fell back to the ledger and finished
+  anyway). An after-hook on `kas_agents._project_mcp_servers` now puts the
+  same session key the host gives its managed servers onto the mod's own bus
+  server — recognised by its argv, nothing else touched; hosts without the
+  seam log a warning and keep working on kiro-cli.
 
 ### Fixed
 

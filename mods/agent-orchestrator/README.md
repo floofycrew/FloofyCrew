@@ -57,6 +57,14 @@ to draw the whole conversation.
 Bus identity is the `KIROCREW_SESSION_KEY` the host sets in every kiro-cli
 child it spawns for a dashboard tab — the same value the host's first-party
 `kirocrew-work` server trusts. A `spawn_run` subagent has none and is refused.
+On the **KAS backend** the host projects a spec's `mcpServers` onto the wire and
+withholds `env` for every server it does not own, so the key never reaches the
+bus there; the hook bridges that with an after-hook on
+`kas_agents._project_mcp_servers` that puts the same session key the host gives
+its managed servers onto the mod's own bus server (recognised by its argv, not
+its name) and nothing else. Without the seam (`ctx.state.kas_identity_bridge`
+false) KAS sessions get `caller_unidentified` and the agents fall back to the
+ledger; kiro-cli sessions are unaffected.
 A member may address only members of its own run (depth 1, derived from
 `slots[].created_by`); a worker addresses only the orchestrator unless
 `peer_messaging` is on; only the orchestrator may broadcast or `bus_wait`.

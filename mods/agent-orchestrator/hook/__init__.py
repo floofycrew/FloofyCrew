@@ -168,6 +168,40 @@ async def _after_work_report(result, request, *args, **kwargs):
     return result
 
 
+# --- KAS identity bridge -----------------------------------------------------------------------------------
+
+KAS_PROJECT_TARGET = "kiro_crew.acp.kas_agents:_project_mcp_servers"
+BUS_SERVER = "agent-orchestrator-bus"
+
+
+def _after_kas_project_mcp_servers(result, spec=None, agent_id="", stub_server_names=None, session_key="", *args, **kwargs):
+    """Give OUR bus server, and only it, the session identity the host gives its own servers on KAS.
+
+    On the kiro-cli backend the MCP children inherit the process environment, which carries
+    ``KIROCREW_SESSION_KEY`` — the bus identifies its caller from it. On the KAS backend the host
+    projects a spec's ``mcpServers`` onto the wire (``kas_agents._project_mcp_servers``), withholds
+    ``env`` for every server it does not own ("env routinely holds tokens") and injects
+    ``KIROCREW_SESSION_KEY`` into its managed servers alone — so without this hook every bus call on
+    KAS fails ``caller_unidentified`` and the run falls back to the ledger (seen on the test box).
+    The entry is recognised by its argv (the mod's own ``mcp/server.py``), never by name alone.
+    """
+    key = str(session_key or kwargs.get("session_key") or "")
+    if not key or not isinstance(result, dict):
+        return result
+    entry = result.get(BUS_SERVER)
+    if not isinstance(entry, dict):
+        return result
+    ours = str(Path(_ctx.mod_dir) / "mcp" / "server.py") if _ctx is not None else ""
+    if not ours or ours not in [str(a) for a in (entry.get("args") or [])]:
+        return result  # a different server wearing our name is not ours to vouch for
+    env = entry.get("env")
+    if not isinstance(env, dict):
+        env = {}
+        entry["env"] = env
+    env["KIROCREW_SESSION_KEY"] = key
+    return result
+
+
 async def _replace_session_create(call_next, request, *args, **kwargs):
     """Refuse a create by one of OUR orchestrators that would exceed ``max_workers``; everyone else passes."""
     cfg = _cfg()
@@ -441,6 +475,13 @@ def activate(ctx):
     ctx.hooks.after("route:POST /api/session-control/send", _after_session_send)
     ctx.hooks.after("route:POST /api/work-ledger/report", _after_work_report)
     ctx.hooks.replace("route:POST /api/session-control/create", _replace_session_create)
+    try:
+        ctx.hooks.after(KAS_PROJECT_TARGET, _after_kas_project_mcp_servers)
+        ctx.state["kas_identity_bridge"] = True
+    except Exception as exc:  # noqa: BLE001 - a host without the seam: the bus still works on the kiro-cli backend
+        ctx.state["kas_identity_bridge"] = False
+        ctx.log.warning("KAS identity bridge unavailable on host %s (%s): bus calls from KAS sessions will be "
+                        "caller_unidentified; the kiro-cli backend is unaffected", ctx.host.version, exc)
 
     ctx.routes.add("GET", "runs", _route_runs)
     ctx.routes.add("GET", "graph", _route_graph)

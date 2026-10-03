@@ -56,7 +56,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "0fdd29d8601453ddb695689aae42030a79d7439bcab7ce7a6904c021a1ebbd5e"
+      "sha256": "638c2628d46bc3a08a517aa278961da50cc4aa1eaa36e173fc54ea74cbf4db92"
     },
     {
       "path": "agents/agent-orchestrator-worker.json.tmpl",
@@ -84,11 +84,11 @@
     },
     {
       "path": "demo/seam-check.sh",
-      "sha256": "412e3a60e4d17202553a2de53f486fbdb9eabd0868857357ef7882dcf692f378"
+      "sha256": "238b6b1ab1e92983825c3f53c0453f1953b330840cd95f547d371b6d76ea3880"
     },
     {
       "path": "hook/__init__.py",
-      "sha256": "ba44d15c2f88ee9a5be0dde08becd4b686de08cd66103f3c16ae52a495ba5504"
+      "sha256": "a82000751e7b7caae6a6c0fc08b625e5718440a9d0ee373716fd2c7c5868ee4d"
     },
     {
       "path": "hook/bus.py",
@@ -100,7 +100,7 @@
     },
     {
       "path": "hook/rpc.py",
-      "sha256": "1b51835f14d476458291bca5f733e83df926876b3af5152042ea2f4808703034"
+      "sha256": "471640e72909f843f4ebd6461eeb4dd4356174bc01a2f4d5900d53e9cc130b24"
     },
     {
       "path": "mcp/server.py",
@@ -116,7 +116,7 @@
     },
     {
       "path": "tests/hook_test.py",
-      "sha256": "52ab38a7513699a917d921dfa3a940c1c30f8cde5cf9c3f27ec2b2ddc72e0d1c"
+      "sha256": "860cbfc04737e3f9f6f2e75eb753b56eb777ff20a8632027a525543c4f9cd9cc"
     },
     {
       "path": "tests/mcp_server_test.py",

@@ -101,8 +101,10 @@ class BusService:
     def identify(self, identity: str) -> tuple[str, str, str]:
         if not identity:
             raise B.BusError(
-                "no session identity: the bus needs a full session (KIROCREW_SESSION_KEY). A spawn_run subagent has "
-                "none of its own — report to your parent instead.",
+                "no session identity reached the bus: either this is a spawn_run subagent (it has no session of its "
+                "own — report to your parent instead) or this host did not pass KIROCREW_SESSION_KEY to the bus server "
+                "(KAS backend without the mod's identity bridge). Do not retry; coordinate through the work ledger and "
+                "session_send for this run.",
                 code="caller_unidentified",
             )
         run, nick, role = self.graph.member_of(identity)

@@ -23,6 +23,8 @@ check "route session-control/create"           dashboard/session_control.py  'se
 check "route session-control/send"             dashboard/session_control.py  'session-control/send'
 check "route work-ledger/report"               mcp_work.py                   'work-ledger/report'
 check "KIROCREW_SESSION_KEY in acp client"     acp/client.py                 'KIROCREW_SESSION_KEY'
+check "KAS: kas_agents._project_mcp_servers"   acp/kas_agents.py             'def _project_mcp_servers\('
+check "KAS: projection takes session_key"      acp/kas_agents.py             'KIROCREW_SESSION_KEY.*= session_key'
 check "slot projection: created_by"            dashboard/slot_projection.py  'created_by'
 check "slot projection: needs_input"           dashboard/slot_projection.py  'needs_input'
 check "create_session inherits _trust posture" dashboard/session_control.py  '_trust'
