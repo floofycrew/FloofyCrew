@@ -14,6 +14,7 @@
 import React from "react";
 
 import { RestartButton, UpdateAndRestartButton } from "../actions.mjs";
+import { BusyButton, Spinner } from "../busy.mjs";
 import { Switch } from "../modicon.mjs";
 import { commandNote, styles } from "../palette.mjs";
 import { ModPage, ModPagesList } from "./modpage.mjs";
@@ -79,7 +80,7 @@ export function InstallForm({ manager }) {
     React.createElement("input", { style: { ...styles.input, minWidth: "26rem" }, value: source, onChange: (e) => setSource(e.target.value), placeholder: "registry id[@version], a git repository URL (ssh://… or https://…, optional @tag), https://…/mod.zip or a local path", "data-testid": "floofycrew-install-source", "aria-label": "mod source" }),
     React.createElement("label", { style: styles.muted }, React.createElement("input", { type: "checkbox", checked: now, onChange: (e) => setNow(e.target.checked), "data-testid": "floofycrew-install-now" }), " apply now (default: staged for the next gateway start)"),
     React.createElement("label", { style: styles.muted }, React.createElement("input", { type: "checkbox", checked: disabled, onChange: (e) => setDisabled(e.target.checked), "data-testid": "floofycrew-install-disabled" }), " install switched off (enable it later)"),
-    React.createElement("button", { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: manager.busy || !source.trim(), "data-testid": "floofycrew-install-submit" }, "Install"),
+    React.createElement(BusyButton, { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: manager.busy || !source.trim(), running: manager.running("/mods/install"), label: "Install", busyLabel: "Installing…", testid: "floofycrew-install-submit" }),
   );
 }
 
@@ -101,15 +102,17 @@ function PartsCell({ row }) {
 }
 
 /** One row of the Installed mods table: switch | name | id | compat · tier | actions | parts. */
-function ModRow({ row, update, busy, act, navigate, mod }) {
+function ModRow({ row, update, busy, act, navigate, mod, running }) {
   const inactiveReason = row.enabled && !row.active ? row.reason || "inactive" : null; // enabled but not running: the switch alone would hide it
+  const switching = running(`${mod(row.id)}/enable`) || running(`${mod(row.id)}/disable`);
   return React.createElement(
     "div",
     { style: styles.modRow, "data-testid": `floofycrew-mod-row-${row.id}` },
     React.createElement(
       "div",
-      { style: { display: "flex", alignItems: "center" } },
+      { style: { display: "flex", alignItems: "center", gap: "0.35rem" } },
       React.createElement(Switch, { checked: Boolean(row.enabled), disabled: busy, label: `${row.enabled ? "Disable" : "Enable"} ${row.name || row.id}`, testid: `floofycrew-toggle-${row.id}`, onChange: (on) => act(`${mod(row.id)}/${on ? "enable" : "disable"}`) }),
+      switching ? React.createElement(Spinner, { size: 14, label: row.enabled ? "disabling" : "enabling" }) : null,
       // the state in words for screen readers and tests; the switch's position says the same thing visually
       React.createElement("span", { style: styles.srOnly, "data-testid": `floofycrew-enabled-${row.id}` }, row.enabled ? "enabled" : "disabled", row.link ? " · dev link" : ""),
     ),
@@ -130,18 +133,18 @@ function ModRow({ row, update, busy, act, navigate, mod }) {
     React.createElement(
       "div",
       { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0 0.1rem" } },
-      update && update.update ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, title: `${update.candidate} available${update.verdict ? ` (${update.verdict} here)` : ""}`, "data-testid": `floofycrew-update-button-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, {}) }, `Update to ${update.candidate}`) : null,
-      update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-update-now-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, { now: true }) }, "Update now") : null,
+      update && update.update ? React.createElement(BusyButton, { style: { ...styles.button, ...styles.primary }, disabled: busy, running: running(`${mod(row.id)}/update`, { now: undefined }), title: `${update.candidate} available${update.verdict ? ` (${update.verdict} here)` : ""}`, testid: `floofycrew-update-button-${row.id}`, label: `Update to ${update.candidate}`, busyLabel: "Updating…", onClick: () => act(`${mod(row.id)}/update`, {}) }) : null,
+      update && update.update ? React.createElement(BusyButton, { style: styles.button, disabled: busy, running: running(`${mod(row.id)}/update`, { now: true }), testid: `floofycrew-update-now-${row.id}`, label: "Update now", busyLabel: "Updating…", onClick: () => act(`${mod(row.id)}/update`, { now: true }) }) : null,
       update && update.update && update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: { ...styles.accent, fontSize: "0.8rem", marginRight: "0.35rem" }, "data-testid": `floofycrew-changelog-${row.id}` }, "release notes") : null,
       navigate ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => navigate("registry", row.id) }, "Registry entry") : null,
-      React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(`${mod(row.id)}/uninstall`, { now: true }) }, "Uninstall"),
+      React.createElement(BusyButton, { style: { ...styles.button, ...styles.danger }, disabled: busy, running: running(`${mod(row.id)}/uninstall`), testid: `floofycrew-uninstall-${row.id}`, label: "Uninstall", busyLabel: "Uninstalling…", onClick: () => act(`${mod(row.id)}/uninstall`, { now: true }) }),
     ),
     React.createElement(PartsCell, { row }),
   );
 }
 
 export function ModsPage({ manager, navigate, openConsent, rest }) {
-  const { state, rows, statusMeta, registry, busy, act, applyNow } = manager;
+  const { state, rows, statusMeta, registry, busy, act, applyNow, running } = manager;
   if (rest) return React.createElement(ModPage, { manager, modId: rest, navigate });
   const host = (state && state.host) || {};
   const selfUpdate = (state && state.selfUpdate) || null; // Requirement 7.7: the CLI's cached daily check, re-graded by the Loader
@@ -184,7 +187,7 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
             "div",
             { style: { ...styles.warn, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.4rem 0.6rem", marginTop: "0.4rem" }, "data-testid": "floofycrew-pending" },
             React.createElement("span", null, `Staged (applied at the next gateway start): ${pending.join(", ")}`),
-            React.createElement("button", { style: { ...styles.button, marginBottom: 0 }, onClick: applyNow, disabled: busy, "data-testid": "floofycrew-apply-now" }, "Apply now (reload the Loader)"),
+            React.createElement(BusyButton, { style: { ...styles.button, marginBottom: 0 }, onClick: applyNow, disabled: busy, running: running("/reload"), label: "Apply now (reload the Loader)", busyLabel: "Reloading the Loader…", testid: "floofycrew-apply-now" }),
             React.createElement(RestartButton, { manager, testid: "floofycrew-restart-pending" }),
           )
         : null,
@@ -225,7 +228,7 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
             React.createElement("span", null, "Parts (seam)"),
           )
         : null,
-      rows.map((row) => React.createElement(ModRow, { key: row.id, row, update: updates[row.id], busy, act, navigate, mod })),
+      rows.map((row) => React.createElement(ModRow, { key: row.id, row, update: updates[row.id], busy, act, navigate, mod, running })),
     ),
     Object.keys(quarantine).filter((key) => key !== "requests").length
       ? React.createElement(
@@ -234,7 +237,7 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
           React.createElement("strong", null, "Quarantine (parked automatically when a host update broke compatibility)"),
           Object.entries(quarantine)
             .filter(([key]) => key !== "requests")
-            .map(([version, mods]) => React.createElement("div", { key: version }, React.createElement("code", null, version), `: ${(mods || []).join(", ") || "-"} `, React.createElement("button", { style: styles.button, disabled: busy, onClick: () => act("/restore", { version }) }, "Restore set"))),
+            .map(([version, mods]) => React.createElement("div", { key: version }, React.createElement("code", null, version), `: ${(mods || []).join(", ") || "-"} `, React.createElement(BusyButton, { style: styles.button, disabled: busy, running: running("/restore", { version }), label: "Restore set", busyLabel: "Restoring…", onClick: () => act("/restore", { version }) }))),
           commandNote(React, "Parking a mod by hand is a terminal capability:", "floofy yeet <id>"),
         )
       : null,

@@ -11,6 +11,7 @@ import React from "react";
 
 import { UpdateAndRestartButton } from "../actions.mjs";
 import { apiFetch } from "../api.mjs";
+import { BusyButton, Spinner } from "../busy.mjs";
 import { commandNote, styles } from "../palette.mjs";
 
 const TRUST_LEVELS = ["index", "owner"];
@@ -56,7 +57,7 @@ function FeedbackButton({ label, busyLabel, run, verdictOf, disabled, style, tes
   return React.createElement(
     React.Fragment,
     null,
-    React.createElement("button", { style: style || styles.button, disabled: disabled || running, "data-testid": testid, onClick: click }, running ? busyLabel : label),
+    React.createElement("button", { style: style || styles.button, disabled: disabled || running, "aria-busy": running ? "true" : undefined, "data-testid": testid, onClick: click }, running ? React.createElement("span", { style: styles.busyLabel }, React.createElement(Spinner), busyLabel) : label),
     running ? React.createElement("span", { style: styles.muted, "data-testid": testid ? `${testid}-busy` : undefined }, "working…") : null,
     verdict ? React.createElement("span", { style: styles[verdict.tone] || styles.muted, "data-testid": testid ? `${testid}-result` : undefined, title: verdict.text }, verdict.text) : null,
   );
@@ -190,8 +191,8 @@ export function SearchHit({ hit, manager }) {
     React.createElement(
       "div",
       { style: { marginTop: "0.3rem" } },
-      React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: manager.busy || !hit.worksHere, "data-testid": `floofycrew-hit-install-${hit.key}`, onClick: () => manager.act("/mods/install", { source: hit.key }) }, hit.installed ? "Reinstall (staged)" : "Install (staged)"),
-      React.createElement("button", { style: styles.button, disabled: manager.busy || !hit.worksHere, onClick: () => manager.act("/mods/install", { source: hit.key, now: true }) }, "Install now"),
+      React.createElement(BusyButton, { style: { ...styles.button, ...styles.primary }, disabled: manager.busy || !hit.worksHere, running: manager.running("/mods/install", { source: hit.key, now: undefined }), testid: `floofycrew-hit-install-${hit.key}`, label: hit.installed ? "Reinstall (staged)" : "Install (staged)", busyLabel: "Installing…", onClick: () => manager.act("/mods/install", { source: hit.key }) }),
+      React.createElement(BusyButton, { style: styles.button, disabled: manager.busy || !hit.worksHere, running: manager.running("/mods/install", { source: hit.key, now: true }), label: "Install now", busyLabel: "Installing…", onClick: () => manager.act("/mods/install", { source: hit.key, now: true }) }),
     ),
   );
 }
@@ -243,7 +244,7 @@ export function RegistryPage({ manager, rest }) {
               React.createElement("strong", null, id),
               ` ${update.installed} → ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : " (untested here)"} `,
               update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: styles.accent, "data-testid": `floofycrew-update-changelog-${id}` }, "release notes") : null,
-              React.createElement("div", { style: { marginTop: "0.2rem" } }, React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, {}) }, "Update (staged)"), React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, { now: true }) }, "Update now")),
+              React.createElement("div", { style: { marginTop: "0.2rem" } }, React.createElement(BusyButton, { style: { ...styles.button, ...styles.primary }, disabled: busy, running: manager.running(`/mods/${encodeURIComponent(id)}/update`, { now: undefined }), label: "Update (staged)", busyLabel: "Updating…", onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, {}) }), React.createElement(BusyButton, { style: styles.button, disabled: busy, running: manager.running(`/mods/${encodeURIComponent(id)}/update`, { now: true }), label: "Update now", busyLabel: "Updating…", onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, { now: true }) })),
             ),
           ),
       React.createElement(
@@ -266,13 +267,13 @@ export function RegistryPage({ manager, rest }) {
               }
             },
           },
-          checking ? "Checking…" : "Check for updates",
+          checking ? React.createElement("span", { style: styles.busyLabel }, React.createElement(Spinner), "Checking…") : "Check for updates",
         ),
         checking ? React.createElement("span", { style: styles.muted, "data-testid": "floofycrew-update-check-busy" }, "asking every source…") : null,
         // `updates` re-renders from the refresh act() ran, so the count below is the post-check truth
         checked ? React.createElement("span", { style: checked.ok ? (updates.length ? styles.ok : styles.muted) : styles.danger, "data-testid": "floofycrew-update-check-result" }, checked.ok ? (updates.length ? `checked — ${updates.length} update(s) available above` : "checked — everything is at the newest version known to work here") : `check failed: ${checked.error}`) : null,
-        updates.length ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": "floofycrew-update-all", onClick: () => manager.act("/mods/update-all", {}) }, `Update all ${updates.length} (staged)`) : null,
-        updates.length ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act("/mods/update-all", { now: true }) }, "Update all now") : null,
+        updates.length ? React.createElement(BusyButton, { style: { ...styles.button, ...styles.primary }, disabled: busy, running: manager.running("/mods/update-all", { now: undefined }), testid: "floofycrew-update-all", label: `Update all ${updates.length} (staged)`, busyLabel: "Updating every mod…", onClick: () => manager.act("/mods/update-all", {}) }) : null,
+        updates.length ? React.createElement(BusyButton, { style: styles.button, disabled: busy, running: manager.running("/mods/update-all", { now: true }), label: "Update all now", busyLabel: "Updating every mod…", onClick: () => manager.act("/mods/update-all", { now: true }) }) : null,
       ),
       commandNote(React, "The same at a terminal:", "floofy update [--all] [--check] [--now]"),
     ),
@@ -314,7 +315,7 @@ export function RegistryPage({ manager, rest }) {
         "form",
         { onSubmit: async (e) => { e.preventDefault(); if (reference.trim()) { const r = await manager.act("/mods/install", { source: reference.trim() }); if (r && r.ok) setReference(""); } }, style: { display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.4rem" } },
         React.createElement("input", { style: { ...styles.input, minWidth: "28rem" }, value: reference, onChange: (e) => setReference(e.target.value), placeholder: "ssh://… or https://… (@tag optional — default branch without it)", "aria-label": "git reference", "data-testid": "floofycrew-reference-input" }),
-        React.createElement("button", { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: busy || !reference.trim(), "data-testid": "floofycrew-reference-submit" }, "Install (staged)"),
+        React.createElement(BusyButton, { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: busy || !reference.trim(), running: manager.running("/mods/install", { source: reference.trim() }), testid: "floofycrew-reference-submit", label: "Install (staged)", busyLabel: "Installing…" }),
       ),
     ),
   );

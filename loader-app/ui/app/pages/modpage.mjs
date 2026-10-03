@@ -15,7 +15,7 @@ import React from "react";
 
 import { ensureStarted } from "../../host.mjs";
 import { API } from "../api.mjs";
-import { GearIcon, ModIcon } from "../modicon.mjs";
+import { ModIcon } from "../modicon.mjs";
 import { commandNote, styles } from "../palette.mjs";
 
 /** The mods of the Loader state that declare a `ui` part, with the part's entry/title/icon. */
@@ -145,8 +145,9 @@ export function ModPage({ manager, modId, navigate }) {
 }
 
 /**
- * The "Mod pages" list of the Mods page: one compact row per mod with a ui part — icon | mod name | mod id | gear.
- * The gear opens the page (`#/mods/<id>`); it is disabled, with the reason as its tooltip, while the mod is not active.
+ * The "Mod pages" list of the Mods page: one compact row per mod with a ui part — [icon + mod name] | mod id.
+ * The NAME is the link (`#/mods/<id>`): click it to open the page. While the mod is not active the name is dimmed and
+ * not a link, with the reason beside it — its page is not served.
  * The icon is the ui part's own (served while active), else the mod's manifest icon through the Loader, else the glyph.
  */
 export function ModPagesList({ manager, navigate }) {
@@ -157,27 +158,35 @@ export function ModPagesList({ manager, navigate }) {
     "div",
     { style: styles.card, "data-testid": "floofycrew-mod-pages" },
     React.createElement("h2", { style: styles.cardTitle }, "Mod pages"),
-    React.createElement("div", { style: { ...styles.muted, marginBottom: "0.4rem" } }, "Mods that ship their own settings page; a page is served only while its mod is active and runs inside an error boundary."),
+    React.createElement("div", { style: { ...styles.muted, marginBottom: "0.4rem" } }, "Mods that ship their own settings page — click a name to open it. A page is served only while its mod is active and runs inside an error boundary."),
     pages.map((page) => {
       const row = rows.get(page.id);
       const title = page.title && page.title !== page.name ? page.title : null;
+      const face = React.createElement(ModIcon, { id: page.id, hasIcon: Boolean(row && row.icon), src: page.active && page.icon ? entryUrl(page.id, page.icon) : null });
+      const href = `#/mods/${encodeURIComponent(page.id)}`;
       return React.createElement(
         "div",
         { key: page.id, style: styles.pageRow, "data-testid": `floofycrew-mod-page-${page.id}` },
-        React.createElement(ModIcon, { id: page.id, hasIcon: Boolean(row && row.icon), src: page.active && page.icon ? entryUrl(page.id, page.icon) : null }),
         React.createElement(
           "div",
-          { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: title ? `${page.name} — ${title}` : page.name },
-          React.createElement("strong", null, page.name),
-          title ? React.createElement("span", { style: { ...styles.muted, marginLeft: "0.5rem" } }, title) : null,
-          page.active ? null : React.createElement("span", { style: { ...styles.badge, ...styles.warn, marginLeft: "0.5rem" } }, page.reason || (page.enabled ? "inactive" : "disabled")),
+          { style: styles.pageCell },
+          page.active
+            ? React.createElement(
+                "a",
+                { href, style: styles.pageLink, title: `Open ${page.title}`, "data-testid": `floofycrew-open-page-${page.id}`, onClick: (event) => { event.preventDefault(); navigate("mods", page.id); } },
+                face,
+                React.createElement("strong", { style: styles.pageLinkName }, page.name),
+              )
+            : React.createElement(
+                "span",
+                { style: styles.pageInactive, title: `${page.id} is ${page.reason || "not active"}; its page is not served`, "aria-disabled": "true", "data-testid": `floofycrew-page-inactive-${page.id}` },
+                face,
+                React.createElement("strong", null, page.name),
+              ),
+          title ? React.createElement("span", { style: styles.muted, title: `${page.name} — ${title}` }, title) : null,
+          page.active ? null : React.createElement("span", { style: { ...styles.badge, ...styles.warn } }, page.reason || (page.enabled ? "inactive" : "disabled")),
         ),
-        React.createElement("code", { style: styles.modId, title: `${page.id} ${page.version}` }, page.id),
-        React.createElement(
-          "button",
-          { type: "button", style: { ...styles.iconButton, ...(page.active ? styles.primary : { opacity: 0.45, cursor: "not-allowed" }) }, disabled: !page.active, "aria-label": `Open ${page.title}`, title: page.active ? `Open ${page.title}` : `${page.id} is ${page.reason || "not active"}; its page is not served`, "data-testid": `floofycrew-open-page-${page.id}`, onClick: () => navigate("mods", page.id) },
-          React.createElement(GearIcon),
-        ),
+        React.createElement("code", { style: { ...styles.modId, overflowWrap: "anywhere" }, title: `${page.id} ${page.version}` }, page.id),
       );
     }),
   );

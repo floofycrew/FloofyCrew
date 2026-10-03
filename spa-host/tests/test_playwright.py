@@ -522,9 +522,29 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         rows_before = len(_audit_rows(harness))
 
         # --- a governance-altering install: the disclosure, the flags question, then the typed path (staged by default) ---
+        # the waits are visible: record every phase the activity line shows and every aria-busy the Install button takes
+        page.evaluate(
+            """() => {
+              window.__phases = []; window.__installBusy = [];
+              const note = () => {
+                const line = document.querySelector('[data-testid="floofycrew-activity"]');
+                const phase = line ? line.dataset.phase : null;
+                if (window.__phases[window.__phases.length - 1] !== phase) window.__phases.push(phase);
+                const busy = document.querySelector('[data-testid="floofycrew-install-submit"]')?.getAttribute('aria-busy') || null;
+                if (window.__installBusy[window.__installBusy.length - 1] !== busy) window.__installBusy.push(busy);
+              };
+              new MutationObserver(note).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-busy', 'data-phase'] });
+              note();
+            }"""
+        )
         page.fill('[data-testid="floofycrew-install-source"]', str(govy))
         page.click('[data-testid="floofycrew-install-submit"]')
         page.wait_for_selector('[data-testid="floofycrew-yesno-modal"]', timeout=60000)
+        assert page.locator('[data-testid="floofycrew-activity"]').count() == 0, "a question on screen is the user's turn: no spinner line behind the modal"
+        phases = page.evaluate("() => window.__phases")
+        assert "asking" in phases, f"the wait BEFORE the confirmation modal was shown as a phase: {phases}"
+        assert page.evaluate("() => window.__installBusy") == [None, "true"], "the Install button started spinning when clicked and is still busy while the question is open"
+        assert page.locator('[data-testid="floofycrew-install-submit"] [data-testid="floofycrew-spinner"]').count() == 1 and "Installing…" in page.inner_text('[data-testid="floofycrew-install-submit"]'), "while the act is in flight the button reads Installing… with a spinner"
         disclosure = page.inner_text('[data-testid="floofycrew-disclosure"]')
         assert "govy 1.0.0" in disclosure and "agent/gateway" in disclosure and "GOVERNANCE-ALTERING" in disclosure and "security_policy.json" in disclosure, disclosure
         assert "no remote hosts declared" in page.inner_text('[data-testid="floofycrew-disclosure-network"]')
@@ -536,11 +556,16 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         page.wait_for_selector('[data-testid="floofycrew-modal"]', state="detached", timeout=30000)
         assert "not confirmed (yes-no); nothing was changed" in page.inner_text('[data-testid="floofycrew-output"]')
         assert len(_audit_rows(harness)) == rows_before and not (data_home / "pending" / "govy").exists()
+        page.wait_for_selector('[data-testid="floofycrew-activity"]', state="detached", timeout=30000)
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-install-submit\"]')?.getAttribute('aria-busy') === null", timeout=30000)
+        assert page.locator('[data-testid="floofycrew-spinner"]').count() == 0, "declined: nothing is spinning any more"
+        page.evaluate("() => { window.__phases = []; }")
         # again: Yes, then the typed field — the submit stays disabled until the exact path is typed
         page.click('[data-testid="floofycrew-install-submit"]')
         page.wait_for_selector('[data-testid="floofycrew-yesno-yes"]', timeout=60000)
         page.click('[data-testid="floofycrew-yesno-yes"]')
         page.wait_for_selector('[data-testid="floofycrew-typed-modal"]', timeout=60000)
+        assert page.locator('[data-testid="floofycrew-activity"]').count() == 0, "the second question is on screen: still the user's turn"
         assert "Type the exact path" in page.inner_text('[data-testid="floofycrew-typed-prompt"]')
         assert page.is_disabled('[data-testid="floofycrew-typed-submit"]')
         page.fill('[data-testid="floofycrew-typed-0"]', "security_policy")
@@ -550,6 +575,10 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         page.fill('[data-testid="floofycrew-typed-0"]', "security_policy.json")
         page.click('[data-testid="floofycrew-typed-submit"]')
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-pending\"]')?.textContent.includes('govy')", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-activity"]', state="detached", timeout=30000)
+        phases = page.evaluate("() => window.__phases")
+        assert "running" in phases and phases[-1] is None, f"after the answer the install itself was shown as running, then the line went away: {phases}"
+        assert page.locator('[data-testid="floofycrew-spinner"]').count() == 0 and page.get_attribute('[data-testid="floofycrew-install-submit"]', "aria-busy") is None, "done: nothing spins"
         assert (data_home / "pending" / "govy").is_dir() and not (data_home / "mods" / "govy").exists(), "staged into pending/ (Requirement 7.6)"
         rows = _audit_rows(harness)[rows_before:]
         assert [r["op"] for r in rows] == ["governance-target-confirm", "agent-install", "install"], rows
@@ -717,10 +746,12 @@ def test_5c_mod_pages_are_isolated(harness: Harness):
         page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
         page.wait_for_selector('[data-testid="floofycrew-mod-pages"]', timeout=60000)
         listing = page.inner_text('[data-testid="floofycrew-mod-pages"]')
-        assert "Healthy settings" in listing and "Broken page" in listing and "ui-healthy" in listing and "ui-broken" in listing, f"icon | mod name | mod id | gear: {listing!r}"
-        assert "Open " not in listing, f"the page opens from the gear icon, not an 'Open …' button: {listing!r}"
-        assert page.get_attribute('[data-testid="floofycrew-open-page-ui-healthy"]', "aria-label") == "Open Healthy settings", "the gear is labelled for screen readers"
-        assert page.locator('[data-testid="floofycrew-open-page-ui-healthy"] svg').count() == 1, "the gear is an inline glyph"
+        assert "Healthy settings" in listing and "Broken page" in listing and "ui-healthy" in listing and "ui-broken" in listing, f"[icon + mod name] | mod id: {listing!r}"
+        assert "Open " not in listing, f"the page opens from the mod's NAME, not an 'Open …' button: {listing!r}"
+        opener = page.locator('[data-testid="floofycrew-open-page-ui-healthy"]')
+        assert opener.evaluate("el => el.tagName") == "A" and opener.get_attribute("href") == "#/mods/ui-healthy", "the name is a link to the page"
+        assert opener.get_attribute("title") == "Open Healthy settings" and "ui-healthy" in opener.inner_text(), "the link is the mod's name, titled for what it opens"
+        assert page.locator('[data-testid="floofycrew-open-page-ui-healthy"] svg').count() == 0, "no gear glyph any more"
         assert page.locator('[data-testid="floofycrew-mod-icon-fallback-ui-healthy"], [data-testid="floofycrew-mod-icon-ui-healthy"]').count() == 1, "every page row has a face: the part's icon, the manifest icon, or the puzzle glyph"
         # the healthy page: mounted with floofy.mod(id); config round-trips through the Loader and reaches the mod's Python side
         page.click('[data-testid="floofycrew-open-page-ui-healthy"]')
@@ -759,7 +790,10 @@ def test_5c_mod_pages_are_isolated(harness: Harness):
         page.wait_for_selector('[data-testid="floofycrew-modpage-disable"]', timeout=60000)
         page.click('[data-testid="floofycrew-modpage-disable"]')
         page.wait_for_selector('[data-testid="floofycrew-mod-pages"]', timeout=60000)
-        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-open-page-ui-broken\"]')?.disabled === true", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-page-inactive-ui-broken"]', timeout=60000)
+        assert page.locator('[data-testid="floofycrew-open-page-ui-broken"]').count() == 0, "a disabled mod's name is no longer a link"
+        row = page.inner_text('[data-testid="floofycrew-mod-page-ui-broken"]')
+        assert "UserDisabled" in row and "ui-broken" in row, f"the row says why the page is not served: {row!r}"
         state = client.get(f"{API}/state").json()
         assert state["mods"]["ui-broken"]["active"] is False and state["mods"]["ui-broken"]["reason"] == "UserDisabled"
         assert state["mods"]["ui-healthy"]["active"] is True, "the other page's mod is unaffected"
@@ -906,7 +940,7 @@ def test_6_manager_app_smoke(harness: Harness):
         page.click('[data-testid="floofycrew-nav-mods"]')
         page.wait_for_selector('[data-testid="floofycrew-mod-row-settings-demo"]', timeout=60000)
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-settings-demo\"]')?.textContent.startsWith('enabled')", timeout=90000)
-        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-open-page-settings-demo\"]')?.disabled === false", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-open-page-settings-demo"]', timeout=60000)  # the name is a link only while the mod is active
         state = client.get(f"{API}/state").json()["mods"]["settings-demo"]
         assert state["active"] is True and state["routes"] == [{"method": "GET", "path": "echo"}, {"method": "POST", "path": "echo"}]
         page.click('[data-testid="floofycrew-open-page-settings-demo"]')

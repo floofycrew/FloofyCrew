@@ -29,7 +29,9 @@ import React from "react";
 
 import { ensureStarted } from "./host.mjs";
 import { RestartButton } from "./app/actions.mjs";
+import { isRunning } from "./app/activity.mjs";
 import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf, waitForGateway } from "./app/api.mjs";
+import { ActivityLine } from "./app/busy.mjs";
 import { ConfirmationHost, useAsker } from "./app/confirm.mjs";
 import { UNOFFICIAL, mastheadFeather, styles } from "./app/palette.mjs";
 import { AuditPage } from "./app/pages/audit.mjs";
@@ -102,6 +104,8 @@ export function useManager({ ask } = {}) {
   const [statusMeta, setStatusMeta] = React.useState(null);
   const [registry, setRegistry] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
+  // the act in flight, for the spinners (busy.mjs): {path, body, phase: asking | confirming | running | refreshing}
+  const [activity, setActivity] = React.useState(null);
   const [output, setOutput] = React.useState("");
   const [error, setError] = React.useState("");
 
@@ -126,17 +130,32 @@ export function useManager({ ask } = {}) {
     async (path, body = {}, options = {}) => {
       setBusy(true);
       setError("");
+      setActivity({ path, body, phase: "asking" });
+      // a question on screen is the user's turn, not a wait: the spinners pause for it and resume on the answer
+      const phasedAsk = ask
+        ? async (question, reply) => {
+            setActivity((current) => (current ? { ...current, phase: "confirming" } : current));
+            try {
+              return await ask(question, reply);
+            } finally {
+              setActivity((current) => (current ? { ...current, phase: "running" } : current));
+            }
+          }
+        : ask;
       let result = null;
       try {
-        result = await callRoute(path, body, { ask, ...options });
+        result = await callRoute(path, body, { ask: phasedAsk, ...options });
         setOutput(transcriptOf(result, path));
         if (!result.ok && !result.declined) setError(result.error || (result.needs ? `${result.needs.kind} confirmation needed` : `HTTP ${result.httpStatus}`));
       } catch (exc) {
         setError(String(exc));
         result = { ok: false, error: String(exc) };
       } finally {
-        setBusy(false);
+        // the view is stale until the Loader has been re-read: stay busy (and keep spinning) through the refresh
+        setActivity((current) => (current ? { ...current, phase: "refreshing" } : current));
         await refresh().catch(() => undefined);
+        setBusy(false);
+        setActivity(null);
       }
       return result;
     },
@@ -145,12 +164,15 @@ export function useManager({ ask } = {}) {
 
   const applyNow = React.useCallback(async () => {
     setBusy(true);
+    setActivity({ path: "/reload", body: {}, phase: "running" });
     try {
       const reply = await reloadLoader();
       setOutput(reply.ok ? "Loader reloaded: pending installs applied, enabled.json re-read, patches re-applied" : `reload failed (HTTP ${reply.status})`);
     } finally {
-      setBusy(false);
+      setActivity((current) => (current ? { ...current, phase: "refreshing" } : current));
       await refresh().catch(() => undefined);
+      setBusy(false);
+      setActivity(null);
     }
   }, [refresh]);
 
@@ -189,7 +211,10 @@ export function useManager({ ask } = {}) {
     return restartHost();
   }, [act, restartHost]);
 
-  return { state, rows, statusMeta, registry, busy, output, error, restarting, refresh, act, applyNow, restartHost, selfUpdateAndRestart, setOutput, setError, ask };
+  // for the button that started an act: is `path` (with these request fields) the act in flight?
+  const running = React.useCallback((path, match) => isRunning(activity, path, match), [activity]);
+
+  return { state, rows, statusMeta, registry, busy, activity, running, output, error, restarting, refresh, act, applyNow, restartHost, selfUpdateAndRestart, setOutput, setError, ask };
 }
 
 
@@ -377,6 +402,7 @@ export default function FloofyCrewApp({ ask: askOverride, initialPage } = {}) {
     manager.error ? React.createElement("div", { style: { ...styles.card, ...styles.danger }, "data-testid": "floofycrew-error" }, manager.error) : null,
     manager.output ? React.createElement("pre", { style: { ...styles.card, ...styles.mono }, "data-testid": "floofycrew-output" }, manager.output) : null,
     React.createElement(Footer, { state: manager.state }),
+    React.createElement(ActivityLine, { activity: manager.activity }),
     askOverride ? null : React.createElement(ConfirmationHost, { pending: asker.pending, answer: asker.answer }),
   );
 }

@@ -76,13 +76,21 @@ export const styles = Object.freeze({
   wordmark: { height: "2.4rem", width: "auto", display: "block" },
   // visually hidden but read by screen readers (and counted by innerText): the page still has an h1 "FloofyCrew"
   srOnly: { position: "absolute", width: "1px", height: "1px", padding: 0, margin: "-1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 },
-  // the "Mod pages" row: icon | mod name | mod id | gear (opens the page) — compact, one line (Requirement 16.4)
-  pageRow: { borderTop: border, padding: "0.35rem 0", display: "grid", gridTemplateColumns: "1.75rem minmax(10rem, 1fr) minmax(10rem, 1fr) auto", gap: "0.75rem", alignItems: "center" },
+  // the "Mod pages" row: [icon + mod name] | mod id — compact, one line; the NAME is the link that opens the page
+  // (Requirement 16.4). No separate open control: the name reads as a link (accent, underlined) and is the click target.
+  pageRow: { borderTop: border, padding: "0.35rem 0", display: "grid", gridTemplateColumns: "minmax(12rem, 1.4fr) minmax(10rem, 1fr)", gap: "0.75rem", alignItems: "center", minWidth: 0 },
+  pageCell: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.3rem 0.6rem", minWidth: 0 },
+  pageLink: { display: "inline-flex", alignItems: "center", gap: "0.6rem", color: PALETTE.accent, textDecoration: "none", cursor: "pointer", minWidth: 0 },
+  pageLinkName: { textDecoration: "underline", textDecorationColor: "rgba(255,107,139,.45)", textUnderlineOffset: "3px", overflowWrap: "anywhere" },
+  // an inactive mod's page is not served: the same cell, dimmed, no link, the reason beside it
+  pageInactive: { display: "inline-flex", alignItems: "center", gap: "0.6rem", opacity: 0.6, minWidth: 0, cursor: "not-allowed" },
   modIcon: { width: "1.75rem", height: "1.75rem", borderRadius: RADIUS, objectFit: "contain", display: "block", background: "rgba(127,127,127,.12)" },
   modIconFallback: { width: "1.75rem", height: "1.75rem", borderRadius: RADIUS, display: "grid", placeItems: "center", background: "rgba(127,127,127,.12)", fontSize: "1rem", lineHeight: 1 },
   modId: { fontFamily: "var(--mono, ui-monospace, monospace)", fontSize: "0.78rem", opacity: 0.7 },
-  // a square icon-only button (the gear): same border and radius as every other button, no text padding
-  iconButton: { width: "1.75rem", height: "1.75rem", padding: 0, margin: 0, display: "grid", placeItems: "center", borderRadius: RADIUS, border: borderStrong, background: "var(--bg-elevated, transparent)", color: "inherit", cursor: "pointer" },
+  // a button's content while its act runs: the spinner and the busy label side by side
+  busyLabel: { display: "inline-flex", alignItems: "center", gap: "0.35rem" },
+  // the activity line: one fixed box in the corner of the viewport, over the page, under the modal overlay (zIndex 1000)
+  activity: { position: "fixed", right: "1.25rem", bottom: "1.25rem", zIndex: 900, display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0.8rem", border: `1px solid ${PALETTE.accent}`, borderRadius: RADIUS, background: "var(--bg, #1a1a1f)", color: "var(--text, #eee)", boxShadow: "0 6px 24px rgba(0,0,0,.35)", fontSize: "0.85rem", maxWidth: "30rem" },
   // the "Installed mods" table: switch | name | id | compat · tier | actions | parts (Requirement 16.1)
   // every column may shrink to its minimum and its text wraps; nothing in a row is allowed to overflow the card
   modRow: { borderTop: border, padding: "0.5rem 0", display: "grid", gridTemplateColumns: "2.6rem minmax(8rem, 1.2fr) minmax(8rem, 1fr) minmax(9rem, 1fr) minmax(11rem, 1.3fr) minmax(8rem, 1.1fr)", gap: "0.75rem", alignItems: "center", minWidth: 0 },

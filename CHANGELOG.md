@@ -14,9 +14,10 @@ KiroCrew; it never ships a rebuilt host.
 ### Changed
 
 * **The Mods page, laid out as asked.** *Mod pages* is one compact line per mod
-  with its own page — icon | mod name | mod id | a gear that opens the page
-  (disabled, with the reason as its tooltip, while the mod is not active);
-  the "Open …" buttons are gone. *Installed mods* is a table — an on/off
+  with its own page — icon + mod name | mod id — and the **name is the link**
+  that opens the page (dimmed and unlinked, with the reason beside it, while the
+  mod is not active); the "Open …" buttons and the short-lived gear icon are
+  gone. *Installed mods* is a table — an on/off
   switch in the shape KiroCrew's own settings use (it reflects the enabled
   state and flips it through the enable/disable routes) | name | id · version |
   Host compat · source tier (with the warnings) | Actions (Update, release
@@ -25,6 +26,19 @@ KiroCrew; it never ships a rebuilt host.
   The per-row Settings panel of 1.3.4 is retired; an enabled mod that is not
   running shows its typed reason beside its name, so the switch alone never
   hides a fault.
+* **Every wait is visible.** Installing, updating, uninstalling, enabling,
+  reloading and restoring take seconds — the Loader runs the floofy CLI, which
+  clones a repository or reads a registry before it can even *ask* the
+  confirmation question. The button that was clicked now spins with a busy label
+  (`Installing…`, `Updating…`) until the act has finished *and* the mod list has
+  been re-read, and one fixed line in the corner of the page says what is being
+  waited for, phase by phase: *Reading … and preparing the install — the
+  confirmation opens next…* before the modal, *Installing …* after the answer,
+  then the re-read. The line hides while a question is on screen (that wait is
+  the user's). The same spinner sits in Registry's Refresh / Check for updates /
+  Install buttons, beside a switch while it flips, and in Update & restart. The
+  spinner is an SVG ring animated by SMIL — nothing is injected into the host
+  page — and stands still under `prefers-reduced-motion`.
 
 ### Mods
 

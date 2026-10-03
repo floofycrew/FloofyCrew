@@ -148,6 +148,50 @@ def test_registry_refresh_buttons_show_progress_and_a_verdict():
     assert "payload.sources" in registry, "the verdict reads the CLI's per-source records from the route document's `json`"
 
 
+def test_mod_pages_open_from_the_name_link_not_a_gear():
+    """Mod pages: [icon + mod name] | mod id — the NAME is the link that opens the page; no gear, no 'Open …' button."""
+    modpage = (UI / "app" / "pages" / "modpage.mjs").read_text(encoding="utf-8")
+    link = re.search(r'"a",\s*\{ href, style: styles\.pageLink, title: `Open \$\{page\.title\}`, "data-testid": `floofycrew-open-page-\$\{page\.id\}`', modpage)
+    assert link, "the open-page control is an <a> on the mod's name"
+    assert "const href = `#/mods/${encodeURIComponent(page.id)}`" in modpage and 'navigate("mods", page.id)' in modpage, "the link's href is the page's hash route; the click goes through navigate()"
+    assert "floofycrew-page-inactive-${page.id}" in modpage and '"aria-disabled": "true"' in modpage, "an inactive mod's name is not a link and says so"
+    for stale in ("GearIcon", "iconButton", '"aria-label": `Open '):
+        assert stale not in modpage, stale
+    assert "GearIcon" not in (UI / "app" / "modicon.mjs").read_text(encoding="utf-8")
+    palette = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
+    assert "pageLink:" in palette and "pageLinkName:" in palette and "pageInactive:" in palette and "iconButton:" not in palette
+    assert re.search(r"pageRow: \{[^}]*gridTemplateColumns: \"minmax\(12rem, 1\.4fr\) minmax\(10rem, 1fr\)\"", palette), "two columns: the name cell and the id"
+
+
+def test_every_wait_has_a_spinner_and_the_activity_line_says_what_for():
+    """Install, update, uninstall, enable/disable, reload, restore: the clicked button spins with a busy label, and one fixed line
+    in the corner names the wait — including the wait BEFORE the confirmation modal opens (phase `asking`)."""
+    activity = (UI / "app" / "activity.mjs").read_text(encoding="utf-8")
+    assert 'export const PHASES = Object.freeze(["asking", "confirming", "running", "refreshing"]);' in activity
+    assert "export function isRunning" in activity and "export function describeActivity" in activity
+    assert 'import React from "react"' not in activity, "the data half stays React-free so node --test covers it"
+    busy = (UI / "app" / "busy.mjs").read_text(encoding="utf-8")
+    assert "export function Spinner" in busy and '"animateTransform"' in busy and "prefers-reduced-motion" in busy, "an SVG/SMIL spinner, no stylesheet to inject, still while motion is reduced"
+    assert "export function BusyButton" in busy and '"aria-busy": running ? "true" : undefined' in busy and "floofycrew-spinner" in busy
+    assert "export function ActivityLine" in busy and "floofycrew-activity" in busy and '"data-phase": activity.phase' in busy and 'role: "status"' in busy
+    shell = (UI / "index.mjs").read_text(encoding="utf-8")
+    assert 'setActivity({ path, body, phase: "asking" })' in shell, "act() records the first request as the wait before the question"
+    assert 'phase: "confirming"' in shell and 'phase: "running"' in shell and 'phase: "refreshing"' in shell, "the asker wrapper advances the phase as the protocol does"
+    assert "React.createElement(ActivityLine, { activity: manager.activity })" in shell
+    assert re.search(r"await refresh\(\)\.catch\(\(\) => undefined\);\s*setBusy\(false\);\s*setActivity\(null\);", shell), "busy (and the spinner) hold until the mod list has been re-read"
+    mods = (UI / "app" / "pages" / "mods.mjs").read_text(encoding="utf-8")
+    for label in ('busyLabel: "Installing…"', 'busyLabel: "Updating…"', 'busyLabel: "Uninstalling…"', 'busyLabel: "Reloading the Loader…"', 'busyLabel: "Restoring…"'):
+        assert label in mods, label
+    assert 'running: manager.running("/mods/install")' in mods and "running(`${mod(row.id)}/uninstall`)" in mods
+    assert "const switching = running(`${mod(row.id)}/enable`) || running(`${mod(row.id)}/disable`)" in mods, "the switch gets a spinner beside it while it flips"
+    registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
+    assert registry.count('busyLabel: "Installing…"') == 3, "the two hit buttons and the git-reference form"
+    assert registry.count('busyLabel: "Updating…"') == 2 and registry.count('busyLabel: "Updating every mod…"') == 2
+    assert 'running: manager.running("/mods/install", { source: hit.key, now: true })' in registry, "only the clicked hit spins"
+    actions = (UI / "app" / "actions.mjs").read_text(encoding="utf-8")
+    assert 'running: manager.running("/self-update")' in actions and 'busyLabel: "Updating FloofyCrew…"' in actions
+
+
 def test_confirm_modal_shows_the_dependency_plan():
     """Requirement 1.4 at install time: the one 'yes' covers what will also be installed, so the modal must show it."""
     confirm = (UI / "app" / "confirm.mjs").read_text(encoding="utf-8")

@@ -16,16 +16,6 @@ export function ModIcon({ id, hasIcon, src }) {
   return React.createElement("img", { src: url, alt: "", style: styles.modIcon, onError: () => setFailed(true), "data-testid": `floofycrew-mod-icon-${id}` });
 }
 
-/** A gear glyph for the "open this mod's settings page" button (inline SVG: no font or emoji dependency, inherits `currentColor`). */
-export function GearIcon() {
-  return React.createElement(
-    "svg",
-    { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", style: { display: "block" } },
-    React.createElement("circle", { cx: 12, cy: 12, r: 3 }),
-    React.createElement("path", { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" }),
-  );
-}
-
 /**
  * The on/off switch, the shape KiroCrew's own settings use: a 38×22 pill, accent when on, the strong border colour
  * when off, a white knob sliding between the ends. `role="switch"` + `aria-checked`; Enter/Space toggle like a click.
