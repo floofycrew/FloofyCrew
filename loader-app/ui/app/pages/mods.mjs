@@ -53,7 +53,7 @@ function Parts({ parts }) {
 
 function Warnings({ row }) {
   const items = [...(row.warnings || []).map((w) => ({ kind: "warning", ...w })), ...(row.governance || []).map((w) => ({ kind: "governance", ...w }))];
-  if (!items.length) return React.createElement("span", { style: styles.muted }, "—");
+  if (!items.length) return null;
   return React.createElement(
     "ul",
     { style: styles.list },
@@ -88,10 +88,10 @@ function PartsCell({ row }) {
   const parts = row.parts || [];
   return React.createElement(
     "details",
-    { "data-testid": `floofycrew-parts-${row.id}`, style: { fontSize: "0.85rem" } },
+    { "data-testid": `floofycrew-parts-${row.id}`, style: { fontSize: "0.85rem", minWidth: 0 } },
     React.createElement(
       "summary",
-      { style: { cursor: "pointer", whiteSpace: "nowrap" } },
+      { style: { cursor: "pointer" } },
       `${parts.length} part(s)`,
       parts.length ? React.createElement("span", { style: { ...styles.muted, marginLeft: "0.3rem" } }, [...new Set(parts.map((p) => p.kind))].join(", ")) : null,
       parts.some((p) => p.modifiesPayload) ? React.createElement("span", { style: { ...styles.badge, ...styles.warn, marginLeft: "0.3rem" } }, "modifies payload files") : null,
@@ -118,15 +118,15 @@ function ModRow({ row, update, busy, act, navigate, mod }) {
       { style: { minWidth: 0 }, title: row.description || row.name || row.id },
       React.createElement(
         "div",
-        { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+        { style: { overflowWrap: "anywhere" } },
         React.createElement("strong", null, row.name || row.id),
         update && update.update ? React.createElement("span", { style: { ...styles.badge, ...styles.ok, marginLeft: "0.4rem" }, "data-testid": `floofycrew-update-${row.id}`, title: `update available: ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : ""}` }, `↑ ${update.candidate}`) : null,
         row.link ? React.createElement("span", { style: { ...styles.badge, marginLeft: "0.4rem" }, title: "a development link: the mod directory is a symlink to your checkout" }, "dev link") : null,
       ),
       inactiveReason ? React.createElement("div", { style: { marginTop: "0.15rem" } }, React.createElement("span", { style: { ...styles.badge, ...(inactiveReason === "Error" || inactiveReason === "Quarantined" ? styles.danger : styles.warn) }, title: row.detail || "" }, inactiveReason)) : null,
     ),
-    React.createElement("div", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, React.createElement("code", { style: styles.modId }, row.id), React.createElement("span", { style: { ...styles.muted, fontSize: "0.78rem", marginLeft: "0.4rem" } }, row.version)),
-    React.createElement("div", null, compatBadge(row), tierBadge(row), React.createElement("div", { style: { marginTop: "0.15rem", fontSize: "0.8rem" } }, React.createElement(Warnings, { row }))),
+    React.createElement("div", { style: { minWidth: 0, overflowWrap: "anywhere" } }, React.createElement("code", { style: styles.modId }, row.id), React.createElement("span", { style: { ...styles.muted, fontSize: "0.78rem", marginLeft: "0.4rem", whiteSpace: "nowrap" } }, row.version)),
+    React.createElement("div", { style: { minWidth: 0, display: "flex", flexWrap: "wrap", gap: "0.2rem 0" } }, compatBadge(row), tierBadge(row), (row.warnings || []).length || (row.governance || []).length ? React.createElement("div", { style: { flexBasis: "100%", fontSize: "0.8rem" } }, React.createElement(Warnings, { row })) : null),
     React.createElement(
       "div",
       { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0 0.1rem" } },

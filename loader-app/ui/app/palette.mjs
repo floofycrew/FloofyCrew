@@ -84,7 +84,8 @@ export const styles = Object.freeze({
   // a square icon-only button (the gear): same border and radius as every other button, no text padding
   iconButton: { width: "1.75rem", height: "1.75rem", padding: 0, margin: 0, display: "grid", placeItems: "center", borderRadius: RADIUS, border: borderStrong, background: "var(--bg-elevated, transparent)", color: "inherit", cursor: "pointer" },
   // the "Installed mods" table: switch | name | id | compat · tier | actions | parts (Requirement 16.1)
-  modRow: { borderTop: border, padding: "0.5rem 0", display: "grid", gridTemplateColumns: "2.6rem minmax(9rem, 1.2fr) minmax(9rem, 1fr) minmax(10rem, 1.2fr) minmax(12rem, 1.5fr) minmax(8rem, 1fr)", gap: "0.75rem", alignItems: "center" },
+  // every column may shrink to its minimum and its text wraps; nothing in a row is allowed to overflow the card
+  modRow: { borderTop: border, padding: "0.5rem 0", display: "grid", gridTemplateColumns: "2.6rem minmax(8rem, 1.2fr) minmax(8rem, 1fr) minmax(9rem, 1fr) minmax(11rem, 1.3fr) minmax(8rem, 1.1fr)", gap: "0.75rem", alignItems: "center", minWidth: 0 },
   // the on/off switch (the shape KiroCrew's settings use): a pill track with a sliding white knob; the one rounded thing in the App, on purpose
   switchTrack: { position: "relative", display: "inline-flex", alignItems: "center", width: "38px", height: "22px", flexShrink: 0, borderRadius: SWITCH_RADIUS, border: "none", padding: 0, transition: "background .15s" },
   switchOn: { background: PALETTE.accent },
