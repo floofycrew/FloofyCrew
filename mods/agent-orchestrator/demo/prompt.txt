@@ -1,0 +1,13 @@
+Goal: build a tiny static "crew status" page in ~/floofy-demo/status-page (create the directory; it may already be empty). Four work items, one worker each, run in parallel. One writer per file.
+
+Items and owners:
+1. worker-1 owns index.html — a small HTML5 page titled "Crew status" that links styles.css and app.js (relative paths) and contains an EMPTY <ul> for the facts list. worker-1 CHOOSES the ul's id (something other than "facts" or "list"); the id is not in this brief, other workers must learn it from worker-1 through you. Acceptance: file exists, references styles.css and app.js, has exactly one <ul id="..."> that is empty.
+2. worker-2 owns styles.css — a dark theme: body, header/h1 and the list items styled (at least 4 rules, monospace font, no external imports). Acceptance: file exists with >= 4 CSS rules and no @import or url(http.
+3. worker-3 owns app.js — plain browser JS (no modules, no npm): fetch("facts.json"), render each {label, value} as an <li> into the ul BY THE ID worker-1 chose. worker-3 must ask you for that id (you relay the question to worker-1 and the answer back). Acceptance: `node --check app.js` passes (or python-free syntax sanity if node is missing) and the file contains the exact id.
+4. worker-4 owns facts.json and check.sh — facts.json: an array of 5 {label, value} objects about this run (e.g. workers: 4, topology: hub-and-spoke); check.sh: bash, exits 0 only when index.html references styles.css and app.js, app.js contains the ul id, facts.json parses (python3 -c json.load), styles.css has >= 4 rules. worker-4 also needs the id from worker-1 — via you. Acceptance: `bash check.sh` exits 0 once all four files exist.
+
+Rules for this run:
+- Set the run goal line to "status page · 4 workers · hub-and-spoke" before dispatching.
+- Every worker must publish a bus_status line at start, after each file it writes, and at the end.
+- Workers never address each other; every question comes to you and you relay it (ask the owner, forward the answer with reply_to set to the original ask).
+- After all four report done, send worker-4 one follow-up (session_send): "run `bash check.sh` and report the exit code and output". Record verdicts against each item from the reports, close every ledger item, close the run with bus_run action=close, and give me a 6-line summary: one line per worker (what it produced) plus the check.sh result and how many bus messages were relayed.
