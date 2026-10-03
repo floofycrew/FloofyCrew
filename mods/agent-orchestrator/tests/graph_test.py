@@ -116,3 +116,25 @@ def test_frames_for_unknown_slots_are_ignored():
     g.on_frame("tool_call", {"slot": "nope", "tool": "x"})
     g.on_frame("tool_call", "not a dict")
     assert "nope" not in g.nodes
+
+
+def test_bare_created_by_slot_keys_join_the_same_run_as_the_hub():
+    """0.8.0.6 writes ``slots[].created_by`` as the bare slot key (``chat-4-…``), 0.7.x as ``dashboard:chat-4-…``.
+    Live on the test box the bare form folded the run to ``chat-4-…`` while the hub identified itself as
+    ``dashboard:chat-4-…``: its sends found no run, and the hub was not its own run's orchestrator."""
+    g = G.Graph()
+    g.on_slots([
+        {"key": "chat-4", "title": "goal", "agent": "agent-orchestrator", "running": True, "created_by": ""},
+        {"key": "chat-5", "title": "worker-1: a", "agent": "agent-orchestrator-worker", "running": True, "created_by": "chat-4"},
+        {"key": "chat-6", "title": "worker-2: b", "agent": "agent-orchestrator-worker", "running": True, "created_by": "chat-4"},
+        {"key": "app-child", "title": "x", "agent": "x", "running": False, "created_by": "app:floofycrew"},
+    ])
+    assert g.runs() == ["dashboard:chat-4"]
+    assert g.member_of("dashboard:chat-4") == ("dashboard:chat-4", "orchestrator", "orchestrator")
+    assert g.member_of("dashboard:chat-5") == ("dashboard:chat-4", "worker-1", "worker")
+    assert g.member_of("chat-6") == ("dashboard:chat-4", "worker-2", "worker")  # either spelling of the caller
+    assert [n.slot for n in g.children("dashboard:chat-4")] == ["chat-5", "chat-6"]
+    snap = g.snapshot("dashboard:chat-4")
+    assert snap["orchestrator"]["nick"] == "orchestrator" and snap["orchestrator"]["role"] == "orchestrator"
+    assert g.nodes["app-child"].created_by == "app:floofycrew"  # another scheme is left alone, never a hub
+    assert G.creator_key_of("") == "" and G.creator_key_of("dashboard:x") == "dashboard:x" and G.creator_key_of("x") == "dashboard:x"

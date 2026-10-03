@@ -342,3 +342,24 @@ def test_activate_tolerates_a_host_without_the_kas_seam(hook):
     activate(hook)
     assert hook.ctx.state["active"] is True and hook.ctx.state["kas_identity_bridge"] is False
     assert any("KAS identity bridge unavailable" in line for _, line in hook.ctx.log.lines)
+
+
+def test_session_send_tap_logs_rows_with_the_0806_bare_created_by(hook):
+    """Replays the demo run on the test box: created_by is the bare slot key, so the orchestrator's six session_send
+    calls logged nothing (its run key did not match the workers'). Now they do."""
+    activate(hook)
+    tap = hook.ctx.hooks.find("before", "kiro_crew.dashboard.state:DashboardState._broadcast")
+    tap(object(), {"_type": "slots", "_slots_list": [
+        {"key": "chat-4", "title": "goal", "agent": "agent-orchestrator", "running": True, "created_by": ""},
+        {"key": "chat-5", "title": "worker-1: index", "agent": "agent-orchestrator-worker", "running": True, "created_by": "chat-4"},
+        {"key": "chat-6", "title": "worker-2: css", "agent": "agent-orchestrator-worker", "running": True, "created_by": "chat-4"},
+    ]})
+    send = hook.ctx.hooks.find("after", "route:POST /api/session-control/send")
+    ok = types.SimpleNamespace(status=200)
+    run(send(ok, FakeRequest({"X-Session-Key": "dashboard:chat-4"}, {"target": "chat-5", "message": "You are worker-1 …"})))
+    run(send(ok, FakeRequest({"X-Session-Key": "dashboard:chat-4"}, {"target": "dashboard:chat-6", "message": "You are worker-2 …"})))
+    graph = hook.ctx.routes.regs[("GET", "graph")](types.SimpleNamespace(query={"run": ["dashboard:chat-4"]}))
+    assert [(m["from"], m["to"], m["kind"]) for m in graph["messages"]] == [("orchestrator", "worker-1", "send"), ("orchestrator", "worker-2", "send")]
+    assert graph["orchestrator"]["nick"] == "orchestrator" and [w["nick"] for w in graph["workers"]] == ["worker-1", "worker-2"]
+    runs = hook.ctx.routes.regs[("GET", "runs")](None)["runs"]
+    assert runs[0]["run"] == "dashboard:chat-4" and runs[0]["workers"] == 2 and runs[0]["title"] == "goal"

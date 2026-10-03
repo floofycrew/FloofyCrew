@@ -100,7 +100,12 @@ KiroCrew; it never ships a rebuilt host.
   anyway). An after-hook on `kas_agents._project_mcp_servers` now puts the
   same session key the host gives its managed servers onto the mod's own bus
   server — recognised by its argv, nothing else touched; hosts without the
-  seam log a warning and keep working on kiro-cli.
+  seam log a warning and keep working on kiro-cli. And the reducer now reads
+  `slots[].created_by` in both of the host's spellings — `dashboard:<slot>`
+  (0.7.x) and the bare `<slot>` (0.8.0.6) — so the hub and its workers land in
+  ONE run; on the bare form the orchestrator had identified itself in a
+  different run from its workers, which is why none of its six `session_send`
+  calls in the demo were logged as `send` rows.
 
 ### Fixed
 

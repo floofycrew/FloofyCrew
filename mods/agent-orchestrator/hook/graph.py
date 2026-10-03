@@ -40,6 +40,19 @@ def slot_key_of(session_key: str) -> str:
     return session_key[len(SESSION_PREFIX):] if session_key.startswith(SESSION_PREFIX) else session_key
 
 
+def creator_key_of(created_by: Any) -> str:
+    """``slots[].created_by`` as a session key.
+
+    The host writes it in two spellings: ``dashboard:<slot>`` (0.7.x) and the bare ``<slot>`` (0.8.0.6, seen
+    live: the run folded to ``chat-4-…`` and the orchestrator's sends found no run). A creator with another
+    scheme (``cron:…``, ``channel:…``) is kept as-is — it is never a slot, so never a hub.
+    """
+    text = str(created_by or "").strip()
+    if not text or ":" in text:
+        return text
+    return SESSION_PREFIX + text
+
+
 def _trunc(text: Any, n: int = 140) -> str:
     s = " ".join(str(text or "").split())
     return s if len(s) <= n else s[: n - 1] + "…"
@@ -120,7 +133,7 @@ class Graph:
             node.model = str(s.get("model") or node.model)
             node.running = bool(s.get("running"))
             node.needs_input = bool(s.get("needs_input"))
-            node.created_by = str(s.get("created_by") or node.created_by)
+            node.created_by = creator_key_of(s.get("created_by")) or node.created_by
             if s.get("last_message"):
                 node.last_message = _trunc(s.get("last_message"))
             todo = s.get("todo")
