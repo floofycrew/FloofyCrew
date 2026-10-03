@@ -11,6 +11,21 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Changed
+
+* **The Mods page, laid out as asked.** *Mod pages* is one compact line per mod
+  with its own page — icon | mod name | mod id | a gear that opens the page
+  (disabled, with the reason as its tooltip, while the mod is not active);
+  the "Open …" buttons are gone. *Installed mods* is a table — an on/off
+  switch in the shape KiroCrew's own settings use (it reflects the enabled
+  state and flips it through the enable/disable routes) | name | id · version |
+  Host compat · source tier (with the warnings) | Actions (Update, release
+  notes, Registry entry, Uninstall) | Parts (seam), collapsed to a count and
+  the kinds with the "modifies payload files" warning kept on the summary line.
+  The per-row Settings panel of 1.3.4 is retired; an enabled mod that is not
+  running shows its typed reason beside its name, so the switch alone never
+  hides a fault.
+
 ### Mods
 
 * `model-retry-policy` 0.1.1 — fixes the page forgetting every selection: the

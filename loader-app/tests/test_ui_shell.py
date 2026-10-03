@@ -199,10 +199,17 @@ def test_corners_are_squared_footer_and_banner_preference():
     palette = (UI / "app" / "palette.mjs").read_text(encoding="utf-8")
     radius = re.search(r'export const RADIUS = "(\d+)px";', palette)
     assert radius and int(radius.group(1)) <= 4, "the one radius is squared"
+    # the one deliberate pill: the on/off switch copies KiroCrew's own switch shape (its radius is half its 22px height),
+    # and only the switch's track and knob may use it
+    assert re.search(r'export const SWITCH_RADIUS = "11px";', palette), "the switch radius is named, not an inline number"
     for path in modules():
         text = path.read_text(encoding="utf-8")
         for value in re.findall(r"borderRadius: ([^,}]+)", text):
-            assert "RADIUS" in value, f"{path.name}: a corner not on the shared radius: {value}"
+            if value.strip() == "SWITCH_RADIUS":
+                assert path.name == "palette.mjs", f"{path.name}: the pill radius belongs to the switch styles only"
+                continue
+            assert re.fullmatch(r"\s*(RADIUS|`\$\{RADIUS)\s*", value), f"{path.name}: a corner not on the shared radius: {value}"
+    assert palette.count("borderRadius: SWITCH_RADIUS") == 2, "the switch track and its knob, nothing else"
     assert "footer:" in palette and "bannerDismiss:" in palette
     shell = (UI / "index.mjs").read_text(encoding="utf-8")
     assert 'export const AUTHOR = "Oscar Tseng";' in shell

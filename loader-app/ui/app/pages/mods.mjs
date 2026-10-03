@@ -1,9 +1,11 @@
 // FloofyCrew manager App — the Mods page, the landing page (Requirement 16.1, 2.7, 7.3, 8.11, 16.5; task 6.7 → 11.2).
 //
-// Every installed mod with its state and typed reason, the seam of every part
-// and whether it modifies payload files, the host-compat and source-tier badges,
-// warnings and governance warnings (never gates), update availability; the
-// actions Enable/Disable, Update, Uninstall through the typed routes; the
+// The installed mods as a table — an on/off switch (the enable/disable routes;
+// an enabled-but-inactive mod shows its typed reason beside the name), name,
+// id · version, the host-compat and source-tier badges with warnings and
+// governance warnings (never gates), the actions Update / Registry entry /
+// Uninstall through the typed routes, and the parts (seam) collapsed to a count
+// with the "modifies payload files" warning kept on the summary line; the
 // staged set with "Apply now" (POST /reload, Requirement 7.6); the quarantine
 // with per-version restore; and the install form — a registry id, a path, an
 // archive URL or a git reference, staged by default, "apply now" on request.
@@ -12,7 +14,7 @@
 import React from "react";
 
 import { RestartButton, UpdateAndRestartButton } from "../actions.mjs";
-import { API } from "../api.mjs";
+import { Switch } from "../modicon.mjs";
 import { commandNote, styles } from "../palette.mjs";
 import { ModPage, ModPagesList } from "./modpage.mjs";
 
@@ -28,12 +30,6 @@ export function tierBadge(row, { testid = "floofycrew-tier" } = {}) {
   const style = tier === "tested" ? styles.ok : tier === "listed" ? {} : styles.warn;
   const title = tier === "tested" ? "listed in a registry and graded tested on this host version by the Forge" : tier === "listed" ? "installed from a registry record (curated; index verified or allowed unsigned)" : "unlisted source: no curator review, no compatibility data — installed from a git reference, a path or an archive on your consent";
   return React.createElement("span", { style: { ...styles.badge, ...style }, title, "data-testid": `${testid}-${row.id}` }, `tier: ${tier}`);
-}
-
-function stateBadge(row) {
-  if (row.active) return React.createElement("span", { style: { ...styles.badge, ...styles.ok } }, "active");
-  const reason = row.reason || (row.enabled === false ? "UserDisabled" : "inactive");
-  return React.createElement("span", { style: { ...styles.badge, ...(reason === "Error" || reason === "Quarantined" ? styles.danger : styles.warn) }, title: row.detail || "" }, reason);
 }
 
 function Parts({ parts }) {
@@ -87,57 +83,65 @@ export function InstallForm({ manager }) {
   );
 }
 
-/** The mod's face: its manifest `icon` through the Loader (`GET /mods/{id}/icon`, any installed mod), else a puzzle glyph. */
-function ModIcon({ row }) {
-  const [failed, setFailed] = React.useState(false);
-  if (!row.icon || failed) return React.createElement("div", { style: styles.modIconFallback, "aria-hidden": "true", "data-testid": `floofycrew-mod-icon-fallback-${row.id}` }, "🧩");
-  return React.createElement("img", { src: `${API}/mods/${encodeURIComponent(row.id)}/icon`, alt: "", style: styles.modIcon, onError: () => setFailed(true), "data-testid": `floofycrew-mod-icon-${row.id}` });
+/** The "Parts (seam)" cell: collapsed by default to a count and the kinds; the "modifies payload files" warning stays on the summary line, never hidden. */
+function PartsCell({ row }) {
+  const parts = row.parts || [];
+  return React.createElement(
+    "details",
+    { "data-testid": `floofycrew-parts-${row.id}`, style: { fontSize: "0.85rem" } },
+    React.createElement(
+      "summary",
+      { style: { cursor: "pointer", whiteSpace: "nowrap" } },
+      `${parts.length} part(s)`,
+      parts.length ? React.createElement("span", { style: { ...styles.muted, marginLeft: "0.3rem" } }, [...new Set(parts.map((p) => p.kind))].join(", ")) : null,
+      parts.some((p) => p.modifiesPayload) ? React.createElement("span", { style: { ...styles.badge, ...styles.warn, marginLeft: "0.3rem" } }, "modifies payload files") : null,
+    ),
+    React.createElement(Parts, { parts }),
+  );
 }
 
-/** The Settings panel under a compact row: state detail, badges and warnings, the collapsed parts list, the update, the actions. */
-function ModSettings({ row, update, busy, act, navigate, mod }) {
-  const uiPart = (row.parts || []).some((p) => p.kind === "ui");
+/** One row of the Installed mods table: switch | name | id | compat · tier | actions | parts. */
+function ModRow({ row, update, busy, act, navigate, mod }) {
+  const inactiveReason = row.enabled && !row.active ? row.reason || "inactive" : null; // enabled but not running: the switch alone would hide it
   return React.createElement(
     "div",
-    { style: styles.modPanel, "data-testid": `floofycrew-mod-settings-${row.id}` },
-    React.createElement("div", { style: styles.panelLabel }, "Version"),
-    React.createElement("div", null, React.createElement("code", null, row.version), row.description ? React.createElement("div", { style: styles.muted }, row.description) : null),
-    React.createElement("div", { style: styles.panelLabel }, "State"),
-    React.createElement("div", null, stateBadge(row), row.detail ? React.createElement("div", { style: styles.muted, title: row.detail }, row.detail) : null),
-    React.createElement("div", { style: styles.panelLabel }, "Host compat · source tier"),
-    React.createElement("div", null, compatBadge(row), tierBadge(row), React.createElement("div", null, React.createElement(Warnings, { row }))),
-    React.createElement("div", { style: styles.panelLabel }, "Parts (seam)"),
-    React.createElement(
-      "details",
-      { "data-testid": `floofycrew-parts-${row.id}` },
-      React.createElement(
-        "summary",
-        { style: { cursor: "pointer" } },
-        `${(row.parts || []).length} part(s) — ${[...new Set((row.parts || []).map((p) => p.kind))].join(", ") || "none"}`,
-        (row.parts || []).some((p) => p.modifiesPayload) ? React.createElement("span", { style: { ...styles.badge, ...styles.warn, marginLeft: "0.3rem" } }, "modifies payload files") : null,
-      ),
-      React.createElement(Parts, { parts: row.parts }),
-    ),
-    update && update.update
-      ? React.createElement(React.Fragment, null, React.createElement("div", { style: styles.panelLabel }, "Update"), React.createElement("div", { style: styles.ok }, `${update.candidate} available${update.verdict ? ` (${update.verdict} here)` : ""} `, update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: styles.accent, "data-testid": `floofycrew-changelog-${row.id}` }, "release notes") : null))
-      : null,
-    React.createElement("div", { style: styles.panelLabel }, "Actions"),
+    { style: styles.modRow, "data-testid": `floofycrew-mod-row-${row.id}` },
     React.createElement(
       "div",
-      null,
-      React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-toggle-${row.id}`, onClick: () => act(`${mod(row.id)}/${row.enabled ? "disable" : "enable"}`) }, row.enabled ? "Disable" : "Enable"),
-      update && update.update ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": `floofycrew-update-button-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, {}) }, `Update to ${update.candidate}`) : null,
+      { style: { display: "flex", alignItems: "center" } },
+      React.createElement(Switch, { checked: Boolean(row.enabled), disabled: busy, label: `${row.enabled ? "Disable" : "Enable"} ${row.name || row.id}`, testid: `floofycrew-toggle-${row.id}`, onChange: (on) => act(`${mod(row.id)}/${on ? "enable" : "disable"}`) }),
+      // the state in words for screen readers and tests; the switch's position says the same thing visually
+      React.createElement("span", { style: styles.srOnly, "data-testid": `floofycrew-enabled-${row.id}` }, row.enabled ? "enabled" : "disabled", row.link ? " · dev link" : ""),
+    ),
+    React.createElement(
+      "div",
+      { style: { minWidth: 0 }, title: row.description || row.name || row.id },
+      React.createElement(
+        "div",
+        { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+        React.createElement("strong", null, row.name || row.id),
+        update && update.update ? React.createElement("span", { style: { ...styles.badge, ...styles.ok, marginLeft: "0.4rem" }, "data-testid": `floofycrew-update-${row.id}`, title: `update available: ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : ""}` }, `↑ ${update.candidate}`) : null,
+        row.link ? React.createElement("span", { style: { ...styles.badge, marginLeft: "0.4rem" }, title: "a development link: the mod directory is a symlink to your checkout" }, "dev link") : null,
+      ),
+      inactiveReason ? React.createElement("div", { style: { marginTop: "0.15rem" } }, React.createElement("span", { style: { ...styles.badge, ...(inactiveReason === "Error" || inactiveReason === "Quarantined" ? styles.danger : styles.warn) }, title: row.detail || "" }, inactiveReason)) : null,
+    ),
+    React.createElement("div", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, React.createElement("code", { style: styles.modId }, row.id), React.createElement("span", { style: { ...styles.muted, fontSize: "0.78rem", marginLeft: "0.4rem" } }, row.version)),
+    React.createElement("div", null, compatBadge(row), tierBadge(row), React.createElement("div", { style: { marginTop: "0.15rem", fontSize: "0.8rem" } }, React.createElement(Warnings, { row }))),
+    React.createElement(
+      "div",
+      { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0 0.1rem" } },
+      update && update.update ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, title: `${update.candidate} available${update.verdict ? ` (${update.verdict} here)` : ""}`, "data-testid": `floofycrew-update-button-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, {}) }, `Update to ${update.candidate}`) : null,
       update && update.update ? React.createElement("button", { style: styles.button, disabled: busy, "data-testid": `floofycrew-update-now-${row.id}`, onClick: () => act(`${mod(row.id)}/update`, { now: true }) }, "Update now") : null,
-      navigate && uiPart ? React.createElement("button", { style: styles.button, disabled: busy || !row.active, "data-testid": `floofycrew-row-open-page-${row.id}`, onClick: () => navigate("mods", row.id) }, "Open page") : null,
+      update && update.update && update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: { ...styles.accent, fontSize: "0.8rem", marginRight: "0.35rem" }, "data-testid": `floofycrew-changelog-${row.id}` }, "release notes") : null,
       navigate ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => navigate("registry", row.id) }, "Registry entry") : null,
       React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: busy, "data-testid": `floofycrew-uninstall-${row.id}`, onClick: () => act(`${mod(row.id)}/uninstall`, { now: true }) }, "Uninstall"),
     ),
+    React.createElement(PartsCell, { row }),
   );
 }
 
 export function ModsPage({ manager, navigate, openConsent, rest }) {
   const { state, rows, statusMeta, registry, busy, act, applyNow } = manager;
-  const [open, setOpen] = React.useState(() => new Set());
   if (rest) return React.createElement(ModPage, { manager, modId: rest, navigate });
   const host = (state && state.host) || {};
   const selfUpdate = (state && state.selfUpdate) || null; // Requirement 7.7: the CLI's cached daily check, re-graded by the Loader
@@ -209,25 +213,19 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
       { style: styles.card },
       React.createElement("h2", { style: styles.cardTitle }, `Installed mods (${rows.length})`),
       rows.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.6rem 0" } }, "no mods installed — use the form above, or the Registry page") : null,
-      rows.map((row) => {
-        const update = updates[row.id];
-        const opened = open.has(row.id);
-        return React.createElement(
-          "div",
-          { key: row.id, style: styles.modRow, "data-testid": `floofycrew-mod-row-${row.id}` },
-          React.createElement(ModIcon, { row }),
-          React.createElement(
+      rows.length
+        ? React.createElement(
             "div",
-            { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-            React.createElement("strong", null, row.name || row.id),
-            React.createElement("span", { style: styles.modId, title: `${row.id} ${row.version}` }, row.id),
-            update && update.update ? React.createElement("span", { style: { ...styles.badge, ...styles.ok, marginLeft: "0.5rem" }, "data-testid": `floofycrew-update-${row.id}`, title: `update available: ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : ""}` }, `↑ ${update.candidate}`) : null,
-          ),
-          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "0.35rem", whiteSpace: "nowrap" } }, stateBadge(row), React.createElement("span", { style: { ...styles.muted, fontSize: "0.78rem" }, "data-testid": `floofycrew-enabled-${row.id}` }, row.enabled ? "enabled" : "disabled", row.link ? " · dev link" : "")),
-          React.createElement("button", { style: { ...styles.button, marginBottom: 0, ...(opened ? styles.primary : {}) }, "aria-expanded": opened, "data-testid": `floofycrew-settings-${row.id}`, onClick: () => setOpen((current) => { const next = new Set(current); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; }) }, opened ? "Close" : "Settings"),
-          opened ? React.createElement(ModSettings, { row, update, busy, act, navigate, mod }) : null,
-        );
-      }),
+            { style: { ...styles.modRow, ...styles.head, paddingBottom: "0.25rem" }, "data-testid": "floofycrew-mod-rows-head" },
+            React.createElement("span", { title: "on: the mod is enabled and loads at the next boot; off: it stays installed but inactive" }, "On"),
+            React.createElement("span", null, "Mod"),
+            React.createElement("span", null, "Id · version"),
+            React.createElement("span", null, "Host compat · source tier"),
+            React.createElement("span", null, "Actions"),
+            React.createElement("span", null, "Parts (seam)"),
+          )
+        : null,
+      rows.map((row) => React.createElement(ModRow, { key: row.id, row, update: updates[row.id], busy, act, navigate, mod })),
     ),
     Object.keys(quarantine).filter((key) => key !== "requests").length
       ? React.createElement(

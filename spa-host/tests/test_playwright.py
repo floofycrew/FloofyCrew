@@ -333,17 +333,14 @@ def test_4_import_map_remap_is_what_the_host_evaluates(harness: Harness):
 
 
 
-def open_settings(page, mod_id: str, *, parts: bool = False) -> None:
-    """Open a compact mod row's Settings panel (and, on request, its collapsed parts list) — the badges and actions live there."""
-    if page.locator(f'[data-testid="floofycrew-mod-settings-{mod_id}"]').count() == 0:
-        page.click(f'[data-testid="floofycrew-settings-{mod_id}"]')
-        page.wait_for_selector(f'[data-testid="floofycrew-mod-settings-{mod_id}"]', timeout=30000)
-    if parts and not page.evaluate(f"() => document.querySelector('[data-testid=\"floofycrew-parts-{mod_id}\"]').open"):
+def open_parts(page, mod_id: str) -> None:
+    """Expand a mod row's collapsed "Parts (seam)" cell — the per-part seam lines live there, collapsed by default."""
+    if not page.evaluate(f"() => document.querySelector('[data-testid=\"floofycrew-parts-{mod_id}\"]').open"):
         page.click(f'[data-testid="floofycrew-parts-{mod_id}"] summary')
 
 
 def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
-    """The manager page (task 6.7, 7.10): unofficial banner, compact mod rows (icon | name | id | Settings) whose panel carries state/seam/compat/tier badges, disable through the in-process CLI."""
+    """The manager page (task 6.7, 7.10): unofficial banner, the installed-mods table (switch | name | id | compat · tier | actions | parts collapsed), disable through the switch → the in-process CLI."""
     client = harness.gw.client()
     assert client.post(f"{API}/reload").status == 200
     enabled_path = FloofyPaths(harness.gw.data_home).enabled
@@ -355,24 +352,28 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         banner = page.inner_text('[data-testid="floofycrew-banner"]')
         assert "UNOFFICIAL" in banner and "not affiliated" in banner, banner
         page.wait_for_selector('[data-testid="floofycrew-mod-row-rimuru-branding"]', timeout=30000)
+        head = page.inner_text('[data-testid="floofycrew-mod-rows-head"]')
+        assert "Host compat · source tier" in head and "Actions" in head and "Parts (seam)" in head, head
         compact = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
-        assert "rimuru-branding" in compact and "active" in compact and "theme/gateway" not in compact and "Settings" in compact, f"a compact row: icon | name | id | Settings — the details wait behind Settings: {compact!r}"
-        assert page.locator('[data-testid="floofycrew-mod-icon-fallback-rimuru-branding"], [data-testid="floofycrew-mod-icon-rimuru-branding"]').count() == 1, "every row has a face: the manifest icon or the puzzle glyph"
-        open_settings(page, "rimuru-branding", parts=True)
+        assert "rimuru-branding" in compact and "2.0.0" in compact and "theme/gateway" not in compact and "part(s)" in compact, f"one row: switch | name | id · version | compat · tier | actions | parts collapsed to a count: {compact!r}"
+        assert "Settings" not in compact and "Enable" not in compact and "Disable" not in compact, f"no Settings panel, no Enable/Disable button — the switch is the on/off control: {compact!r}"
+        switch = page.locator('[data-testid="floofycrew-toggle-rimuru-branding"]')
+        assert switch.get_attribute("role") == "switch" and switch.get_attribute("aria-checked") == "true", "an active mod's switch is on"
+        open_parts(page, "rimuru-branding")
         row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
-        assert "2.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" not in row, row
-        open_settings(page, "custom-themes")
+        assert "theme/gateway" in row and "modifies payload files" not in row, row
         themes_row = page.inner_text('[data-testid="floofycrew-mod-row-custom-themes"]')
-        assert "1.0.1" in themes_row and "active" in themes_row and "modifies payload files" in themes_row, f"the payload warning stays visible on the collapsed parts summary: {themes_row!r}"
+        assert "1.0.1" in themes_row and "modifies payload files" in themes_row, f"the payload warning stays visible on the collapsed parts summary: {themes_row!r}"
         assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
         assert page.inner_text('[data-testid="floofycrew-tier-rimuru-branding"]') == "tier: unlisted", "copied in without a registry record: the source tier badge says so (Requirement 8.11)"
         assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')
-        open_settings(page, "spa-healthy", parts=True)
+        open_parts(page, "spa-healthy")
         healthy = page.inner_text('[data-testid="floofycrew-mod-row-spa-healthy"]')
         assert "spa/spa" in healthy and "SPA host" in healthy
         assert page.inner_text('[data-testid="floofycrew-enabled-spa-healthy"]').startswith("enabled")
-        # disable through the UI → POST /mods/spa-healthy/disable (the same handler as `floofy disable`) → enabled.json flips → the Loader reloads
+        # disable through the switch → POST /mods/spa-healthy/disable (the same handler as `floofy disable`) → enabled.json flips → the Loader reloads
         page.click('[data-testid="floofycrew-toggle-spa-healthy"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-toggle-spa-healthy\"]')?.getAttribute('aria-checked') === 'false'", timeout=60000)
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-spa-healthy\"]')?.textContent.startsWith('disabled')", timeout=60000)
         assert json.loads(enabled_path.read_text(encoding="utf-8"))["spa-healthy"] is False
         output = page.inner_text('[data-testid="floofycrew-output"]')
@@ -471,7 +472,6 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
             page.wait_for_selector('[data-testid="floofycrew-update-spa-healthy"]', timeout=60000)
             assert page.inner_text('[data-testid="floofycrew-update-spa-healthy"]') == "↑ 1.1.0", "the compact row carries the candidate; the verdict is the badge's tooltip"
             assert page.get_attribute('[data-testid="floofycrew-update-spa-healthy"]', "title") == "update available: 1.1.0 (expected here)"
-            open_settings(page, "spa-healthy")
             assert page.get_attribute('[data-testid="floofycrew-changelog-spa-healthy"]', "href") == "https://forge.example/spa-healthy/releases/1.1.0"
             assert page.locator('[data-testid="floofycrew-update-button-spa-healthy"]').count() == 1 and page.locator('[data-testid="floofycrew-update-now-spa-healthy"]').count() == 1
             page.click('[data-testid="floofycrew-nav-registry"]')
@@ -717,7 +717,11 @@ def test_5c_mod_pages_are_isolated(harness: Harness):
         page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
         page.wait_for_selector('[data-testid="floofycrew-mod-pages"]', timeout=60000)
         listing = page.inner_text('[data-testid="floofycrew-mod-pages"]')
-        assert "Open Healthy settings" in listing and "Open Broken page" in listing, listing
+        assert "Healthy settings" in listing and "Broken page" in listing and "ui-healthy" in listing and "ui-broken" in listing, f"icon | mod name | mod id | gear: {listing!r}"
+        assert "Open " not in listing, f"the page opens from the gear icon, not an 'Open …' button: {listing!r}"
+        assert page.get_attribute('[data-testid="floofycrew-open-page-ui-healthy"]', "aria-label") == "Open Healthy settings", "the gear is labelled for screen readers"
+        assert page.locator('[data-testid="floofycrew-open-page-ui-healthy"] svg').count() == 1, "the gear is an inline glyph"
+        assert page.locator('[data-testid="floofycrew-mod-icon-fallback-ui-healthy"], [data-testid="floofycrew-mod-icon-ui-healthy"]').count() == 1, "every page row has a face: the part's icon, the manifest icon, or the puzzle glyph"
         # the healthy page: mounted with floofy.mod(id); config round-trips through the Loader and reaches the mod's Python side
         page.click('[data-testid="floofycrew-open-page-ui-healthy"]')
         page.wait_for_selector('[data-testid="ui-healthy-input"]', timeout=60000)

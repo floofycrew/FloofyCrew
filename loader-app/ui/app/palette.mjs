@@ -39,6 +39,9 @@ const borderStrong = "1px solid var(--border-strong, rgba(127,127,127,.6))";
 /** The one corner radius of the App: squared. Cards, banners, buttons, inputs, badges, the modal — nothing rounder than this. */
 export const RADIUS = "2px";
 
+/** The one exception: the on/off switch is a pill, because it copies the shape of KiroCrew's own switches (half its 22px height). */
+export const SWITCH_RADIUS = "11px";
+
 /** The page's outer padding and the gap between its blocks — the masthead glow starts a padding above the header (see `mastheadGlow`). */
 const PAGE_GAP = "1.25rem";
 
@@ -73,13 +76,20 @@ export const styles = Object.freeze({
   wordmark: { height: "2.4rem", width: "auto", display: "block" },
   // visually hidden but read by screen readers (and counted by innerText): the page still has an h1 "FloofyCrew"
   srOnly: { position: "absolute", width: "1px", height: "1px", padding: 0, margin: "-1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 },
-  // the compact mod row: icon | name + id | state | Settings (Requirement 16.1); details live in the Settings panel below it
-  modRow: { borderTop: border, padding: "0.45rem 0", display: "grid", gridTemplateColumns: "1.75rem minmax(12rem, 1fr) auto auto", gap: "0.75rem", alignItems: "center" },
+  // the "Mod pages" row: icon | mod name | mod id | gear (opens the page) — compact, one line (Requirement 16.4)
+  pageRow: { borderTop: border, padding: "0.35rem 0", display: "grid", gridTemplateColumns: "1.75rem minmax(10rem, 1fr) minmax(10rem, 1fr) auto", gap: "0.75rem", alignItems: "center" },
   modIcon: { width: "1.75rem", height: "1.75rem", borderRadius: RADIUS, objectFit: "contain", display: "block", background: "rgba(127,127,127,.12)" },
   modIconFallback: { width: "1.75rem", height: "1.75rem", borderRadius: RADIUS, display: "grid", placeItems: "center", background: "rgba(127,127,127,.12)", fontSize: "1rem", lineHeight: 1 },
-  modId: { fontFamily: "var(--mono, ui-monospace, monospace)", fontSize: "0.78rem", opacity: 0.7, marginLeft: "0.5rem" },
-  modPanel: { gridColumn: "1 / -1", padding: "0.4rem 0 0.6rem 2.5rem", display: "grid", gridTemplateColumns: "minmax(10rem, 1fr) minmax(14rem, 2fr)", gap: "0.5rem 1.2rem", alignItems: "start", fontSize: "0.85rem" },
-  panelLabel: { fontWeight: 600, opacity: 0.8 },
+  modId: { fontFamily: "var(--mono, ui-monospace, monospace)", fontSize: "0.78rem", opacity: 0.7 },
+  // a square icon-only button (the gear): same border and radius as every other button, no text padding
+  iconButton: { width: "1.75rem", height: "1.75rem", padding: 0, margin: 0, display: "grid", placeItems: "center", borderRadius: RADIUS, border: borderStrong, background: "var(--bg-elevated, transparent)", color: "inherit", cursor: "pointer" },
+  // the "Installed mods" table: switch | name | id | compat · tier | actions | parts (Requirement 16.1)
+  modRow: { borderTop: border, padding: "0.5rem 0", display: "grid", gridTemplateColumns: "2.6rem minmax(9rem, 1.2fr) minmax(9rem, 1fr) minmax(10rem, 1.2fr) minmax(12rem, 1.5fr) minmax(8rem, 1fr)", gap: "0.75rem", alignItems: "center" },
+  // the on/off switch (the shape KiroCrew's settings use): a pill track with a sliding white knob; the one rounded thing in the App, on purpose
+  switchTrack: { position: "relative", display: "inline-flex", alignItems: "center", width: "38px", height: "22px", flexShrink: 0, borderRadius: SWITCH_RADIUS, border: "none", padding: 0, transition: "background .15s" },
+  switchOn: { background: PALETTE.accent },
+  switchOff: { background: "var(--border-strong, rgba(127,127,127,.6))" },
+  switchKnob: { position: "absolute", top: "2px", width: "18px", height: "18px", borderRadius: SWITCH_RADIUS, background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.35)", transition: "left .15s" },
   headerActions: { marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" },
   title: { fontSize: "1.25rem", fontWeight: 700, color: PALETTE.heading, margin: 0 },
   banner: { border: `1px solid ${PALETTE.warn}`, background: "rgba(255,179,71,.12)", padding: "0.6rem 0.9rem", borderRadius: RADIUS, fontWeight: 600, display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" },
