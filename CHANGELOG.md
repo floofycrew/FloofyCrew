@@ -118,6 +118,14 @@ KiroCrew; it never ships a rebuilt host.
   files and directories still survive. Until a release carries this, update
   such a mod with `floofy disable <id>` first.
 
+* **`mod.log` keeps receiving lines after an update.** The same copy-aside of
+  `.floofy/` gives `mod.log` a new inode, while the Loader's process-wide mod
+  logger still held the old one open — so every line a python-hook logged
+  after `floofy install` of an update (its "active" line included) vanished
+  into an unlinked file (seen on the test box after three updates). The
+  Loader now reopens the handler when the file on disk is not the one it
+  holds, the way `WatchedFileHandler` does.
+
 * **A mod's manifest `icon` no longer breaks the registry index.** A manifest
   `icon` is a relative path to a file shipped with the mod (`floofy.schema`);
   `registry_tools build` copied it into the index entry, whose schema wants a

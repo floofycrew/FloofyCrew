@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import sys
 import types
 from pathlib import Path
@@ -227,3 +228,22 @@ def test_state_health_and_fault_responses_through_a_booted_runtime(tmp_path: Pat
         assert runtime.events.history[-1]["event"] == "loader.state" and runtime.hooks.registrations() == []
     finally:
         runtime.shutdown(None)
+
+
+def test_mod_logger_reopens_when_an_update_replaced_the_file(tmp_path: Path):
+    """`floofy install` of an update copies the mod's .floofy/ aside and back: mod.log becomes a new inode while the
+    process-wide logger still holds the old one open, and every line after the update vanished (test box, 3 updates)."""
+    home = tmp_path / "floofy"
+    log = mod_logger(home, "beta")
+    log.info("before the update")
+    path = home / "mods" / "beta" / RUNTIME_DIR / "mod.log"
+    aside = tmp_path / "aside"
+    shutil.copytree(path.parent, aside)  # what the installer does with .floofy/ …
+    shutil.rmtree(path.parent)
+    shutil.copytree(aside, path.parent)  # … and back: same path, new inode
+    assert "before the update" in path.read_text(encoding="utf-8")
+    log = mod_logger(home, "beta")  # the next activation asks for the logger again
+    log.info("after the update")
+    text = path.read_text(encoding="utf-8")
+    assert "before the update" in text and "after the update" in text, text
+    assert len(log.handlers) == 1
