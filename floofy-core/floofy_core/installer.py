@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import stat
 import tempfile
 import urllib.error
 import urllib.parse
@@ -531,6 +533,25 @@ def _copy_tree(source: Path, target: Path) -> None:
     shutil.copytree(source, target, symlinks=False, ignore=shutil.ignore_patterns("__pycache__", ".git", ".pytest_cache", ".hypothesis"))
 
 
+def _runtime_state_ignore(directory: str, names: list[str]) -> set[str]:
+    """``copytree`` ignore for ``.floofy/``: skip unix sockets, fifos and device nodes.
+
+    A python-hook may keep a live unix socket under its runtime dir (the agent-orchestrator
+    bus does); ``copytree`` cannot copy one and would fail the whole update with
+    ``[Errno 6] No such device or address``. The hook recreates the socket on activation,
+    so nothing is lost by leaving it behind.
+    """
+    skipped: set[str] = set()
+    for name in names:
+        try:
+            mode = os.lstat(os.path.join(directory, name)).st_mode
+        except OSError:
+            continue
+        if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
+            skipped.add(name)
+    return skipped
+
+
 def place(home: DataHome, source: ResolvedSource, manifest: dict[str, Any], *, stage: bool) -> tuple[Path, str]:
     """Copy the mod into ``pending/<id>/`` (``stage``) or ``mods/<id>/``; keep ``.floofy/`` runtime state; write the source record."""
     mod_id = str(manifest["id"])
@@ -539,7 +560,7 @@ def place(home: DataHome, source: ResolvedSource, manifest: dict[str, Any], *, s
     runtime_backup: Path | None = None
     if (installed / ".floofy").is_dir() and not installed.is_symlink():
         runtime_backup = Path(tempfile.mkdtemp(prefix="floofy-runtime-")) / ".floofy"
-        shutil.copytree(installed / ".floofy", runtime_backup)
+        shutil.copytree(installed / ".floofy", runtime_backup, ignore=_runtime_state_ignore)
     target = home.pending / mod_id if stage else installed
     remove_marker = home.pending / f"{mod_id}.remove"
     if remove_marker.exists():

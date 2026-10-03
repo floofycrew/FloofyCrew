@@ -63,6 +63,35 @@ KiroCrew; it never ships a rebuilt host.
   list, lets you declare served ids for a backend whose list is still cold,
   and answers "which backends may serve model X?" for any id. New config keys
   `cross_namespace` (default on) and `served_overrides`.
+* `agent-orchestrator` 0.2.0 (new) — real parallel multi-agent orchestration
+  with a centralized orchestrator: an orchestrator session divides a goal into
+  items, runs one `agent-orchestrator-worker` session per item at the same time
+  and coordinates them live over a typed, bounded message bus (a stdlib stdio
+  MCP server per worker, forwarding over a 0600 unix socket; identity is the
+  host's own `KIROCREW_SESSION_KEY`, membership is derived from
+  `slots[].created_by`), with wake-ups that carry no body, a wait-any primitive
+  for the hub, live per-worker status lines and a hub-and-spoke graph page
+  (orchestrator centred, worker cards with state / progress / summary, messages
+  as travelling dots, a bus log). **Hub-and-spoke by default**: a worker posts
+  only to the orchestrator, which relays what a sibling needs to know; a direct
+  worker → worker post is refused (`peer_messaging_off`) unless the
+  `peer_messaging` setting is on. The host's `session_create` / `session_send`
+  and the work ledger stay untouched (the mod observes them to draw the whole
+  conversation); an optional non-retryable `max_workers` cap applies to the
+  mod's own orchestrators only. Ships a scripted four-worker demo with a
+  checker that proves the topology from the bus log (`demo/`). Research and
+  design in `research/orchestration-mod/`.
+
+### Fixed
+
+* **An update no longer fails on a live socket in `.floofy/`.** `floofy
+  install` keeps a mod's runtime state across an update by copying `.floofy/`
+  aside; a python-hook that holds a unix socket there (the agent-orchestrator
+  bus) made that copy raise `[Errno 6] No such device or address` and the whole
+  update fail (seen on the test box, floofy 1.3.5). Sockets, fifos and device
+  nodes are now skipped — the hook recreates them on activation — and regular
+  files and directories still survive. Until a release carries this, update
+  such a mod with `floofy disable <id>` first.
 
 ## 1.3.5 — 2026-10-02
 
