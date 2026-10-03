@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "agent-orchestrator",
   "name": "Agent Orchestrator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Real parallel multi-agent orchestration for KiroCrew: an orchestrator session divides a goal into items, runs one worker session per item at the same time, and coordinates them live over a typed, bounded message bus (hub-and-spoke: every worker reports to the orchestrator, which relays; worker \u21c4 worker is an opt-in setting) with wake-ups, a wait-any primitive and per-worker status lines. Ships the `agent-orchestrator` and `agent-orchestrator-worker` agents (built on the host's session-control and work-ledger tools, which stay untouched) and a live hub-and-spoke graph page with an animated message bus. Unofficial.",
   "authors": [
     "Oscar Tseng"
@@ -56,7 +56,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "44d950bdff6f2c77c8022a41d9528982593ed817d44e67743e7cc1cae92b5f28"
+      "sha256": "0fdd29d8601453ddb695689aae42030a79d7439bcab7ce7a6904c021a1ebbd5e"
     },
     {
       "path": "agents/agent-orchestrator-worker.json.tmpl",
@@ -88,7 +88,7 @@
     },
     {
       "path": "hook/__init__.py",
-      "sha256": "c94524e0bcac0c34426d95904b821c37dc61bf28354a1260ead8647bcaede40c"
+      "sha256": "ba44d15c2f88ee9a5be0dde08becd4b686de08cd66103f3c16ae52a495ba5504"
     },
     {
       "path": "hook/bus.py",
@@ -116,7 +116,7 @@
     },
     {
       "path": "tests/hook_test.py",
-      "sha256": "90ac55051a8beed115f925efe4febf33a95d393a67f65f17ec5ddefd4e705420"
+      "sha256": "52ab38a7513699a917d921dfa3a940c1c30f8cde5cf9c3f27ec2b2ddc72e0d1c"
     },
     {
       "path": "tests/mcp_server_test.py",
@@ -124,7 +124,7 @@
     },
     {
       "path": "tests/page_probe.py",
-      "sha256": "f4cebc120225dec25ec45d72b6ab2f7b04da3fff028cea9e11debf16713045fd"
+      "sha256": "4635ec32f47ef89b6393d2de8358a3b243d62a8910b9f0bbb0baed585410bef4"
     },
     {
       "path": "tests/smoke_test.py",
@@ -136,7 +136,7 @@
     },
     {
       "path": "ui/page.mjs",
-      "sha256": "c44a398319e48a417d5e477372d9ebf851d48d26290c65270d182a0a4e1f459b"
+      "sha256": "e3eeff0c9b9b154bfdadf2982cd03541b87716ff70e05218398da1830d9e4c52"
     }
   ]
 }

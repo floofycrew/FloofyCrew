@@ -4,6 +4,9 @@
 // Data: `GET graph?run=&since=` on the mod's own routes every 500 ms (the contract) plus the
 // dashboard's own `/api/ws` (same origin, dashboard cookie) for immediate node flicker on
 // `chat_status` / `tool_call` frames between polls (an optimisation; the page works without it).
+// Route calls go through `api.routes.url(path)` with the query string appended AFTERWARDS:
+// `routes.fetch()`/`routes.url()` percent-encode every path segment, a `?` included, so a query
+// passed inside the path becomes one bogus segment the Loader rejects (404, no `run` field).
 // No third-party library: SVG for edges and travelling dots, absolutely positioned cards for nodes,
 // colours from the host's theme tokens so light/dark both work. Never uses window.alert/confirm.
 
@@ -16,15 +19,17 @@ const STATE_GLYPH = { working: "◌", waiting: "◔", done: "✓", blocked: "⚠
 export default async function mount(container, api) {
   const tokens = safe(() => api.theme.tokens(), {});
   const t = (name, fallback) => (tokens && tokens[name]) || fallback;
+  // The host declares --bg/--bg-elevated/--card/--text/--text-muted/--accent/--border (spa-host KNOWN_TOKENS).
+  const FG = t("--text", "#d8dee9"), FG_MUTED = t("--text-muted", "#8e9aa8"), CARD = t("--card", t("--bg-elevated", "#151b21"));
   const css = `
-  .ao{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:${t("--fg", "#d8dee9")};background:${t("--bg", "#101418")};border:1px solid ${t("--border", "#2a3139")};border-radius:10px;overflow:hidden;display:flex;flex-direction:column;min-height:720px;height:calc(100vh - 160px)}
+  .ao{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:${FG};background:${t("--bg", "#101418")};border:1px solid ${t("--border", "#2a3139")};border-radius:10px;overflow:hidden;display:flex;flex-direction:column;min-height:720px;height:calc(100vh - 160px)}
   .ao-bar{display:flex;gap:12px;align-items:center;padding:8px 12px;border-bottom:1px solid ${t("--border", "#2a3139")};background:${t("--bg-elevated", "rgba(255,255,255,.03)")}}
   .ao-bar select,.ao-bar button{font:inherit;color:inherit;background:transparent;border:1px solid ${t("--border", "#2a3139")};border-radius:6px;padding:3px 8px}
   .ao-bar .ao-goal{opacity:.8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .ao-bar .ao-live{color:#7ad68a}.ao-bar .ao-live.off{color:#8e9aa8}
+  .ao-bar .ao-live{color:#7ad68a}.ao-bar .ao-live.off{color:${FG_MUTED}}.ao-bar .ao-live.err{color:#ff8a65}
   .ao-stage{position:relative;flex:1;min-height:440px}
   .ao-stage svg{position:absolute;inset:0;width:100%;height:100%}
-  .ao-card{position:absolute;transform:translate(-50%,-50%);min-width:150px;max-width:220px;background:${t("--bg-elevated", "#151b21")};border:1px solid ${t("--border", "#2a3139")};border-radius:6px;padding:6px 9px;box-shadow:0 2px 10px rgba(0,0,0,.25);cursor:pointer;transition:border-color .2s}
+  .ao-card{position:absolute;transform:translate(-50%,-50%);min-width:150px;max-width:220px;background:${CARD};border:1px solid ${t("--border", "#2a3139")};border-radius:6px;padding:6px 9px;box-shadow:0 2px 10px rgba(0,0,0,.25);cursor:pointer;transition:border-color .2s}
   .ao-card:hover{border-color:${t("--accent", "#5ac8fa")}}
   .ao-card.hub{border-color:${t("--accent", "#5ac8fa")};min-width:190px}
   .ao-card .n{display:flex;gap:6px;align-items:center;font-weight:600}
@@ -75,10 +80,22 @@ export default async function mount(container, api) {
   const state = { run: "", cursor: "", nodes: new Map(), snap: null, runs: [], dots: [], logCount: 0, ws: null, timer: null, dead: false, filter: "" };
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  runSel.addEventListener("change", () => { state.run = runSel.value; state.cursor = ""; logRows.textContent = ""; state.logCount = 0; refresh(); });
+  runSel.addEventListener("change", () => { state.run = runSel.value; state.cursor = ""; logRows.textContent = ""; state.logCount = 0; state.allMessages = []; refresh(); });
+
+  // One of the mod's routes as JSON. `routes.url()` encodes each PATH segment; the query is appended after
+  // it (passing `graph?run=…` as the path would encode the `?` and produce a segment the Loader rejects).
+  async function getJson(path, query) {
+    const qs = query ? String(query) : "";
+    const url = api.routes.url(path) + (qs ? `?${qs}` : "");
+    const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
+    let body = null;
+    try { body = await response.json(); } catch { body = null; }
+    if (!response.ok) throw new Error((body && body.error) || `HTTP ${response.status} from ${path}`);
+    return body;
+  }
 
   async function loadRuns() {
-    const r = await api.routes.fetch("runs").then((x) => x.json()).catch(() => ({ runs: [] }));
+    const r = await getJson("runs").catch((e) => { api.log.warn("runs failed", e); return { runs: [] }; });
     state.runs = r.runs || [];
     const cur = runSel.value;
     runSel.textContent = "";
@@ -98,29 +115,33 @@ export default async function mount(container, api) {
       const q = new URLSearchParams();
       if (state.run) q.set("run", state.run);
       if (state.cursor) q.set("since", state.cursor);
-      const snap = await api.routes.fetch(`graph?${q}`).then((x) => x.json());
-      if (!snap || !snap.run) { render(null); live.textContent = "● idle"; live.className = "ao-live off"; return; }
+      const snap = await getJson("graph", q.toString());
+      if (!snap || !snap.run) {
+        // the hook knows no run yet (nothing has spawned a worker); a route error is thrown above, not swallowed here
+        render(null); live.textContent = "● idle"; live.className = "ao-live off"; return;
+      }
       if (!state.run) { state.run = snap.run; await loadRuns(); }
       for (const m of snap.messages || []) appendLog(m, true);
       if (snap.cursor) state.cursor = snap.cursor;
       state.snap = snap;
       render(snap);
-      live.textContent = snap.closed ? "✓ closed" : "● live";
-      live.className = "ao-live" + (snap.closed ? " off" : "");
+      live.textContent = snap.closed ? "✓ closed" : snap.from_disk ? "○ archived (sessions gone)" : "● live";
+      live.className = "ao-live" + (snap.closed || snap.from_disk ? " off" : "");
     } catch (e) {
-      live.textContent = "● offline"; live.className = "ao-live off";
+      live.textContent = "● offline"; live.className = "ao-live err"; live.title = String(e && e.message || e);
+      if (!state.snap) render(null, `The graph route failed: ${e && e.message || e}`);
       api.log.warn("graph refresh failed", e);
     }
   }
 
-  function render(snap) {
+  function render(snap, problem) {
     cards.textContent = ""; edgesG.textContent = "";
+    const q = stage.querySelector(".ao-empty"); if (q) q.remove();
     if (!snap || !snap.orchestrator) {
-      stage.append(el("div", { class: "ao-empty" }, "No run on screen. Start a chat with the agent “agent-orchestrator” and give it a goal — its workers and the bus appear here as they are created."));
+      stage.append(el("div", { class: "ao-empty" }, problem || "No run on screen. Start a chat with the agent “agent-orchestrator” and give it a goal — its workers and the bus appear here as they are created."));
       foot.textContent = ""; goal.textContent = ""; counters.textContent = "";
       return;
     }
-    const q = stage.querySelector(".ao-empty"); if (q) q.remove();
     const W = stage.clientWidth || 800, H = stage.clientHeight || 420;
     const cx = W / 2, cy = H / 2;
     const workers = snap.workers || [];
@@ -165,7 +186,7 @@ export default async function mount(container, api) {
   function drawEdge(a, b, opacity, peer) {
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", a.x); line.setAttribute("y1", a.y); line.setAttribute("x2", b.x); line.setAttribute("y2", b.y);
-    line.setAttribute("stroke", peer ? "#c678dd" : t("--fg-muted", "#8e9aa8"));
+    line.setAttribute("stroke", peer ? "#c678dd" : FG_MUTED);
     line.setAttribute("stroke-opacity", String(opacity));
     line.setAttribute("stroke-width", "1");
     line.setAttribute("stroke-dasharray", peer ? "2 6" : "3 7");

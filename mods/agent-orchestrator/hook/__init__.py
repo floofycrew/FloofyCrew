@@ -259,8 +259,9 @@ def _route_runs(request):
     known = {r["run"] for r in out}
     for meta in _store.list_runs():
         if meta.run not in known:
-            out.append({"run": meta.run, "title": meta.run, "agent": "", "goal": meta.goal, "closed": bool(meta.closed_at),
-                        "workers": len(meta.nicks), "messages": meta.counters.get("messages", 0), "live": False})
+            out.append({"run": meta.run, "title": meta.goal or meta.run, "agent": "", "goal": meta.goal, "closed": bool(meta.closed_at),
+                        "workers": sum(1 for n in meta.nicks.values() if n != "orchestrator"),
+                        "messages": meta.counters.get("messages", 0), "live": False})
     return {"runs": out}
 
 
@@ -275,7 +276,7 @@ def _route_graph(request):
         if not runs:
             return {"run": "", "orchestrator": None, "workers": [], "messages": [], "counters": {}, "cursor": ""}
         run = runs[0]
-    snap = _graph.snapshot(run) or {"run": run, "orchestrator": None, "workers": [], "counters": {}}
+    snap = _graph.snapshot(run) or _snapshot_from_disk(run)
     meta = _store.meta(run)
     msgs = _store.messages(run, since=since or None, limit=200)
     statuses = _store.statuses(run)
@@ -286,6 +287,43 @@ def _route_graph(request):
         "statuses": statuses, "now": time.time(),
     })
     return snap
+
+
+def _snapshot_from_disk(run: str) -> dict[str, Any]:
+    """A run whose sessions the live reducer no longer knows (tabs closed, or a reload before the next slots
+    push): the picker lists it from ``meta.json``, so the graph draws it from disk too — members from the nick
+    map, each worker's last ``bus_status`` line, no liveness. Without this the page shows its empty state for a
+    run it has just listed."""
+    meta = _store.meta(run) if _store else None
+    if meta is None:
+        return {"run": run, "orchestrator": None, "workers": [], "counters": {}}
+    statuses = _store.statuses(run)
+    done_states = {"done"}
+
+    def view(key: str, nick: str) -> dict[str, Any]:
+        row = statuses.get(nick) or {}
+        state = str(row.get("state") or "")
+        progress = 100 if state in done_states else row.get("progress")
+        return {"slot": G.slot_key_of(key), "key": key, "nick": nick, "role": "orchestrator" if nick == "orchestrator" else "worker",
+                "title": meta.goal if nick == "orchestrator" else nick, "agent": "", "model": "", "running": False,
+                "needs_input": False, "gone": True, "state": "done" if state in done_states else "gone",
+                "summary": str(row.get("text") or ""), "summary_source": "bus_status" if row else "",
+                "progress": progress, "progress_source": "bus_status" if row else "", "liveness": "gone",
+                "last_activity": float(row.get("ts") or 0.0), "age_secs": max(0.0, (meta.closed_at or time.time()) - meta.created_at),
+                "stalled": False, "todo": None, "ledger": None, "href": f"/chat?slot={G.slot_key_of(key)}"}
+
+    workers = [view(key, nick) for key, nick in sorted(meta.nicks.items(), key=lambda kv: _nick_order(kv[1])) if nick != "orchestrator"]
+    return {
+        "run": run, "orchestrator": view(run, "orchestrator"), "workers": workers, "from_disk": True,
+        "counters": {"workers": len(workers), "done": sum(1 for w in workers if w["state"] == "done"), "needs_input": 0, "working": 0},
+    }
+
+
+def _nick_order(nick: str) -> tuple[int, str]:
+    try:
+        return int(nick.rsplit("-", 1)[1]), nick
+    except (IndexError, ValueError):
+        return 10**6, nick
 
 
 def _route_status(request):

@@ -249,3 +249,57 @@ def test_broadcast_ws_tap_updates_nodes_and_captures_state(hook):
     graph = hook.ctx.routes.regs[("GET", "graph")](types.SimpleNamespace(query={}))
     assert graph["workers"][0]["summary"] == "running execute_bash"
     tap_ws(fake_state, "chat_status", "not-a-dict")  # malformed frames never raise
+
+
+def test_graph_route_through_the_loader_dispatch_takes_its_query(hook, monkeypatch):
+    """The page fetches `routes.url("graph") + "?run=…&since=…"`. Pin the two halves of that contract at the Loader:
+    a query reaches the handler as request.query, and a `?` INSIDE the path segment (what routes.fetch("graph?run=")
+    produces) is a 404 with no `run` field — the bug the first page shipped with."""
+    sys.path.insert(0, str(ROOT.parents[1] / "loader-app"))
+    from floofy_loader.modroutes import ModRouteRegistry
+
+    registry = ModRouteRegistry()
+    hook.ctx.routes = registry.for_mod("agent-orchestrator")
+    activate(hook)
+    tap = hook.ctx.hooks.find("before", "kiro_crew.dashboard.state:DashboardState._broadcast")
+    tap(object(), {"_type": "slots", "_slots_list": _slots(2)})
+    status, _headers, raw = registry.dispatch_sync("agent-orchestrator", "GET", "graph", query={"run": ["dashboard:orch"], "since": [""]})
+    body = json.loads(raw)
+    assert status == 200 and body["run"] == "dashboard:orch" and len(body["workers"]) == 2
+    status, _headers, raw = registry.dispatch_sync("agent-orchestrator", "GET", "graph?run=dashboard:orch", query={})
+    body = json.loads(raw)
+    assert status == 404 and "run" not in body and body["ok"] is False
+
+
+def test_graph_route_rebuilds_a_run_from_disk_when_its_sessions_are_gone(hook):
+    activate(hook)
+    tap = hook.ctx.hooks.find("before", "kiro_crew.dashboard.state:DashboardState._broadcast")
+    tap(object(), {"_type": "slots", "_slots_list": _slots(2)})
+    svc = hook.mod._service
+    run(svc.op_bus_run("dashboard:orch", {"action": "goal", "goal": "build the status page"}))
+    run(svc.op_bus_status("dashboard:w0", {"text": "writing index.html", "progress": 40, "state": "working"}))
+    run(svc.op_bus_status("dashboard:w1", {"text": "css done", "progress": 100, "state": "done"}))
+    run(svc.op_bus_post("dashboard:w0", {"to": "orchestrator", "kind": "say", "text": "half way"}))
+    graph = hook.ctx.routes.regs[("GET", "graph")]
+    runs = hook.ctx.routes.regs[("GET", "runs")]
+    live = graph(types.SimpleNamespace(query={"run": ["dashboard:orch"]}))
+    assert live["orchestrator"]["running"] and "from_disk" not in live
+
+    # the gateway restarts (fresh reducer, nothing in the slots snapshot any more): the picker still lists the run…
+    hook.mod._graph = hook.mod._graph.__class__(orchestrator_agent="agent-orchestrator")
+    hook.mod._service.graph = hook.mod._graph
+    listed = runs(None)["runs"]
+    assert listed == [{"run": "dashboard:orch", "title": "build the status page", "agent": "", "goal": "build the status page",
+                       "closed": False, "workers": 2, "messages": 1, "live": False}]
+    # …and the graph draws it from meta.json + status.json instead of an orchestrator-less (empty-state) snapshot
+    disk = graph(types.SimpleNamespace(query={"run": ["dashboard:orch"]}))
+    assert disk["from_disk"] is True and disk["orchestrator"]["title"] == "build the status page"
+    assert [w["nick"] for w in disk["workers"]] == ["worker-1", "worker-2"]
+    w1, w2 = disk["workers"]
+    assert w1["summary"] == "writing index.html" and w1["progress"] == 40 and w1["state"] == "gone"
+    assert w2["state"] == "done" and w2["progress"] == 100
+    assert disk["counters"] == {"workers": 2, "done": 1, "needs_input": 0, "working": 0}
+    assert [m["text"] for m in disk["messages"]] == ["half way"] and disk["message_total"] == 1
+    # the slots snapshot comes back (tabs still open): live again, no disk marker
+    tap(object(), {"_type": "slots", "_slots_list": _slots(2)})
+    assert "from_disk" not in graph(types.SimpleNamespace(query={"run": ["dashboard:orch"]}))

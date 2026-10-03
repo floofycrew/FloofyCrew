@@ -62,8 +62,8 @@ the dashboard auth (Requirement 16.4, 4.6):
 | `config.get()` → object | the mod's settings — schema-free JSON | `GET /api/apps/floofycrew/mods/<id>/config` (the mod's `.floofy/config.json`) |
 | `config.set(patch)` → object | merge key by key (`null` deletes a key); the whole document must stay under 64 KiB | `PUT …/mods/<id>/config {patch}` — the same store the Python side reads as `ctx.config` |
 | `routes.list()` → `[{method, path}]` | what the mod's `python-hook` registered with `ctx.routes.add(method, path, handler)` | the Loader state |
-| `routes.fetch(path, init)` → `Response` | `fetch()` scoped to the mod's own routes; `path` is relative (`echo`, `items/3`), never absolute | `…/mods/<id>/api/<path>` |
-| `routes.url(path)` | the absolute URL of one of those routes | — |
+| `routes.fetch(path, init)` → `Response` | `fetch()` scoped to the mod's own routes; `path` is relative (`echo`, `items/3`), never absolute. Every path segment is percent-encoded, so a query string **cannot** ride inside `path` (`items?x=1` becomes one bogus segment the Loader answers with 404) — build the URL with `routes.url(path) + "?" + query` and call `fetch` yourself | `…/mods/<id>/api/<path>` |
+| `routes.url(path)` | the absolute URL of one of those routes (append `?…` to it for a query) | — |
 | `theme.tokens()` → `{"--bg": …}` | the host's CSS custom properties as computed on `:root` (declared names plus the known set) | the document |
 | `theme.current()` → `{theme, mode}` | the active colour theme (`localStorage['mc-color-theme']`, else `data-theme`) and `data-mode` | the document |
 | `state()` → the mod's Loader verdict | `active`, `reason`, `parts`, `exports`, `tier`, `routes` | `GET /state` |

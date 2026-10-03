@@ -80,7 +80,18 @@ KiroCrew; it never ships a rebuilt host.
   conversation); an optional non-retryable `max_workers` cap applies to the
   mod's own orchestrators only. Ships a scripted four-worker demo with a
   checker that proves the topology from the bus log (`demo/`). Research and
-  design in `research/orchestration-mod/`.
+  design in `research/orchestration-mod/`. 0.2.1: the graph page actually
+  draws on a live host — 0.2.0 passed its query string inside the route path
+  (`routes.fetch("graph?run=…")`), which the SPA API percent-encodes into one
+  segment the Loader rejects, so the picker listed the run while the stage sat
+  on "No run on screen" (seen on the test box). The page now appends the query
+  after `routes.url()`, shows a route failure instead of a silent `idle`, uses
+  the host's real `--text` tokens (its text was light-grey on the light theme),
+  and a run whose sessions are gone (tabs closed, a reload before the next
+  slots push) is drawn from `meta.json`/`status.json` as *archived* rather than
+  empty; disk-only runs no longer count the orchestrator as a worker in the
+  picker. The page probe now runs end to end through the real `createModApi`
+  and the real Loader route dispatch — the stub that hid the bug is gone.
 
 ### Fixed
 

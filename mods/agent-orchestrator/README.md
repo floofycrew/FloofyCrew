@@ -93,6 +93,8 @@ next step (the worker prompt says to), and `bus_inbox(wait_secs)` still blocks.
 ```sh
 floofy validate .                        # schema, hashes, parts, targets, network scan
 uv run pytest mods/agent-orchestrator    # bus store/service, graph reducer, MCP server, hook
+python tests/page_probe.py [--screenshot out.png]  # headless Chromium, END TO END: the real SPA mod API,
+                                         # the real Loader route dispatch, the real hook on a seeded run
 floofy dev . --follow                    # link into the data home, stream the mod's log
 python tests/smoke_test.py --refresh     # rewrite files[] hashes after editing
 ```
