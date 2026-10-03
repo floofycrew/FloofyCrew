@@ -13,6 +13,13 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Mods
 
+* `model-retry-policy` 0.1.1 — fixes the page forgetting every selection: the
+  save path spread the `enabled` flag through its object merge, so the flag was
+  stored as `{}`, which the hook read as "off" and every mechanism rendered back
+  as the host default. Scalars now pass through unchanged, the hook treats only
+  an explicit boolean `false` as off (a malformed value already on disk heals
+  itself), and a headless page probe replays the pick / toggle / count /
+  profile / reload sequence against a stateful fake api.
 * `agent-backend-router` 0.2.0 — routes across model namespaces: Claude Code
   and Codex join the pool when installed, and a session goes to one of them
   only when that backend's own served-model list carries the very same model

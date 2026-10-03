@@ -52,6 +52,16 @@ def test_disabled_is_host_behaviour_whatever_else_is_set():
     assert P.effective_chain(c) is None
 
 
+@pytest.mark.parametrize("junk", [{}, "false", 0, [], None])
+def test_only_an_explicit_false_disables(junk):
+    # The page once wrote `enabled: {}` (a boolean spread through an object merge);
+    # bool({}) is False, so every mechanism the user clicked read back as "host".
+    c = cfg(enabled=junk, retries={"mode": "infinite"}, delay={"mode": "exponential"})
+    assert c["enabled"] is True
+    assert P.preset_of(c) == "infinite_exponential"
+    assert P.effective_retries(c) == P.INFINITE
+
+
 def test_merged_config_sanitises_everything():
     c = cfg(retries={"mode": "nope", "count": -4}, delay={"mode": "x", "interval_s": "abc", "factor": 99, "jitter": 3, "max_s": -1},
             fallback={"enabled": True, "profile": "missing", "profiles": {"a": {"steps": [{"model": "  "}, "bare-id", {"model": "with space"}, {"model": "ok", "retries": 0}], "exhausted": "wat", "primary_retries": "7"}}})

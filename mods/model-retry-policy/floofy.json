@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "model-retry-policy",
   "name": "Model Retry Policy",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Chooses what KiroCrew does when the model or its API fails transiently (throttling, overload, 5xx, dropped stream) instead of the fixed three retries: a retry count of your own, retry forever at a fixed interval, retry forever with exponential backoff, or a fallback profile that moves to other models after N retries (and optionally never gives up on the last). Applies to dashboard chats, cron/Slack turns and sub-agents; works alongside Agent Backend Router. Unofficial.",
   "authors": [
     "Oscar Tseng"
@@ -57,23 +57,55 @@
     },
     {
       "path": "README.md",
-      "sha256": "026375a4e4fb6c285c275c234af092b0312c6c31937ed09c562dfd486e01f940"
+      "sha256": "8aa392600f9f8482aed05ad6d46588fb3eac36316fde0f3d3959c9477946944c"
     },
     {
       "path": "hook/__init__.py",
       "sha256": "9936fe7a9f6081cfb2af63cd8918efa3b2ed5bfca4723a90e6037a0bfc49a446"
     },
     {
+      "path": "hook/__pycache__/__init__.cpython-312.pyc",
+      "sha256": "59295ac0d7a1c3ddfeecbb5ad41b8aeb29443a63b65580c5f1eb82ac87e2f3d1"
+    },
+    {
+      "path": "hook/__pycache__/policy.cpython-312.pyc",
+      "sha256": "194ab2c8b1e00cb0ec894a0fd7bc9d6fc2024b6838c1949e9c25e688b86a45ae"
+    },
+    {
       "path": "hook/policy.py",
-      "sha256": "7442bc01060ae79a9f724c70dd80cebcf19c0808fe47a29e09e07be9c163ac4a"
+      "sha256": "c2c68778af053fe7a9cfed42b32b9d6065c8e91bb419fe9409ed523449e5a7f1"
+    },
+    {
+      "path": "tests/__pycache__/hook_test.cpython-312-pytest-9.1.1.pyc",
+      "sha256": "62c1ca43a50619369ecd74df0e9a196cac5d428e83d7a4dd4e9bf467ac8dd9bd"
+    },
+    {
+      "path": "tests/__pycache__/page_merge_test.cpython-312-pytest-9.1.1.pyc",
+      "sha256": "5e22b6c7c9f364c3ab0e4fcbd1fa90119839dd524fc8e8fe662117750a06f3ab"
+    },
+    {
+      "path": "tests/__pycache__/policy_test.cpython-312-pytest-9.1.1.pyc",
+      "sha256": "7c59777b78e45a073d445c3507ed23d4c03db472099b7b470495f24debcf434e"
+    },
+    {
+      "path": "tests/__pycache__/smoke_test.cpython-312-pytest-9.1.1.pyc",
+      "sha256": "333680a7bd46e1545a157ed4e7cfd924f0002266b3c695fde601fb84dd3225da"
     },
     {
       "path": "tests/hook_test.py",
       "sha256": "826205b3aaa9e65f7eb4a8c3cd5186539b15822388f521c8efda6c09ae82a0fc"
     },
     {
+      "path": "tests/page_merge_test.py",
+      "sha256": "03ed1c1d3ca08e5dfc5a8874862d81c8db6c8fd8bed0b6de5e2970a364fe1a35"
+    },
+    {
+      "path": "tests/page_probe.py",
+      "sha256": "3349aa7adbf2be51a316eb2b52f0c26cb79a6c6fd2251c9182f00172cade2aea"
+    },
+    {
       "path": "tests/policy_test.py",
-      "sha256": "5b2ad2a74872e2ef8b7d8a54612cc7d1193073d738465d91841b551af621fa4a"
+      "sha256": "1bdb6449b8a6407b917478d16038936614df7bae48b87c6878aed11939bc5b20"
     },
     {
       "path": "tests/smoke_test.py",
@@ -85,7 +117,7 @@
     },
     {
       "path": "ui/page.mjs",
-      "sha256": "7307ebaa86623dde0a83aae04bafec010145ffaf4afca5f54c72ad8ab1cd226e"
+      "sha256": "3c7ed359f56dfaa78d0dec27223424816ccb2492f22854849c92c315f286075b"
     }
   ]
 }

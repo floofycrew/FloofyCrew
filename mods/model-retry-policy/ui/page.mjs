@@ -67,11 +67,31 @@ const ago = (ts) => {
   return d < 60 ? `${Math.round(d)}s ago` : d < 3600 ? `${Math.round(d / 60)}m ago` : `${Math.round(d / 3600)}h ago`;
 };
 const fmtS = (s) => (s === null || s === undefined ? "–" : s >= 3600 ? `${(s / 3600).toFixed(1)} h` : s >= 60 ? `${(s / 60).toFixed(1)} min` : `${Number(s).toFixed(s < 10 ? 1 : 0)} s`);
+const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const deepMerge = (base, patch) => {
-  const out = Array.isArray(base) ? [...base] : { ...(base || {}) };
-  for (const [k, v] of Object.entries(patch || {})) out[k] = v && typeof v === "object" && !Array.isArray(v) ? deepMerge(out[k], v) : v;
+  const out = isPlainObject(base) ? { ...base } : {};
+  for (const [k, v] of Object.entries(patch || {})) out[k] = isPlainObject(v) ? deepMerge(out[k], v) : v;
   return out;
 };
+function stripNulls(value) {
+  if (Array.isArray(value)) return value.filter((v) => v !== null).map(stripNulls);
+  if (isPlainObject(value)) { const out = {}; for (const [k, v] of Object.entries(value)) if (v !== null) out[k] = stripNulls(v); return out; }
+  return value;
+}
+
+// The document config.set receives for *patch*: config.set merges TOP-LEVEL keys only
+// (null deletes one), while the policy's keys are nested objects. So each object-valued
+// key is deep-merged against the current document and sent whole, with nulls inside it
+// removed (a null under `fallback.profiles` deletes that profile). A scalar key — the
+// `enabled` flag — is sent as it is: spreading a boolean through the merge would turn
+// it into `{}`, which the hook reads as "off" (that was the bug every click hit).
+export function mergePatch(current, patch) {
+  const full = {};
+  for (const [key, value] of Object.entries(patch || {})) {
+    full[key] = value === null ? null : isPlainObject(value) ? stripNulls(deepMerge((current || {})[key], value)) : value;
+  }
+  return full;
+}
 
 export default async function mount(container, api) {
   const tokens = api.theme.tokens();
@@ -89,23 +109,13 @@ export default async function mount(container, api) {
   const cfg = () => (status && status.config) || config;
 
   const note = el("span", { "data-testid": "mrp-note", style: { color: muted, marginLeft: "0.6rem" } }, "");
-  // config.set merges TOP-LEVEL keys only (null deletes one); the policy's keys are nested
-  // objects, so every patch is deep-merged here against the current document and each
-  // touched top-level key is sent whole. A null inside `fallback.profiles` removes that profile.
   async function save(patch) {
     note.textContent = "saving…";
     const current = await api.config.get();
-    const full = {};
-    for (const key of Object.keys(patch)) full[key] = patch[key] === null ? null : stripNulls(deepMerge(current[key], patch[key]));
-    config = await api.config.set(full);
+    config = await api.config.set(mergePatch(current, patch));
     try { await api.routes.fetch("apply", { method: "POST" }); } catch (error) { api.log.warn("apply failed", error); }
     note.textContent = `saved ${new Date().toLocaleTimeString()}`;
     await refresh();
-  }
-  function stripNulls(value) {
-    if (Array.isArray(value)) return value.filter((v) => v !== null).map(stripNulls);
-    if (value && typeof value === "object") { const out = {}; for (const [k, v] of Object.entries(value)) if (v !== null) out[k] = stripNulls(v); return out; }
-    return value;
   }
 
   async function loadModels() {

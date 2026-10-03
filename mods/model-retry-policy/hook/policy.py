@@ -148,7 +148,11 @@ def merged_config(stored: dict[str, Any] | None) -> dict[str, Any]:
     """Defaults overlaid with *stored*, every value clamped to something the host can live with."""
     cfg = copy.deepcopy(DEFAULTS)
     stored = stored if isinstance(stored, dict) else {}
-    cfg["enabled"] = bool(stored.get("enabled", True))
+    # Only an explicit boolean switches the policy off; anything else (missing, or a
+    # malformed value another writer left behind) is the default, "on". ``bool({})``
+    # would be False and silently pin every mechanism to the host's behaviour.
+    enabled = stored.get("enabled", True)
+    cfg["enabled"] = enabled if isinstance(enabled, bool) else True
 
     r = stored.get("retries") if isinstance(stored.get("retries"), dict) else {}
     cfg["retries"]["mode"] = r.get("mode") if r.get("mode") in RETRY_MODES else "host"

@@ -76,7 +76,8 @@ KiroCrew's own chain walk.
 ## Development
 
 ```bash
-python -m pytest tests/            # the policy brain + the hooks against a fake host through FloofyCrew's real registry
+python -m pytest tests/            # the policy brain, the hooks against a fake host through FloofyCrew's real registry, and the page's save merge (under node)
+python tests/page_probe.py         # headless Chromium: the page against a stateful fake api — pick, toggle, count, profile, reload all stick
 floofy validate .                  # schema, hashes, parts, targets, network scan
 python tests/smoke_test.py --refresh   # rewrite files[] after editing
 ```
