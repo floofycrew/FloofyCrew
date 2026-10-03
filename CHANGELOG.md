@@ -11,6 +11,23 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Mods
+
+* `agent-backend-router` 0.2.0 — routes across model namespaces: Claude Code
+  and Codex join the pool when installed, and a session goes to one of them
+  only when that backend's own served-model list carries the very same model
+  (same base name and, where the id spells it, the same context window), in
+  which case it receives that list's spelling of it. No model is ever
+  substituted: Claude models may land on kiro/KAS/Claude Code, GPT models on
+  kiro/KAS/Codex, `auto` and warm-pool spawns stay in the requested namespace.
+  On the internal edition a session that leaves the kiro family sheds the
+  kiro-only credential-broker env and one that lands on Claude Code gains what
+  that edition's Claude factory adds (Bedrock env, permission mode, companion
+  classes). The page shows each backend's namespace, family rule and served
+  list, lets you declare served ids for a backend whose list is still cold,
+  and answers "which backends may serve model X?" for any id. New config keys
+  `cross_namespace` (default on) and `served_overrides`.
+
 ## 1.3.5 — 2026-10-02
 
 A patch on 1.3.4 that ships what landed right after its cut: the finished
