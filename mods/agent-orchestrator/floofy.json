@@ -84,7 +84,7 @@
     },
     {
       "path": "demo/seam-check.sh",
-      "sha256": "238b6b1ab1e92983825c3f53c0453f1953b330840cd95f547d371b6d76ea3880"
+      "sha256": "7f5f5f05bad34f25277ac643114eb7897280350851902bcea5670f0608f00cd6"
     },
     {
       "path": "hook/__init__.py",
