@@ -93,6 +93,15 @@ KiroCrew; it never ships a rebuilt host.
   files and directories still survive. Until a release carries this, update
   such a mod with `floofy disable <id>` first.
 
+* **A mod's manifest `icon` no longer breaks the registry index.** A manifest
+  `icon` is a relative path to a file shipped with the mod (`floofy.schema`);
+  `registry_tools build` copied it into the index entry, whose schema wants a
+  URL, so recording the first mod with one (kirocrew-ide 0.17.2) made
+  `index.json` fail its own schema check. The build now indexes an icon only
+  when it is a URL — a curated `mods/<id>/mod.json` `icon`, or an https manifest
+  icon — and leaves a path out; a registry client has nothing to fetch it from
+  anyway. FloofyCrewRegistry carries the same bytes under `vendor/`.
+
 ## 1.3.5 — 2026-10-02
 
 A patch on 1.3.4 that ships what landed right after its cut: the finished
