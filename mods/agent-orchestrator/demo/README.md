@@ -80,7 +80,11 @@ rm -rf ~/floofy-demo/status-page
 ```
 
 Close the five tabs (or leave them; a new goal in a new orchestrator tab is a
-new run). Closed runs are swept from the data dir after `run_retention_days`.
+new run). Run `check.py` **before** you delete the orchestrator chat: deleting
+it for good deletes the run's bus log too (the record the checker reads), so the
+page does not pile up dead runs. Closing the tabs keeps the record; the page then
+shows the run as `○ archived (chats gone)` with a `✕ remove` button, and any
+record ages out after `run_retention_days`.
 
 ## Variations
 

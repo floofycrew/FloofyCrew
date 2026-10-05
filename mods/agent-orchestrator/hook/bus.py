@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -391,21 +392,48 @@ class BusStore:
 
     # -- retention --------------------------------------------------------------------------------
 
-    def sweep(self, *, older_than_secs: float) -> list[str]:
-        """Remove CLOSED runs whose close is older than the window; open runs are never touched."""
-        removed: list[str] = []
-        now = time.time()
-        for meta in self.list_runs():
-            if meta.closed_at and now - float(meta.closed_at) > older_than_secs:
-                d = self.run_dir(meta.run)
-                for f in d.iterdir():
-                    try:
-                        f.unlink()
-                    except OSError:
-                        pass
+    def remove_run(self, run: str) -> bool:
+        """Delete a run's record (meta, bus log, statuses, lock) — the whole directory. ``False`` if there was none."""
+        d = self.run_dir(run)
+        if not d.is_dir():
+            return False
+        shutil.rmtree(d, ignore_errors=True)
+        return not d.exists()
+
+    def last_activity(self, run: str) -> float:
+        """When the run last changed on disk: the newest mtime among its files (``created_at`` when unreadable)."""
+        d = self.run_dir(run)
+        stamps = []
+        try:
+            for f in d.iterdir():
+                if f.name == ".lock":
+                    continue  # the lock is touched by every reader
                 try:
-                    d.rmdir()
-                    removed.append(meta.run)
+                    stamps.append(f.stat().st_mtime)
                 except OSError:
                     pass
+        except OSError:
+            pass
+        if stamps:
+            return max(stamps)
+        meta = self.meta(run)
+        return float(meta.created_at) if meta else 0.0
+
+    def sweep(self, *, older_than_secs: float, live: Iterable[str] = ()) -> list[str]:
+        """Age out runs: a CLOSED run once its close is older than the window, and a run that was never closed
+        (its orchestrator stopped without ``bus_run close`` — the tabs were deleted, or the agent fell back to
+        the ledger) once nothing has touched it for the window AND it is not in ``live`` (a run whose sessions
+        the reducer still sees is never swept, however old)."""
+        removed: list[str] = []
+        now = time.time()
+        live_set = {str(r) for r in live}
+        for meta in self.list_runs():
+            if meta.run in live_set:
+                continue
+            if meta.closed_at:
+                stale = now - float(meta.closed_at) > older_than_secs
+            else:
+                stale = now - self.last_activity(meta.run) > older_than_secs
+            if stale and self.remove_run(meta.run):
+                removed.append(meta.run)
         return removed

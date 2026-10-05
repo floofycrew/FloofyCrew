@@ -138,3 +138,18 @@ def test_bare_created_by_slot_keys_join_the_same_run_as_the_hub():
     assert snap["orchestrator"]["nick"] == "orchestrator" and snap["orchestrator"]["role"] == "orchestrator"
     assert g.nodes["app-child"].created_by == "app:floofycrew"  # another scheme is left alone, never a hub
     assert G.creator_key_of("") == "" and G.creator_key_of("dashboard:x") == "dashboard:x" and G.creator_key_of("x") == "dashboard:x"
+
+
+def test_is_live_and_forget():
+    g = make({"t": 1000.0})
+    assert g.is_live(ORCH)
+    g.on_slots([s for s in base_slots() if s["key"] != "orch"])  # the orchestrator tab closed, workers open
+    assert g.is_live(ORCH) and g.runs() == [ORCH]
+    g.on_slots([s for s in base_slots() if s["key"] not in ("orch", "w1", "w2")])  # every tab of the run closed
+    assert not g.is_live(ORCH) and g.runs() == [ORCH]  # still remembered: the picker lists it as ○, not gone
+    assert g.forget(ORCH) == 3
+    assert g.runs() == [] and g.run_of("w1") == "" and "orch" not in g.nodes and "lonely" in g.nodes
+    assert g.forget(ORCH) == 0
+    # the sessions come back in a later snapshot (a reload raced the forget): they are simply nodes again
+    g.on_slots(base_slots())
+    assert g.runs() == [ORCH] and g.is_live(ORCH)

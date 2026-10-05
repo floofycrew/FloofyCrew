@@ -236,6 +236,25 @@ class Graph:
         kids.sort(key=lambda n: (n.first_seen, n.slot))
         return kids
 
+    def is_live(self, run: str) -> bool:
+        """The run still has an open orchestrator tab, or an open worker tab: its record must not be removed."""
+        hub = self.nodes.get(slot_key_of(run))
+        if hub is not None and not hub.gone:
+            return True
+        return any(not n.gone for n in self.children(run))
+
+    def forget(self, run: str) -> int:
+        """Drop the hub and its workers from the reducer (the run's record was removed); returns nodes dropped.
+        A later slots snapshot that still carries the sessions re-creates them — this is for runs whose sessions
+        are gone, so the picker stops listing a run the disk no longer has."""
+        keys = [slot_key_of(run)] + [n.slot for n in self.children(run)]
+        dropped = 0
+        for key in keys:
+            if self.nodes.pop(key, None) is not None:
+                dropped += 1
+        self._nicks.pop(run, None)
+        return dropped
+
     def runs(self) -> list[str]:
         """Every session key that created at least one other session, hubs with live children first."""
         hubs: dict[str, int] = {}

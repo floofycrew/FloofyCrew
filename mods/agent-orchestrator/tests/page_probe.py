@@ -167,8 +167,12 @@ class Seam:
             return getattr(exc, "code", "") or str(exc)
         return ""
 
-    def dispatch(self, method: str, segments: list[str], query: dict[str, list[str]]):
-        return self.registry.dispatch_sync(MOD, method, "/".join(segments), query=query)
+    def dispatch(self, method: str, segments: list[str], query: dict[str, list[str]], body: bytes = b""):
+        return self.registry.dispatch_sync(MOD, method, "/".join(segments), query=query, body=body)
+
+    def close_every_tab(self):
+        """The slots push after the user closed (or deleted) every chat of the run: the reducer marks them gone."""
+        self.ctx.hooks.find("before", "kiro_crew.dashboard.state:DashboardState._broadcast")(object(), {"_type": "slots", "_slots_list": []})
 
     def close(self):
         self.loop.call_soon_threadsafe(self.loop.stop)
@@ -221,6 +225,16 @@ def make_handler(seam: Seam):
                 segments = [unquote(s) for s in url.path[len(API):].split("/") if s]
                 query = parse_qs(url.query, keep_blank_values=True)
                 status, headers, payload = seam.dispatch("GET", segments, query)
+                return self._send(status, payload, headers.get("Content-Type", "application/json"), headers)
+            self._send(404, b"", "text/plain")
+
+        def do_POST(self):
+            url = urlsplit(self.path)
+            if url.path.startswith(API):
+                seam.paths.append(f"POST {self.path}")
+                body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                segments = [unquote(s) for s in url.path[len(API):].split("/") if s]
+                status, headers, payload = seam.dispatch("POST", segments, parse_qs(url.query, keep_blank_values=True), body)
                 return self._send(status, payload, headers.get("Content-Type", "application/json"), headers)
             self._send(404, b"", "text/plain")
 
@@ -303,6 +317,29 @@ def main() -> int:
             visible = page.evaluate("[...document.querySelectorAll('.ao-log .row')].filter(r => r.style.display !== 'none').length")
             check(visible == 2, f"shift-click filters the log to worker-2's two rows (got {visible})")
             check("filter: worker-2" in page.locator(".ao-log h4").inner_text(), "filter shown in the bus title")
+
+            # --- removing a run: never while a tab is open; the ✕ appears once every chat of the run is closed
+            check(page.locator("[data-testid=ao-remove]").is_hidden(), "no remove button while the run has open tabs")
+            seam.close_every_tab()
+            page.wait_for_function("!document.querySelector('[data-testid=ao-remove]').hidden", timeout=8000)
+            check("archived (chats gone)" in page.locator(".ao-live").inner_text(), f"status after the tabs closed: {page.locator('.ao-live').inner_text()!r}")
+            check(page.locator(".ao-card").count() == 7, "the remembered run is still drawn (archived) until removed")
+            page.locator("[data-testid=ao-remove]").click()
+            page.wait_for_selector("[data-testid=floofycrew-mod-dialog-ok]", timeout=5000)
+            check("Remove" in page.locator("[data-testid=floofycrew-mod-dialog-ok]").inner_text(), "the in-document confirm offers Remove (never window.confirm)")
+            page.locator("[data-testid=floofycrew-mod-dialog-cancel]").click()
+            page.wait_for_timeout(300)
+            check(seam.mod._store.meta(RUN) is not None and page.locator(".ao-card").count() == 7, "Keep leaves the run alone")
+            page.locator("[data-testid=ao-remove]").click()
+            page.wait_for_selector("[data-testid=floofycrew-mod-dialog-ok]", timeout=5000)
+            page.locator("[data-testid=floofycrew-mod-dialog-ok]").click()
+            page.wait_for_function("document.querySelectorAll('.ao-card').length === 0", timeout=8000)
+            check(any(x.startswith(f"POST {API}runs/remove") for x in seam.paths), "the page posted runs/remove through the real mod api")
+            check(seam.mod._store.meta(RUN) is None and not seam.mod._store.run_dir(RUN).exists(), "the run's record is gone from disk")
+            check(seam.mod._graph.runs() == [], "the reducer forgot the run")
+            check(page.locator(".ao-empty").count() == 1 and "No run on screen" in page.locator(".ao-empty").inner_text(), "the page falls back to the empty state")
+            check("no orchestration runs yet" in page.locator(".ao-bar select").inner_text(), "the picker is empty")
+            check(page.locator("[data-testid=ao-remove]").is_hidden(), "the remove button hides again")
 
             page.evaluate("window.__unmount()")
             check(page.locator(".ao").count() == 0, "unmount clears the container")

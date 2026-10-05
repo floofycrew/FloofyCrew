@@ -120,6 +120,29 @@ def test_store_burst_and_close(tmp_path):
     assert store.sweep(older_than_secs=0) == ["r"] or store.sweep(older_than_secs=-1) == []
 
 
+def test_store_remove_run_and_sweep_of_never_closed_runs(tmp_path):
+    import os
+    import time
+
+    store = B.BusStore(tmp_path)
+    store.append("open-stale", frm="a", to="b", kind="say", text="1")
+    store.append("open-fresh", frm="a", to="b", kind="say", text="1")
+    store.append("open-live", frm="a", to="b", kind="say", text="1")
+    old = time.time() - 10 * 86400
+    for r in ("open-stale", "open-live"):
+        for f in store.run_dir(r).iterdir():
+            os.utime(f, (old, old))
+    assert store.last_activity("open-stale") == pytest.approx(old, abs=2)
+    assert store.last_activity("open-fresh") == pytest.approx(time.time(), abs=5)
+    # a never-closed run ages out by its last activity — unless the reducer still sees its sessions (``live``)
+    assert store.sweep(older_than_secs=86400, live=["open-live"]) == ["open-stale"]
+    assert {m.run for m in store.list_runs()} == {"open-fresh", "open-live"}
+    # explicit removal: the whole directory, lock file included; a second call says there was nothing
+    assert store.remove_run("open-live") is True and not store.run_dir("open-live").exists()
+    assert store.remove_run("open-live") is False
+    assert store.messages("open-live") == [] and store.meta("open-live") is None
+
+
 # --- service: membership gates ----------------------------------------------------------------------
 
 

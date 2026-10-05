@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import os
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -120,7 +122,8 @@ def test_activate_registers_taps_routes_and_specs(hook):
     assert ("after", "route:POST /api/session-control/send") in kinds
     assert ("after", "route:POST /api/work-ledger/report") in kinds
     assert ("replace", "route:POST /api/session-control/create") in kinds
-    assert set(hook.ctx.routes.regs) == {("GET", "runs"), ("GET", "graph"), ("GET", "status")}
+    assert ("after", "route:DELETE /api/sessions/{key}") in kinds and ("after", "route:DELETE /api/sessions") in kinds
+    assert set(hook.ctx.routes.regs) == {("GET", "runs"), ("POST", "runs/remove"), ("GET", "graph"), ("GET", "status")}
     assert hook.ctx.state["active"] is True and hook.ctx.state["max_workers"] == 6
 
     orch = json.loads((hook.agents / "agent-orchestrator.json").read_text())
@@ -363,3 +366,141 @@ def test_session_send_tap_logs_rows_with_the_0806_bare_created_by(hook):
     assert graph["orchestrator"]["nick"] == "orchestrator" and [w["nick"] for w in graph["workers"]] == ["worker-1", "worker-2"]
     runs = hook.ctx.routes.regs[("GET", "runs")](None)["runs"]
     assert runs[0]["run"] == "dashboard:chat-4" and runs[0]["workers"] == 2 and runs[0]["title"] == "goal"
+
+
+# --- removing runs: deleted chats, the page's ✕, retention ------------------------------------------------------
+
+
+class _Resp:
+    def __init__(self, data, status=200):
+        self.status = status
+        self.text = json.dumps(data)
+
+
+def _delete_req(key):
+    return types.SimpleNamespace(match_info={"key": key}, headers={})
+
+
+def _start_run(hook, n_workers=2):
+    tap = hook.ctx.hooks.find("before", "kiro_crew.dashboard.state:DashboardState._broadcast")
+    tap(object(), {"_type": "slots", "_slots_list": _slots(n_workers)})
+    svc = hook.mod._service
+    run(svc.op_bus_run("dashboard:orch", {"action": "goal", "goal": "build the status page"}))
+    run(svc.op_bus_status("dashboard:w0", {"text": "writing index.html", "progress": 40, "state": "working"}))
+    return tap
+
+
+def test_deleting_the_orchestrator_chat_removes_the_run(hook):
+    """The report behind this: deleted chats left the run on the page as '○ archived (sessions gone)' forever."""
+    activate(hook)
+    tap = _start_run(hook)
+    store = hook.mod._store
+    assert store.meta("dashboard:orch") is not None
+    after = hook.ctx.hooks.find("after", "route:DELETE /api/sessions/{key}")
+
+    # worker tabs still open: the orchestrator's delete does NOT take the record (the workers may still post)
+    run(after(_Resp({"ok": True}), _delete_req("dashboard:orch")))
+    assert store.meta("dashboard:orch") is not None
+    assert hook.mod._graph.nodes["orch"].gone is True
+    # the host says the orchestrator transcript is gone; the last worker is deleted → the run goes with it
+    hook.mod._state_ref = types.SimpleNamespace(conversation_log=types.SimpleNamespace(has_log=lambda k: k != "dashboard:orch"))
+    tap(object(), {"_type": "slots", "_slots_list": [s for s in _slots(2) if s["key"] != "orch"]})
+    run(after(_Resp({"ok": True}), _delete_req("dashboard:w0")))
+    assert store.meta("dashboard:orch") is not None  # w1 is still open
+    run(after(_Resp({"ok": True}), _delete_req("dashboard:w1")))
+    assert store.meta("dashboard:orch") is None and not store.run_dir("dashboard:orch").exists()
+    assert "orch" not in hook.mod._graph.nodes and hook.mod._graph.runs() == []
+    assert hook.ctx.routes.regs[("GET", "runs")](None) == {"runs": []}
+    assert any("run dashboard:orch removed" in line for _, line in hook.ctx.log.lines)
+
+
+def test_deleting_the_orchestrator_chat_after_the_workers_removes_the_run_at_once(hook):
+    activate(hook)
+    tap = _start_run(hook)
+    tap(object(), {"_type": "slots", "_slots_list": _slots(0)})  # worker tabs deleted first (or closed)
+    after = hook.ctx.hooks.find("after", "route:DELETE /api/sessions/{key}")
+    run(after(_Resp({"ok": True}), _delete_req("dashboard:orch")))
+    assert hook.mod._store.meta("dashboard:orch") is None and hook.mod._graph.runs() == []
+
+
+def test_a_failed_or_foreign_delete_removes_nothing(hook):
+    activate(hook)
+    _start_run(hook)
+    tap = hook.ctx.hooks.find("before", "kiro_crew.dashboard.state:DashboardState._broadcast")
+    tap(object(), {"_type": "slots", "_slots_list": []})  # every tab closed: the run is removable in principle
+    after = hook.ctx.hooks.find("after", "route:DELETE /api/sessions/{key}")
+    run(after(_Resp({"ok": False}), _delete_req("dashboard:orch")))  # the host refused the delete
+    run(after(_Resp({"error": "x"}, status=500), _delete_req("dashboard:orch")))
+    run(after(_Resp({"ok": True}), _delete_req("dashboard:someone-else")))  # a chat in no run
+    assert hook.mod._store.meta("dashboard:orch") is not None
+    # the user switched the behaviour off: the host's delete leaves the record (the page's ✕ still works)
+    hook.ctx.config["follow_session_delete"] = False
+    run(after(_Resp({"ok": True}), _delete_req("dashboard:orch")))
+    assert hook.mod._store.meta("dashboard:orch") is not None
+
+
+def test_bulk_clear_removes_runs_whose_orchestrator_transcript_is_gone(hook):
+    activate(hook)
+    svc = hook.mod._service
+    tap = _start_run(hook)
+    run(svc.op_bus_run("dashboard:orch", {"action": "close"}))
+    # a second, older run that exists on disk only (its sessions predate this gateway)
+    hook.mod._store.ensure_run("dashboard:old")
+    hook.mod._store.assign_nick("dashboard:old", "dashboard:old", "orchestrator")
+    tap(object(), {"_type": "slots", "_slots_list": []})
+    hook.mod._state_ref = types.SimpleNamespace(conversation_log=types.SimpleNamespace(has_log=lambda k: k == "dashboard:orch"))
+    after = hook.ctx.hooks.find("after", "route:DELETE /api/sessions")
+    run(after(_Resp({"ok": True, "cleared": 3}), types.SimpleNamespace(match_info={}, headers={})))
+    assert hook.mod._store.meta("dashboard:old") is None  # transcript gone → record gone
+    assert hook.mod._store.meta("dashboard:orch") is not None  # transcript still in history → kept (archived)
+
+
+def test_runs_remove_route_refuses_a_live_run_and_removes_an_archived_one(hook):
+    activate(hook)
+    tap = _start_run(hook)
+    remove = hook.ctx.routes.regs[("POST", "runs/remove")]
+    runs = hook.ctx.routes.regs[("GET", "runs")]
+    graph = hook.ctx.routes.regs[("GET", "graph")]
+
+    def req(body):
+        return types.SimpleNamespace(json=lambda: body, query={}, headers={})
+
+    assert remove(req(None))[0] == 400 and remove(req({}))[0] == 400
+    status, body = remove(req({"run": "dashboard:orch"}))
+    assert status == 409 and body["code"] == "run_live"
+    assert hook.mod._store.meta("dashboard:orch") is not None
+    snap = graph(types.SimpleNamespace(query={"run": ["dashboard:orch"]}))
+    assert snap["sessions_gone"] is False and runs(None)["runs"][0]["live"] is True
+
+    tap(object(), {"_type": "slots", "_slots_list": [dict(s) for s in _slots(2) if s["key"] == "w1"]})  # one worker tab open
+    assert remove(req({"run": "orch"}))[0] == 409  # the bare slot key is accepted too
+    tap(object(), {"_type": "slots", "_slots_list": []})  # every tab closed (to history, not deleted)
+    snap = graph(types.SimpleNamespace(query={"run": ["dashboard:orch"]}))
+    assert snap["sessions_gone"] is True and "from_disk" not in snap  # the reducer still remembers the nodes
+    assert runs(None)["runs"][0]["live"] is False  # the picker shows ○ for it
+    assert remove(req({"run": "dashboard:orch"})) == {"ok": True, "run": "dashboard:orch"}
+    assert hook.mod._store.meta("dashboard:orch") is None and hook.mod._graph.runs() == []
+    assert remove(req({"run": "dashboard:orch"}))[0] == 404
+
+
+def test_sweep_ages_out_never_closed_runs_but_never_a_live_one(hook, monkeypatch):
+    hook.ctx.config["run_retention_days"] = 1
+    activate(hook)
+    store = hook.mod._store
+    tap = _start_run(hook)  # never closed; its tabs are open
+    store.ensure_run("dashboard:stale")  # never closed, sessions long gone
+    store.ensure_run("dashboard:recent")
+    store.update_meta("dashboard:closed-old", closed_at=time.time() - 3 * 86400)
+    two_days_ago = time.time() - 2 * 86400
+    for d in (store.run_dir("dashboard:stale"), store.run_dir("dashboard:orch")):
+        for f in d.iterdir():
+            os.utime(f, (two_days_ago, two_days_ago))
+    monkeypatch.setattr(hook.mod, "_last_sweep", 0.0)
+    tap(object(), {"_type": "slots", "_slots_list": _slots(2)})  # the hourly tick rides on the slots push
+    left = {m.run for m in store.list_runs()}
+    assert left == {"dashboard:orch", "dashboard:recent"}  # stale + closed-old swept; the live old run kept
+    assert hook.mod._graph.runs() == ["dashboard:orch"]
+    # not more often than hourly
+    os.utime(store.run_dir("dashboard:recent") / "meta.json", (two_days_ago, two_days_ago))
+    tap(object(), {"_type": "slots", "_slots_list": _slots(2)})
+    assert store.meta("dashboard:recent") is not None

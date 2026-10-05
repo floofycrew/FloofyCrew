@@ -83,7 +83,17 @@ per sender, 140 chars per status).
    `enforce_cap`, `peer_messaging` (off — hub-and-spoke; on lets workers
    address each other directly), `wake_idle`, `steer_running`,
    `nudge_cooldown_secs` (10), `inbox_wait_max_secs` (300),
-   `message_max_chars` (2000), `run_retention_days` (7), `stall_secs` (600).
+   `message_max_chars` (2000), `run_retention_days` (7),
+   `follow_session_delete` (on), `stall_secs` (600).
+4. A run stays on the page as long as its orchestrator chat exists. **Deleting**
+   that chat for good (the host's history delete, single or "clear closed
+   sessions") removes the run's record with it — bus log, status lines, meta —
+   while a worker tab is still open the record waits for that tab. Merely
+   **closing** the tabs moves the chats to history and leaves the run on the
+   page as `○ archived (chats gone)` with a `✕ remove` button; the record also
+   ages out by itself after `run_retention_days` without activity (closed or
+   not). Set `follow_session_delete` to `false` to keep records across deletes
+   and remove them only by hand.
 
 A scripted end-to-end demo (four workers, two relayed questions, verdicts, a
 `session_send` follow-up, close) is in `demo/README.md` with the goal prompt in

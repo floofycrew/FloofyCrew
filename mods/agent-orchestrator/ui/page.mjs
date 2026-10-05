@@ -27,6 +27,8 @@ export default async function mount(container, api) {
   .ao-bar select,.ao-bar button{font:inherit;color:inherit;background:transparent;border:1px solid ${t("--border", "#2a3139")};border-radius:6px;padding:3px 8px}
   .ao-bar .ao-goal{opacity:.8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ao-bar .ao-live{color:#7ad68a}.ao-bar .ao-live.off{color:${FG_MUTED}}.ao-bar .ao-live.err{color:#ff8a65}
+  .ao-bar .ao-remove{cursor:pointer;opacity:.75}.ao-bar .ao-remove:hover{opacity:1;border-color:#ff8a65;color:#ff8a65}
+  .ao-bar .ao-remove[hidden]{display:none}.ao-bar .ao-remove:disabled{opacity:.4;cursor:default}
   .ao-stage{position:relative;flex:1;min-height:440px}
   .ao-stage svg{position:absolute;inset:0;width:100%;height:100%}
   .ao-card{position:absolute;transform:translate(-50%,-50%);min-width:150px;max-width:220px;background:${CARD};border:1px solid ${t("--border", "#2a3139")};border-radius:6px;padding:6px 9px;box-shadow:0 2px 10px rgba(0,0,0,.25);cursor:pointer;transition:border-color .2s}
@@ -61,7 +63,11 @@ export default async function mount(container, api) {
   const goal = el("span", { class: "ao-goal" });
   const live = el("span", { class: "ao-live off" }, "● connecting");
   const counters = el("span", {}, "");
-  bar.append(runSel, goal, counters, live);
+  // Shown only for a run whose tabs are all closed or deleted: deletes its record (bus log, statuses, meta).
+  // A run whose orchestrator chat is DELETED for good disappears by itself (the hook follows the host's delete);
+  // this is for the closed-not-deleted case, which the host keeps in history and we would otherwise keep forever.
+  const removeBtn = el("button", { type: "button", class: "ao-remove", hidden: "", title: "delete this run's record (the chats themselves are not touched)", "data-testid": "ao-remove" }, "✕ remove");
+  bar.append(runSel, goal, counters, live, removeBtn);
   const stage = el("div", { class: "ao-stage" });
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   const edgesG = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -80,7 +86,34 @@ export default async function mount(container, api) {
   const state = { run: "", cursor: "", nodes: new Map(), snap: null, runs: [], dots: [], logCount: 0, ws: null, timer: null, dead: false, filter: "" };
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  runSel.addEventListener("change", () => { state.run = runSel.value; state.cursor = ""; logRows.textContent = ""; state.logCount = 0; state.allMessages = []; refresh(); });
+  runSel.addEventListener("change", () => { state.run = runSel.value; state.cursor = ""; logRows.textContent = ""; state.logCount = 0; state.allMessages = []; state.snap = null; refresh(); });
+
+  removeBtn.addEventListener("click", async () => {
+    const run = state.run; if (!run || removeBtn.disabled) return;
+    const title = (state.runs.find((r) => r.run === run) || {}).title || run;
+    const sure = api.dialog && api.dialog.confirm
+      ? await api.dialog.confirm(`Remove the record of “${title}”? Its bus log and status lines are deleted; the chats themselves are not touched.`, { okLabel: "Remove", cancelLabel: "Keep", danger: true })
+      : true;
+    if (!sure) return;
+    removeBtn.disabled = true; removeBtn.textContent = "removing…";
+    try {
+      await postJson("runs/remove", { run });
+      state.run = ""; state.cursor = ""; state.snap = null; state.allMessages = []; logRows.textContent = ""; state.logCount = 0;
+      await loadRuns();
+      await refresh();
+    } catch (e) {
+      live.textContent = "● remove failed"; live.className = "ao-live err"; live.title = String(e && e.message || e);
+      api.log.warn("runs/remove failed", e);
+    } finally { removeBtn.disabled = false; removeBtn.textContent = "✕ remove"; }
+  });
+
+  async function postJson(path, body) {
+    const response = await api.routes.fetch(path, { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body) });
+    let out = null; try { out = await response.json(); } catch { out = null; }
+    if (!response.ok) throw new Error((out && out.error) || `HTTP ${response.status} from ${path}`);
+    return out;
+  }
 
   // One of the mod's routes as JSON. `routes.url()` encodes each PATH segment; the query is appended after
   // it (passing `graph?run=…` as the path would encode the `?` and produce a segment the Loader rejects).
@@ -105,8 +138,13 @@ export default async function mount(container, api) {
     }
     if (!state.runs.length) runSel.append(el("option", { value: "" }, "no orchestration runs yet"));
     if (cur && state.runs.some((r) => r.run === cur)) runSel.value = cur;
+    if (state.run && !state.runs.some((r) => r.run === state.run)) {
+      // the run on screen was removed (its orchestrator chat deleted, or swept): fall to the next one, not a ghost
+      state.run = ""; state.cursor = ""; state.snap = null; state.allMessages = []; logRows.textContent = ""; state.logCount = 0;
+    }
     if (!state.run && state.runs.length) state.run = state.runs[0].run;
     if (state.run) runSel.value = state.run;
+    if (!state.run) { render(null); live.textContent = "● idle"; live.className = "ao-live off"; removeBtn.hidden = true; }
   }
 
   async function refresh() {
@@ -118,15 +156,19 @@ export default async function mount(container, api) {
       const snap = await getJson("graph", q.toString());
       if (!snap || !snap.run) {
         // the hook knows no run yet (nothing has spawned a worker); a route error is thrown above, not swallowed here
-        render(null); live.textContent = "● idle"; live.className = "ao-live off"; return;
+        render(null); live.textContent = "● idle"; live.className = "ao-live off"; removeBtn.hidden = true; return;
       }
       if (!state.run) { state.run = snap.run; await loadRuns(); }
       for (const m of snap.messages || []) appendLog(m, true);
       if (snap.cursor) state.cursor = snap.cursor;
       state.snap = snap;
       render(snap);
-      live.textContent = snap.closed ? "✓ closed" : snap.from_disk ? "○ archived (sessions gone)" : "● live";
-      live.className = "ao-live" + (snap.closed || snap.from_disk ? " off" : "");
+      // `sessions_gone`: every tab of the run is closed or deleted (the reducer may still remember the nodes, or
+      // the run is drawn from disk). Such a run is archived and removable; a run with an open tab never is.
+      const gone = Boolean(snap.sessions_gone || snap.from_disk);
+      live.textContent = gone ? (snap.closed ? "○ closed · archived (chats gone)" : "○ archived (chats gone)") : snap.closed ? "✓ closed" : "● live";
+      live.className = "ao-live" + (snap.closed || gone ? " off" : "");
+      removeBtn.hidden = !gone;
     } catch (e) {
       live.textContent = "● offline"; live.className = "ao-live err"; live.title = String(e && e.message || e);
       if (!state.snap) render(null, `The graph route failed: ${e && e.message || e}`);

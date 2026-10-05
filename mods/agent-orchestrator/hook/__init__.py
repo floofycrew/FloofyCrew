@@ -21,7 +21,13 @@ Host seams, all through ``ctx.hooks`` / ``ctx.routes`` (docs/python-api.md):
   ``enforce_cap``) — refuses a create when the caller is one of THIS mod's
   orchestrators and already has ``max_workers`` live children. Any other caller
   (the host's own conductor, a human) passes through untouched.
-* ``ctx.routes``: ``GET runs``, ``GET graph``, ``GET status`` for the page.
+* ``after`` on ``route:DELETE /api/sessions/{key}`` and ``route:DELETE /api/sessions``
+  (``follow_session_delete``) — the host's PERMANENT deletes (closing a tab only
+  moves a chat to history): deleting a run's orchestrator chat removes the run's
+  record, so the page does not keep a deleted run as "archived" forever.
+* ``ctx.routes``: ``GET runs``, ``GET graph``, ``GET status`` for the page, and
+  ``POST runs/remove`` behind its ✕ for a run whose tabs are closed but not deleted.
+  Records also age out after ``run_retention_days`` (hourly sweep on the slots push).
 
 Identity for the bus comes from ``KIROCREW_SESSION_KEY`` in the worker's
 kiro-cli environment, read by ``mcp/server.py`` (stdio MCP) and forwarded over
@@ -61,9 +67,12 @@ DEFAULTS: dict[str, Any] = {
     "inbox_wait_max_secs": 300,
     "message_max_chars": 2000,
     "run_retention_days": 7,
+    "follow_session_delete": True,  # deleting the orchestrator's chat for good deletes the run's record too
     "stall_secs": 600,
     "close_workers_on_done": False,
 }
+
+SWEEP_EVERY_SECS = 3600.0
 
 _ctx = None
 _store: B.BusStore | None = None
@@ -115,9 +124,69 @@ def _tap_broadcast(state, note, *args, **kwargs):  # before-hook on the SSE/WS n
             _seed_nicks_for_new_runs()
         except Exception:  # noqa: BLE001
             _ctx.log.debug("reducer on_slots failed", exc_info=True)
+        _maybe_sweep()
 
 
 _nick_cache: dict[str, dict[str, str]] = {}
+_last_sweep = 0.0
+
+
+def _maybe_sweep(force: bool = False) -> list[str]:
+    """Hourly housekeeping, piggybacked on the slots push (the hook has no timer of its own): age out runs past
+    ``run_retention_days`` and, when ``follow_session_delete`` is on, drop runs whose orchestrator transcript the
+    host no longer has (deleted while the mod was inactive, or by a path the delete hooks do not see)."""
+    global _last_sweep
+    if _store is None or _graph is None:
+        return []
+    now = time.time()
+    if not force and now - _last_sweep < SWEEP_EVERY_SECS:
+        return []
+    _last_sweep = now
+    cfg = _cfg()
+    removed: list[str] = []
+    try:
+        live = [r for r in _graph.runs() if _graph.is_live(r)]
+        removed += _store.sweep(older_than_secs=float(cfg["run_retention_days"]) * 86400, live=live)
+        for run in removed:
+            _graph.forget(run)
+            _nick_cache.pop(run, None)
+    except Exception:  # noqa: BLE001
+        _ctx.log.debug("sweep failed", exc_info=True)
+    if cfg.get("follow_session_delete"):
+        for meta in _store.list_runs():
+            if meta.run not in removed and not _graph.is_live(meta.run) and _hub_transcript_gone(meta.run):
+                if _remove_run(meta.run, "orchestrator transcript deleted"):
+                    removed.append(meta.run)
+    if removed:
+        _ctx.log.info("removed %d run record(s): %s", len(removed), ", ".join(removed))
+    return removed
+
+
+def _hub_transcript_gone(run: str) -> bool:
+    """True only when the host positively says the orchestrator's transcript no longer exists.
+    Unknown (no DashboardState captured yet, no conversation log) is False — never delete on a guess."""
+    log = getattr(_state_ref, "conversation_log", None)
+    has_log = getattr(log, "has_log", None)
+    if not callable(has_log):
+        return False
+    try:
+        return not bool(has_log(run))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _remove_run(run: str, reason: str) -> bool:
+    """Delete the run's record and forget it in the reducer. Refuses while an orchestrator or worker tab is open."""
+    if _store is None or _graph is None:
+        return False
+    if _graph.is_live(run):
+        return False
+    existed = _store.remove_run(run)
+    _graph.forget(run)
+    _nick_cache.pop(run, None)
+    if existed:
+        _ctx.log.info("run %s removed (%s)", run, reason)
+    return existed
 
 
 def _seed_nicks_for_new_runs() -> None:
@@ -165,6 +234,54 @@ async def _after_work_report(result, request, *args, **kwargs):
             _service.record_report(caller, str(body.get("status") or ""), str(body.get("summary") or ""))
     except Exception:  # noqa: BLE001
         _ctx.log.debug("work_report tap failed", exc_info=True)
+    return result
+
+
+SESSION_DELETE_ROUTE = "route:DELETE /api/sessions/{key}"  # the host's permanent history delete
+SESSIONS_CLEAR_ROUTE = "route:DELETE /api/sessions"  # … and its bulk "clear closed sessions"
+
+
+def _response_ok(result) -> bool:
+    if getattr(result, "status", 200) != 200:
+        return False
+    try:
+        body = json.loads(getattr(result, "text", "") or "{}")
+    except (TypeError, ValueError):
+        return True
+    return bool(body.get("ok", True)) if isinstance(body, dict) else True
+
+
+async def _after_session_delete(result, request, *args, **kwargs):
+    """The user deleted a chat for good (not just closed its tab). If it was a run's orchestrator, the run's record
+    goes with it — the whole reason the page stopped showing a deleted run as ``archived (sessions gone)``."""
+    try:
+        if not _cfg().get("follow_session_delete") or not _response_ok(result):
+            return result
+        key = G.creator_key_of((getattr(request, "match_info", None) or {}).get("key", ""))
+        if not key or _store is None or _graph is None:
+            return result
+        slot = G.slot_key_of(key)
+        node = _graph.nodes.get(slot)
+        run = _graph.run_of(slot) if node is not None else ""
+        if node is not None:  # the host has dropped the slot; the next slots push may not have reached the reducer yet
+            node.gone = True
+            node.running = False
+        if _store.meta(key) is not None or run == key:
+            _remove_run(key, "orchestrator chat deleted")  # refused while a worker tab is still open (see below)
+        elif run and not _graph.is_live(run) and _hub_transcript_gone(run):
+            _remove_run(run, "last worker chat deleted after its orchestrator")  # the orchestrator went first
+    except Exception:  # noqa: BLE001
+        _ctx.log.debug("session delete tap failed", exc_info=True)
+    return result
+
+
+async def _after_sessions_clear(result, request, *args, **kwargs):
+    """Bulk clear names no keys in its response: ask the host which orchestrator transcripts are gone."""
+    try:
+        if _cfg().get("follow_session_delete") and _response_ok(result):
+            _maybe_sweep(force=True)
+    except Exception:  # noqa: BLE001
+        _ctx.log.debug("sessions clear tap failed", exc_info=True)
     return result
 
 
@@ -281,15 +398,14 @@ async def _wake(slot_key: str, notice: str, msg_id: str) -> str:
 def _route_runs(request):
     if _graph is None or _store is None:
         return {"runs": []}
-    live = _graph.runs()
     out = []
-    for run in live:
+    for run in _graph.runs():
         meta = _store.meta(run)
         hub = _graph.nodes.get(G.slot_key_of(run))
         out.append({"run": run, "title": hub.title if hub else run, "agent": hub.agent if hub else "",
                     "goal": meta.goal if meta else "", "closed": bool(meta and meta.closed_at),
                     "workers": len(_graph.children(run)), "messages": (meta.counters.get("messages", 0) if meta else 0),
-                    "live": True})
+                    "live": _graph.is_live(run)})  # False once every tab of the run is closed: the picker shows ○
     known = {r["run"] for r in out}
     for meta in _store.list_runs():
         if meta.run not in known:
@@ -297,6 +413,30 @@ def _route_runs(request):
                         "workers": sum(1 for n in meta.nicks.values() if n != "orchestrator"),
                         "messages": meta.counters.get("messages", 0), "live": False})
     return {"runs": out}
+
+
+def _route_runs_remove(request):
+    """``POST runs/remove {"run"}`` — the page's ✕: delete a run's record once its tabs are gone (closed or deleted).
+    A run with an open orchestrator or worker tab is refused: its sessions would recreate the record on the next
+    bus call, and the picker would keep listing it from the reducer anyway."""
+    if _graph is None or _store is None:
+        return 503, {"error": "not ready"}
+    try:
+        body = request.json() if callable(getattr(request, "json", None)) else None
+    except ValueError:
+        body = None
+    run = str((body or {}).get("run") or "").strip() if isinstance(body, dict) else ""
+    if not run:
+        return 400, {"error": "body needs {\"run\": \"<run key>\"}", "code": "missing_run"}
+    run = G.creator_key_of(run)
+    if _graph.is_live(run):
+        return 409, {"error": "the run still has an open chat (orchestrator or worker); close or delete those tabs first",
+                     "code": "run_live", "run": run}
+    known = _store.meta(run) is not None or G.slot_key_of(run) in _graph.nodes
+    if not known:
+        return 404, {"error": "no such run", "code": "unknown_run", "run": run}
+    _remove_run(run, "removed from the page")
+    return {"ok": True, "run": run}
 
 
 def _route_graph(request):
@@ -319,6 +459,9 @@ def _route_graph(request):
         "messages": [m.to_dict() for m in msgs], "cursor": msgs[-1].id if msgs else since,
         "message_total": meta.counters.get("messages", 0) if meta else 0,
         "statuses": statuses, "now": time.time(),
+        # every tab of the run is closed or deleted (drawn from the reducer's memory or from disk): the page shows
+        # it as archived and offers ✕ remove — a live run never does
+        "sessions_gone": not _graph.is_live(run),
     })
     return snap
 
@@ -475,6 +618,12 @@ def activate(ctx):
     ctx.hooks.after("route:POST /api/session-control/send", _after_session_send)
     ctx.hooks.after("route:POST /api/work-ledger/report", _after_work_report)
     ctx.hooks.replace("route:POST /api/session-control/create", _replace_session_create)
+    for target, fn in ((SESSION_DELETE_ROUTE, _after_session_delete), (SESSIONS_CLEAR_ROUTE, _after_sessions_clear)):
+        try:
+            ctx.hooks.after(target, fn)
+        except Exception as exc:  # noqa: BLE001 - a host without the route: records still age out on the sweep
+            ctx.log.warning("%s not hookable on host %s (%s): deleted chats will not remove their run until the "
+                            "hourly sweep or the page's remove button", target, ctx.host.version, exc)
     try:
         ctx.hooks.after(KAS_PROJECT_TARGET, _after_kas_project_mcp_servers)
         ctx.state["kas_identity_bridge"] = True
@@ -484,6 +633,7 @@ def activate(ctx):
                         "caller_unidentified; the kiro-cli backend is unaffected", ctx.host.version, exc)
 
     ctx.routes.add("GET", "runs", _route_runs)
+    ctx.routes.add("POST", "runs/remove", _route_runs_remove)
     ctx.routes.add("GET", "graph", _route_graph)
     ctx.routes.add("GET", "status", _route_status)
 
@@ -493,12 +643,9 @@ def activate(ctx):
         ctx.log.error("agent spec install failed: %s", exc)
         ctx.state["spec_error"] = f"{type(exc).__name__}: {exc}"
 
-    try:
-        swept = _store.sweep(older_than_secs=float(cfg["run_retention_days"]) * 86400)
-        if swept:
-            ctx.log.info("swept %d closed runs", len(swept))
-    except Exception:  # noqa: BLE001
-        ctx.log.debug("sweep failed", exc_info=True)
+    global _last_sweep
+    _last_sweep = 0.0
+    _maybe_sweep(force=True)  # retention only here: no DashboardState yet, so no transcript check (that is the hourly tick)
 
     _socket = R.SocketServer(_service, sock)
     try:

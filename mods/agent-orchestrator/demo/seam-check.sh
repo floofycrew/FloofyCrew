@@ -28,5 +28,8 @@ check "KAS: projection takes session_key"      acp/kas_agents.py             'KI
 check "slot projection: created_by"            dashboard/slot_projection.py  'created_by'
 check "slot projection: needs_input"           dashboard/slot_projection.py  'needs_input'
 check "create_session inherits _trust posture" dashboard/session_control.py  '_trust'
+check "route DELETE /api/sessions/{key}"       dashboard/routes/system.py    'add_delete\("/api/sessions/\{key\}"'
+check "route DELETE /api/sessions (clear)"     dashboard/routes/system.py    'add_delete\("/api/sessions",'
+check "conversation_log.has_log"               history.py                    'def has_log\('
 echo "-- route registrations (any file):"
-grep -rn --include='*.py' -E 'session-control/(create|send)|work-ledger/report' "$PKG" | grep -vE '^\s*#|docstring' | sed "s#$PKG/##" | head -8
+grep -rn --include='*.py' -E 'session-control/(create|send)|work-ledger/report|add_delete\("/api/sessions' "$PKG" | grep -vE '^\s*#|docstring' | sed "s#$PKG/##" | head -10
