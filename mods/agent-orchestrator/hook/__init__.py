@@ -129,15 +129,22 @@ def _tap_broadcast(state, note, *args, **kwargs):  # before-hook on the SSE/WS n
 
 _nick_cache: dict[str, dict[str, str]] = {}
 _last_sweep = 0.0
+_swept_with_state = False  # the first sweep that could ask the host about transcripts has run
 
 
 def _maybe_sweep(force: bool = False) -> list[str]:
     """Hourly housekeeping, piggybacked on the slots push (the hook has no timer of its own): age out runs past
     ``run_retention_days`` and, when ``follow_session_delete`` is on, drop runs whose orchestrator transcript the
-    host no longer has (deleted while the mod was inactive, or by a path the delete hooks do not see)."""
-    global _last_sweep
+    host no longer has (deleted while the mod was inactive, or by a path the delete hooks do not see).
+
+    The activation sweep cannot ask about transcripts (no DashboardState yet), so the first sweep after the state
+    is captured is forced: a run deleted while the mod was inactive goes at the first slots push, not an hour later."""
+    global _last_sweep, _swept_with_state
     if _store is None or _graph is None:
         return []
+    if _state_ref is not None and not _swept_with_state:
+        _swept_with_state = True
+        force = True
     now = time.time()
     if not force and now - _last_sweep < SWEEP_EVERY_SECS:
         return []
@@ -643,9 +650,10 @@ def activate(ctx):
         ctx.log.error("agent spec install failed: %s", exc)
         ctx.state["spec_error"] = f"{type(exc).__name__}: {exc}"
 
-    global _last_sweep
+    global _last_sweep, _swept_with_state
     _last_sweep = 0.0
-    _maybe_sweep(force=True)  # retention only here: no DashboardState yet, so no transcript check (that is the hourly tick)
+    _swept_with_state = False
+    _maybe_sweep(force=True)  # retention only here: no DashboardState yet, so no transcript check (first slots push)
 
     _socket = R.SocketServer(_service, sock)
     try:

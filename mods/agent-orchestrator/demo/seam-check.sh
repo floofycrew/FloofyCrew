@@ -3,7 +3,8 @@
 # agent-orchestrator mod hooks? Run on the host that will run the mod:  bash seam-check.sh [version]
 # Prints one line per seam: FOUND / MISSING. Nothing is modified.
 set -u
-VER="${1:-$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.***REMOVED***/tools/kirocrew/info.json")))["CurrentVersion"])' 2>/dev/null)}"
+# info.json's CurrentVersion is a bare string on older ***REMOVED*** builds and an object {"Version": ...} on newer ones.
+VER="${1:-$(python3 -c 'import json,os;v=json.load(open(os.path.expanduser("~/.***REMOVED***/tools/kirocrew/info.json")))["CurrentVersion"];print(v["Version"] if isinstance(v,dict) else v)' 2>/dev/null)}"
 PKG="$HOME/.***REMOVED***/tools/kirocrew/$VER/lib/python3.12/site-packages/kiro_crew"
 [ -d "$PKG" ] || { echo "no payload at $PKG"; exit 2; }
 echo "payload: $VER"

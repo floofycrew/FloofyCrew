@@ -504,3 +504,22 @@ def test_sweep_ages_out_never_closed_runs_but_never_a_live_one(hook, monkeypatch
     os.utime(store.run_dir("dashboard:recent") / "meta.json", (two_days_ago, two_days_ago))
     tap(object(), {"_type": "slots", "_slots_list": _slots(2)})
     assert store.meta("dashboard:recent") is not None
+
+
+def test_first_slots_push_after_activation_drops_transcript_gone_runs_without_waiting_an_hour(hook):
+    activate(hook)  # the activation sweep ran (retention only) and stamped _last_sweep = now
+    store = hook.mod._store
+    store.ensure_run("dashboard:deleted-while-off")  # its chats were deleted from history while the mod was inactive
+    store.assign_nick("dashboard:deleted-while-off", "dashboard:deleted-while-off", "orchestrator")
+    store.ensure_run("dashboard:kept")
+    store.assign_nick("dashboard:kept", "dashboard:kept", "orchestrator")
+    state = types.SimpleNamespace(conversation_log=types.SimpleNamespace(has_log=lambda k: k == "dashboard:kept"))
+    tap = hook.ctx.hooks.find("before", "kiro_crew.dashboard.state:DashboardState._broadcast")
+    tap(state, {"_type": "slots", "_slots_list": []})  # first push: the host state is captured here
+    assert store.meta("dashboard:deleted-while-off") is None  # gone now, not at the hourly tick
+    assert store.meta("dashboard:kept") is not None
+    # and the forced first pass does not repeat: a later gone transcript waits for the hourly tick as before
+    store.ensure_run("dashboard:later")
+    store.assign_nick("dashboard:later", "dashboard:later", "orchestrator")
+    tap(state, {"_type": "slots", "_slots_list": []})
+    assert store.meta("dashboard:later") is not None
