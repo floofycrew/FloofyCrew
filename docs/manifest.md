@@ -155,8 +155,12 @@ like any other shipped code. `floofy new ui` scaffolds one.
 `{"path", "sha256"}`. A missing or mismatched file is the non-load reason
 `MissingFiles`; a shipped file that is not listed is a warning. `floofy
 validate` recomputes the hashes; the scaffold's smoke test and the registry's
-CI gate do the same. Archives with symlinks, absolute paths or `..` segments are
-rejected before extraction.
+CI gate do the same. Bytecode and tool caches (`__pycache__/`, `.git/`,
+`node_modules/`, `.pytest_cache/`, `.hypothesis/`) are never shipped — every
+hasher skips them, and a `files[]` entry under one of them is the error
+`UnshippableFile`, since a listing that only exists in a working tree would
+fail every install with `MissingFiles`. Archives with symlinks, absolute paths
+or `..` segments are rejected before extraction.
 
 ## What the loader does with all of this
 

@@ -11,6 +11,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+#: Never shipped (git ignores them, installs copy around them): the validator
+#: rejects a files[] entry under any of these, so the refresh must not list one.
+UNSHIPPED_DIRS = frozenset({".git", "__pycache__", "node_modules", ".hypothesis", ".pytest_cache"})
 
 
 def refresh() -> None:
@@ -18,8 +21,9 @@ def refresh() -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     files = []
     for path in sorted(ROOT.rglob("*")):
+        parts = path.relative_to(ROOT).parts
         rel = path.relative_to(ROOT).as_posix()
-        if not path.is_file() or rel == "floofy.json" or any(part.startswith(".") for part in path.relative_to(ROOT).parts):
+        if not path.is_file() or rel == "floofy.json" or any(part in UNSHIPPED_DIRS or part.startswith(".") for part in parts):
             continue
         files.append({"path": rel, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     manifest["files"] = files

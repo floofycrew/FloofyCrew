@@ -11,6 +11,8 @@ import hashlib
 import io
 import json
 import shutil
+import subprocess
+import sys
 import tarfile
 import threading
 import zipfile
@@ -25,7 +27,7 @@ from floofy_core.cli.main import execute, run
 from floofy_core.consent import write_consent
 from floofy_core.datahome import DataHome
 from floofy_core.modstore import installed_mods, read_enabled, read_source
-from floofy_core.scaffold import KINDS, scaffold
+from floofy_core.scaffold import KINDS, refresh_files, scaffold
 from floofy_core.validator import validate_mod
 
 from floofy_testing import EXAMPLES_DIR, FakeGateway, fake_payload
@@ -380,6 +382,36 @@ def test_new_scaffolds_a_valid_mod_for_every_kind(tmp_path: Path, kind: str):
     manifest = json.loads((root / "floofy.json").read_text(encoding="utf-8"))
     assert manifest["parts"][0]["kind"] == kind and manifest["id"] == f"my-{kind}"
     assert {f["path"] for f in manifest["files"]} >= {"README.md", "LICENSE", "tests/smoke_test.py"}
+
+
+def _grow_caches(root: Path) -> None:
+    """What a working tree grows after one test run: bytecode next to the code and a pytest cache."""
+    for cache in (root / "hook" / "__pycache__", root / "tests" / "__pycache__", root / ".pytest_cache" / "v" / "cache"):
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "x.cpython-312.pyc").write_bytes(b"\x00stale")
+    (root / "hook" / "extra.py").write_text("y = 2\n", encoding="utf-8")
+
+
+def test_refresh_files_skips_what_is_never_shipped(tmp_path: Path):
+    root = scaffold("python-hook", tmp_path, author="tests")
+    _grow_caches(root)
+    listed = {f["path"] for f in refresh_files(root)}
+    assert "hook/extra.py" in listed, "a real new file is picked up"
+    assert not any("__pycache__" in p or ".pytest_cache" in p for p in listed), listed
+    report = validate_mod(root)
+    assert report.ok, report.format()
+
+
+def test_scaffolded_smoke_test_refresh_skips_bytecode(tmp_path: Path):
+    """The generated ``tests/smoke_test.py --refresh`` is the hasher mod authors actually run."""
+    root = scaffold("python-hook", tmp_path, author="tests")
+    _grow_caches(root)
+    run = subprocess.run([sys.executable, str(root / "tests" / "smoke_test.py"), "--refresh"], capture_output=True, text=True, check=False)
+    assert run.returncode == 0, run.stderr
+    manifest = json.loads((root / "floofy.json").read_text(encoding="utf-8"))
+    listed = {f["path"] for f in manifest["files"]}
+    assert "hook/extra.py" in listed and not any("__pycache__" in p or ".pytest_cache" in p for p in listed), listed
+    assert validate_mod(root).ok
 
 
 def test_new_command_and_validate_command(env, tmp_path: Path):

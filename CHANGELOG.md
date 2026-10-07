@@ -42,7 +42,12 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Mods
 
-* `model-retry-policy` 0.1.1 — fixes the page forgetting every selection: the
+* `model-retry-policy` 0.1.2 — ships a `files[]` that every install can verify:
+  0.1.1's manifest listed six `__pycache__/*.pyc` entries that its smoke test's
+  `--refresh` had hashed from the working tree, which git never commits and no
+  install carries, so the registry's `validate-submission` (and any install from
+  the record) failed `MissingFiles`. The refresh now skips what is never
+  shipped; no behaviour change. 0.1.1 — fixes the page forgetting every selection: the
   save path spread the `enabled` flag through its object merge, so the flag was
   stored as `{}`, which the hook read as "off" and every mechanism rendered back
   as the host default. Scalars now pass through unchanged, the hook treats only
@@ -108,6 +113,18 @@ KiroCrew; it never ships a rebuilt host.
   calls in the demo were logged as `send` rows.
 
 ### Fixed
+
+* **Bytecode can no longer be hashed into `files[]`.** Both `files[]`
+  refreshers — `floofy_core.scaffold.refresh_files` and the `tests/smoke_test.py
+  --refresh` that `floofy new` scaffolds — walked every non-dot file, so a mod
+  refreshed after its tests had run listed `__pycache__/*.pyc`; git ignores
+  those, the installer copies around them, and every install from such a record
+  failed `MissingFiles` (seen on kirocrew-ide 0.15.0 and model-retry-policy
+  0.1.1). Both refreshers now prune the directories the validator never treats
+  as shipped (`__pycache__`, `.git`, `node_modules`, `.pytest_cache`,
+  `.hypothesis`), and `floofy validate` rejects a `files[]` entry under any of
+  them as `UnshippableFile` instead of passing a manifest that would fail on
+  the first install.
 
 * **An update no longer fails on a live socket in `.floofy/`.** `floofy
   install` keeps a mod's runtime state across an update by copying `.floofy/`

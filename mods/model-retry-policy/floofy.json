@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "model-retry-policy",
   "name": "Model Retry Policy",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Chooses what KiroCrew does when the model or its API fails transiently (throttling, overload, 5xx, dropped stream) instead of the fixed three retries: a retry count of your own, retry forever at a fixed interval, retry forever with exponential backoff, or a fallback profile that moves to other models after N retries (and optionally never gives up on the last). Applies to dashboard chats, cron/Slack turns and sub-agents; works alongside Agent Backend Router. Unofficial.",
   "authors": [
     "Oscar Tseng"
@@ -64,32 +64,8 @@
       "sha256": "9936fe7a9f6081cfb2af63cd8918efa3b2ed5bfca4723a90e6037a0bfc49a446"
     },
     {
-      "path": "hook/__pycache__/__init__.cpython-312.pyc",
-      "sha256": "59295ac0d7a1c3ddfeecbb5ad41b8aeb29443a63b65580c5f1eb82ac87e2f3d1"
-    },
-    {
-      "path": "hook/__pycache__/policy.cpython-312.pyc",
-      "sha256": "194ab2c8b1e00cb0ec894a0fd7bc9d6fc2024b6838c1949e9c25e688b86a45ae"
-    },
-    {
       "path": "hook/policy.py",
       "sha256": "c2c68778af053fe7a9cfed42b32b9d6065c8e91bb419fe9409ed523449e5a7f1"
-    },
-    {
-      "path": "tests/__pycache__/hook_test.cpython-312-pytest-9.1.1.pyc",
-      "sha256": "62c1ca43a50619369ecd74df0e9a196cac5d428e83d7a4dd4e9bf467ac8dd9bd"
-    },
-    {
-      "path": "tests/__pycache__/page_merge_test.cpython-312-pytest-9.1.1.pyc",
-      "sha256": "5e22b6c7c9f364c3ab0e4fcbd1fa90119839dd524fc8e8fe662117750a06f3ab"
-    },
-    {
-      "path": "tests/__pycache__/policy_test.cpython-312-pytest-9.1.1.pyc",
-      "sha256": "7c59777b78e45a073d445c3507ed23d4c03db472099b7b470495f24debcf434e"
-    },
-    {
-      "path": "tests/__pycache__/smoke_test.cpython-312-pytest-9.1.1.pyc",
-      "sha256": "333680a7bd46e1545a157ed4e7cfd924f0002266b3c695fde601fb84dd3225da"
     },
     {
       "path": "tests/hook_test.py",
@@ -109,7 +85,7 @@
     },
     {
       "path": "tests/smoke_test.py",
-      "sha256": "0af2adc8bc063e2d00b3d21caca9bb22a99e4384aef1bacb845748182cebdc60"
+      "sha256": "c1faeadfa338932d5bc491152b906c1118201d9d82db82872f51fb3bc73eedef"
     },
     {
       "path": "ui/icon.svg",
