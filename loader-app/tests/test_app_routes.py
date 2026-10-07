@@ -364,6 +364,30 @@ def test_registry_trust_loosening_asks_first_and_writes_the_cli_rows(homes: Path
     assert key["url"] == "https://registry.example/"
 
 
+def test_the_editions_default_source_cannot_be_removed_through_the_app(homes: Path, monkeypatch: pytest.MonkeyPatch):
+    """Requirement 8.12: DELETE /registries/{key} on the edition's default source is refused (422, audited); `registry list`
+    flags the row so the page can hide its Remove. The App runs the CLI in-process, so the edition's default rows are
+    stubbed on the context the way an adapter would supply them."""
+    from floofy_core.cli.context import CliContext
+
+    rows = [{"url": "https://registry.example/default/", "name": "ours", "trust": "index", "keyId": "k1"}]
+    monkeypatch.setattr(CliContext, "default_registry_sources", lambda self: list(rows))
+    app = Home(homes / "app", consent=True)
+    assert app.call("registries.add", body={"url": "https://registry.example/default/", "name": "ours", "refresh": False})[0] == 200
+    assert app.call("registries.add", body={"url": "https://registry.example/other/", "name": "theirs", "refresh": False})[0] == 200
+    status, body = app.call("registries.list")
+    flags = {row["label"]: row["editionDefault"] for row in body["json"]["sources"]}
+    assert flags == {"ours": True, "theirs": False}
+    status, body = app.call("registries.remove", {"key": "ours"})
+    assert status == 422 and "default registry source and cannot be removed" in body["error"], body
+    refused = app.audit()[-1]
+    assert refused["op"] == "registry-remove" and refused["result"] == "refused" and refused["actor"] == "app"
+    labels = [row["name"] for row in json.loads(app.paths.registries.read_text(encoding="utf-8"))["sources"]]
+    assert labels == ["ours", "theirs"], "nothing was removed"
+    status, body = app.call("registries.remove", {"key": "theirs"})
+    assert status == 200 and app.audit()[-1]["result"] == "ok", "any other source is still removable"
+
+
 # --- read routes ------------------------------------------------------------------------------------------
 
 

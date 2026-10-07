@@ -125,7 +125,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("registries.remove", "Remove", cmd_registry.registry, ("registry", "remove", "{url}")),
     Action("registries.refresh", "Refresh every source", cmd_registry.registry, ("registry", "refresh")),
     Action("registries.refresh_one", "Refresh this source", cmd_registry.registry, ("registry", "refresh", "{url}")),
-    Action("registries.defaults", "Record the edition's default source", cmd_registry.registry, ("registry", "defaults")),
+    Action("registries.defaults", "Re-apply the edition's default source (shipped settings, host App Store rows)", cmd_registry.registry, ("registry", "defaults")),
     Action("profiles.list", "List profiles", cmd_profile.profile, ("profile", "list")),
     Action("profiles.save", "Save the installed set as a profile", cmd_profile.profile, ("profile", "save", "{name}")),
     Action("profiles.use", "Switch to this profile (staged)", cmd_profile.profile, ("profile", "use", "{name}"), needs_consent=True),
@@ -628,9 +628,9 @@ class TuiApp:
             except Exception as exc:  # noqa: BLE001
                 self.pager("Registries", [f"registries.json unreadable: {exc}"], tone="danger")
                 return
-            labels = [f"{s.label}  trust={s.trust}" + ("  UNSIGNED ACCEPTED" if s.allow_unsigned else "") + f"  {s.url}" for s in sources]
-            extras = ["+ Add a source…", "↻ Refresh every source", "≡ Record the edition's default source", "≡ List sources (cache state)"]
-            choice = self.menu("Registries", labels + extras, header=[("sources and their trust; the merged cache feeds search/install/update", "muted")])
+            labels = [f"{s.label}  trust={s.trust}" + ("  UNSIGNED ACCEPTED" if s.allow_unsigned else "") + ("  [default · kept]" if cmd_registry.is_edition_default(self.ctx, s) else "") + f"  {s.url}" for s in sources]
+            extras = ["+ Add a source…", "↻ Refresh every source", "≡ List sources (cache state)"]
+            choice = self.menu("Registries", labels + extras, header=[("sources and their trust; the merged cache feeds search/install/update", "muted"), ("the edition's default source is recorded by floofy init and kept fetched; it cannot be removed", "muted")])
             if choice is None:
                 return
             if choice < len(sources):
@@ -639,8 +639,6 @@ class TuiApp:
                 self.add_source()
             elif choice == len(sources) + 1:
                 self.act("registries.refresh")
-            elif choice == len(sources) + 2:
-                self.act("registries.defaults")
             else:
                 self.act("registries.list")
 
@@ -665,9 +663,13 @@ class TuiApp:
         return choice == 0
 
     def source_actions(self, source: Any) -> None:
-        keys = ["registries.refresh_one", "registries.trust", "registries.trust_unsigned", "registries.remove"]
-        labels = [action("registries.refresh_one").label, "Change the trust level (index / owner)", "Accept unsigned indexes from this source" if not source.allow_unsigned else "Require a verified signature again", action("registries.remove").label]
-        choice = self.menu(f"Source {source.label}", labels, header=[(source.url, None), (f"trust={source.trust} allowUnsigned={source.allow_unsigned} keyId={source.key_id or '-'}", "muted")], allow_filter=False)
+        is_default = cmd_registry.is_edition_default(self.ctx, source)
+        keys = ["registries.refresh_one", "registries.trust", "registries.trust_unsigned"] + ([] if is_default else ["registries.remove"])
+        labels = [action("registries.refresh_one").label, "Change the trust level (index / owner)", "Accept unsigned indexes from this source" if not source.allow_unsigned else "Require a verified signature again"] + ([] if is_default else [action("registries.remove").label])
+        header = [(source.url, None), (f"trust={source.trust} allowUnsigned={source.allow_unsigned} keyId={source.key_id or '-'}", "muted")]
+        if is_default:
+            header.append(("the edition's default source: recorded by floofy init, kept fetched, never removable (its trust settings are yours)", "muted"))
+        choice = self.menu(f"Source {source.label}", labels, header=header, allow_filter=False)
         if choice is None:
             return
         key = keys[choice]

@@ -13,6 +13,26 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Changed
 
+* **The edition's registry is there from the first start, and it stays.**
+  FloofyCrew's own registry for the running edition (`floofycrew-internal` on
+  the internal edition, `floofycrew` on the public one, each verified against
+  the key the edition pins) used to wait for a *Record the edition's default
+  source* click or `floofy registry defaults` — a fresh install searched an
+  empty cache. `floofy init` now records the source itself and fetches it, so
+  Registry › Search and Updates are populated when the App first opens; the
+  hourly re-apply trigger records it again should it go missing and fetches it
+  while its cache is not usable (never fetched, refused, errored). Both are
+  best-effort: `--offline` records without fetching, a fetch that fails is a
+  warning the trigger retries, `init` never fails on it, and `floofy doctor`
+  reports the source's state (a problem when it is missing or unusable). The
+  source cannot be removed: `floofy registry remove` refuses it (audited), the
+  App's row shows a *default · kept* badge and no Remove, the interactive
+  terminal offers none. The trust settings on it remain yours — `init` and the
+  trigger only add a missing row, never reset `trust` / `allowUnsigned`; `floofy
+  registry defaults` is the explicit reset to the shipped settings and the way
+  to add the host App Store row. `registry list` flags the row
+  (`editionDefault`); the App's manual *Record…* button is gone.
+  Requirement 8.12.
 * **The Mods page, laid out as asked.** *Mod pages* is one compact line per mod
   with its own page — icon + mod name | mod id — and the **name is the link**
   that opens the page (dimmed and unlinked, with the reason beside it, while the

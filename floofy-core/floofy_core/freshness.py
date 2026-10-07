@@ -17,15 +17,23 @@ the PATH wrapper on the public one; design DR-3). It performs, best-effort:
   trigger costs at most one GET a day;
 * a **registry-source refresh** at most once every :data:`REFRESH_TTL` seconds,
   judged by the newest ``meta.json`` ``fetchedAt`` across the configured
-  sources (a source that has never been fetched does not force one — the user
-  has not opted into that registry's traffic until the first explicit refresh
-  wrote a cache; missing/broken metadata among fetched sources counts as stale).
+  sources (a source the user added but never fetched does not force one — the
+  user has not opted into that registry's traffic until the first explicit
+  refresh wrote a cache; missing/broken metadata among fetched sources counts as
+  stale);
+* the **edition's default source** (Requirement 8.12), before the two above:
+  recorded when it is missing from ``registries.json`` (add-only — a row the
+  user has keeps its trust settings) and fetched on every tick while its cache
+  is not usable (never fetched, refused, errored), because FloofyCrew's own
+  registry is the one source the user consented to at ``floofy init``. Once it
+  is usable it falls under the daily rule like every other source.
 
 Both steps are silent and never raise: the trigger's job is re-applying patches,
 and an expired credential, an offline desk or a broken feed must not fail it —
 the caches simply stay at their previous state (the release check grades itself
 ``unreachable`` and keeps the previous ``latest``). ``updates.check`` false
-disables both steps; the audit trail comes from the steps themselves
+disables the two update steps (the default source is still recorded, not
+fetched); the audit trail comes from the steps themselves
 (``registry-refresh`` rows carry ``actor=trigger`` via ``FLOOFY_ACTOR``).
 """
 from __future__ import annotations
@@ -67,16 +75,40 @@ def _newest_fetch(ctx: Any, sources: list[Any]) -> tuple[float | None, bool]:
     return newest, any_fetched
 
 
+def _default_source_step(ctx: Any, *, fetch: bool) -> str:
+    """Requirement 8.12 on the trigger: record the edition's default source when missing, fetch it while its cache is unusable."""
+    from .cli.cmd_registry import ensure_default_sources, fetch_default_sources  # noqa: PLC0415
+    from .registry_sources import SourceStore  # noqa: PLC0415
+
+    store = SourceStore.load(ctx.home)
+    record = ensure_default_sources(ctx, store, why="re-apply trigger")
+    if record["status"] in ("none", "error"):
+        return record["status"] if record["status"] == "none" else f"error: {record.get('error')}"
+    if not record["pending"]:
+        return f"{record['status']}, usable"
+    if not fetch:
+        return f"{record['status']}, not fetched ({'offline' if ctx.offline else 'updates.check false'})"
+    outcome = fetch_default_sources(ctx, store, record["pending"], why="re-apply trigger")
+    return f"{record['status']}, fetched: usable {len(outcome['usable'])}, refused {len(outcome['refused'])}"
+
+
 def run(ctx: Any, *, now: float | None = None) -> dict[str, Any]:
     """The trigger's freshness pass; returns a small report for ``--json`` documents. Never raises."""
-    report: dict[str, Any] = {"selfUpdate": "skipped", "registry": "skipped"}
-    if ctx.offline:
-        report["selfUpdate"] = report["registry"] = "offline"
-        return report
+    report: dict[str, Any] = {"selfUpdate": "skipped", "registry": "skipped", "defaultSource": "skipped"}
     try:
         enabled = bool(ctx.settings().get("updates.check"))
     except Exception:  # noqa: BLE001 - unreadable settings never fail the trigger
         enabled = True
+
+    # 0. the edition's default source: recorded when missing (no network), fetched while unusable (Requirement 8.12)
+    try:
+        report["defaultSource"] = _default_source_step(ctx, fetch=enabled and not ctx.offline)
+    except Exception as exc:  # noqa: BLE001
+        report["defaultSource"] = f"error: {exc}"
+
+    if ctx.offline:
+        report["selfUpdate"] = report["registry"] = "offline"
+        return report
     if not enabled:
         report["selfUpdate"] = report["registry"] = "disabled (updates.check false)"
         return report

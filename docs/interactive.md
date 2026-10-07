@@ -20,9 +20,12 @@ unofficial and says so on every screen.
   (a text field for `ssh://…` or `https://…`, `@tag` optional), *Restore a
   quarantined set*, *Show the quarantine*, *Status*.
 - **Registries** — the sources and their trust; Enter on a source for Refresh,
-  Change the trust level, Accept/require unsigned indexes, Remove; plus *Add a
+  Change the trust level, Accept/require unsigned indexes, Remove (not offered
+  on the edition's default source, marked `[default · kept]`: FloofyCrew's own
+  registry is recorded by `floofy init`, kept fetched by the re-apply trigger
+  and never removable — its trust settings are still yours); plus *Add a
   source* (URL, trust level, signature requirement), *Refresh every source*,
-  *Record the edition's default source*, *List*.
+  *List*.
 - **Profiles** — Enter on a profile for the plan, Switch (staged), Switch now,
   Export; plus *Save the installed set*, *Import from a file*.
 - **Doctor** and **Check for updates** (then an explicit "update all now").

@@ -148,6 +148,18 @@ def test_registry_refresh_buttons_show_progress_and_a_verdict():
     assert "payload.sources" in registry, "the verdict reads the CLI's per-source records from the route document's `json`"
 
 
+def test_the_editions_default_source_is_badged_and_has_no_remove():
+    """Registry › Sources (Requirement 8.12): the edition's default source — recorded by `floofy init`, kept fetched — is badged
+    and offers no Remove; every other source keeps its Remove. The manual "Record the edition's default source" button is gone."""
+    registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
+    assert "const isDefault = Boolean(source.editionDefault);" in registry, "the flag comes from `registry list` rows"
+    assert "floofycrew-source-default-${source.label}" in registry and '"default · kept"' in registry
+    assert re.search(r'isDefault \? null : React\.createElement\("button", \{[^\n]*"data-testid": `floofycrew-source-remove-\$\{source\.label\}`[^\n]*\}, "Remove"\)', registry), "Remove is rendered for non-default sources only"
+    for stale in ("floofycrew-registry-defaults", '"Record the edition\'s default source"', "/registries/defaults"):
+        assert stale not in registry, stale
+    assert "cannot be removed" in registry, "the Sources intro says the default is kept"
+
+
 def test_mod_pages_open_from_the_name_link_not_a_gear():
     """Mod pages: [icon + mod name] | mod id — the NAME is the link that opens the page; no gear, no 'Open …' button."""
     modpage = (UI / "app" / "pages" / "modpage.mjs").read_text(encoding="utf-8")

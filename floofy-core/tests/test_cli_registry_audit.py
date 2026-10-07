@@ -10,6 +10,7 @@ import base64
 import hashlib
 import io
 import json
+import shutil
 import threading
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -424,3 +425,142 @@ def test_source_store_round_trip_and_keys(tmp_path: Path):
         store.add(Source("http://x.example/"))
     assert registry_sources.is_usable("verified", Source("https://x/")) and not registry_sources.is_usable("unsigned", Source("https://x/"))
     assert registry_sources.is_usable("invalid", Source("https://x/", allow_unsigned=True)) and not registry_sources.is_usable(None, Source("https://x/", allow_unsigned=True))
+
+
+# --- the edition's default source (Requirement 8.12) ---------------------------------------------------
+
+
+def _ship_default(monkeypatch: pytest.MonkeyPatch, env, key, name: str = "ours") -> dict:
+    """Stub the edition adapter's ``default_sources()`` row: the loopback registry, pinned to ``key`` like the shipped rows."""
+    from floofy_core.cli.context import CliContext
+
+    row = {"url": env.base, "name": name, "trust": "index", "keyId": key.key_id}
+    monkeypatch.setattr(CliContext, "default_registry_sources", lambda self: [dict(row)])
+    monkeypatch.setattr(registry_sources, "KEY_PROVIDER", lambda: {key.key_id: key.public_key})
+    return row
+
+
+def test_init_records_and_fetches_the_editions_default_source(env, monkeypatch: pytest.MonkeyPatch):
+    """``floofy init`` records the edition's default source itself and fetches it, so the registry is populated from the first
+    start; a second init finds it present and fetches nothing; the audit names the step (Requirement 8.12)."""
+    from floofy_core.signing import generate_keypair
+
+    key = generate_keypair("registry")
+    row = _ship_default(monkeypatch, env, key)
+    env.publish(INDEX, key=key)
+    first = env.run("init", "--no-loader-app", "--no-trigger")
+    assert first.exit == 0, first.stderr
+    registry = first.json["registry"]
+    assert registry["status"] == "recorded" and [s["label"] for s in registry["sources"]] == ["ours"] and registry["added"] == registry["pending"]
+    assert registry["fetched"]["usable"] == registry["added"] and registry["fetched"]["sources"][0]["signature"]["status"] == "verified" and registry["fetched"]["mergedMods"] == 1
+    assert "registry source: ours recorded" in first.stdout and "fetching ours" in first.stdout and "ours fetched — 1 mod(s), signature verified by key" in first.stdout
+    stored = SourceStore.load(env.paths).sources
+    assert len(stored) == 1 and stored[0].url == row["url"] and stored[0].trust == "index" and stored[0].key_id == key.key_id and stored[0].host_registry is None
+    assert [m.id for m in IndexCache.load(env.paths).mods] == ["reggy"], "the merged cache is populated by init"
+    ops = [(r["op"], r["result"]) for r in read_audit(env.paths.audit)]
+    assert ops[-3:] == [("registry-add", "ok"), ("registry-refresh", "ok"), ("init", "ok")]
+    rows = read_audit(env.paths.audit)
+    assert "floofy init" in rows[-3]["detail"] and "floofy init" in rows[-2]["detail"] and "defaultSource=recorded" in rows[-1]["detail"]
+    hits_after_first = len(_Registry.hits)
+    again = env.run("init", "--no-loader-app", "--no-trigger")
+    assert again.exit == 0 and again.json["registry"]["status"] == "present" and again.json["registry"]["pending"] == [] and again.json["registry"]["fetched"] is None
+    assert len(_Registry.hits) == hits_after_first, "a usable cache is not fetched again"
+    assert "already recorded" in again.stdout and "nothing to fetch" in again.stdout
+    assert [r["op"] for r in read_audit(env.paths.audit)].count("registry-add") == 1
+
+
+def test_init_offline_or_with_an_unreachable_default_never_fails(env, monkeypatch: pytest.MonkeyPatch):
+    """``--offline`` records without fetching; a default that cannot be fetched is a warning, init still succeeds, and the
+    next run (the trigger's, or init again) fetches it — never a hard failure of the install."""
+    from floofy_core.signing import generate_keypair
+
+    key = generate_keypair("registry")
+    _ship_default(monkeypatch, env, key)
+    offline = env.run("--offline", "init", "--no-loader-app", "--no-trigger")
+    assert offline.exit == 0 and offline.json["registry"]["status"] == "recorded" and offline.json["registry"]["fetched"] is None
+    assert "not fetched (--offline)" in offline.stdout and _Registry.hits == []
+    assert len(SourceStore.load(env.paths).sources) == 1
+    # nothing published yet: the fetch fails (404), init warns and succeeds
+    broken = env.run("init", "--no-loader-app", "--no-trigger")
+    assert broken.exit == 0 and broken.json["registry"]["status"] == "present" and broken.json["registry"]["fetched"]["refused"] == broken.json["registry"]["pending"]
+    assert "ours not fetched" in broken.stderr and "HTTP 404" in broken.stderr and "retries hourly" in broken.stderr
+    assert read_audit(env.paths.audit)[-2]["op"] == "registry-refresh" and read_audit(env.paths.audit)[-2]["result"] == "refused"
+    # published now: the next init fetches it (an unusable cache is pending again)
+    env.publish(INDEX, key=key)
+    healed = env.run("--json", "init", "--no-loader-app", "--no-trigger")
+    assert healed.exit == 0 and healed.json["registry"]["fetched"]["usable"] == healed.json["registry"]["pending"] and [m.id for m in IndexCache.load(env.paths).mods] == ["reggy"]
+    # doctor reports the default source and raises no problem once it is usable
+    doctor = env.run("doctor")
+    default = doctor.json["registry"]["defaults"][0]
+    assert default["recorded"] is True and default["usable"] is True and default["label"] == "ours" and default["mods"] == 1
+    assert not any("default registry source" in p for p in doctor.json["problems"])
+    assert "registry: default source ours recorded — 1 mod(s), signature verified" in doctor.stdout
+
+
+def test_the_editions_default_source_cannot_be_removed_and_is_flagged(env, monkeypatch: pytest.MonkeyPatch):
+    """``registry remove`` refuses the default by url, key and name (audited ``refused``), other sources go as before, and
+    ``registry list`` flags the default (``editionDefault``) for the App and the TUI."""
+    from floofy_core.signing import generate_keypair
+
+    key = generate_keypair("registry")
+    row = _ship_default(monkeypatch, env, key)
+    env.publish(INDEX, key=key)
+    assert env.run("--json", "init", "--no-loader-app", "--no-trigger").exit == 0
+    assert env.run("--json", "registry", "add", f"{env.base}other/", "--name", "theirs", "--no-refresh").exit == 0
+    default = SourceStore.load(env.paths).find("ours")
+    for ref in ("ours", row["url"], default.key):
+        refused = env.run("--json", "registry", "remove", ref)
+        assert refused.exit == 1 and "default registry source and cannot be removed" in refused.stderr and "--trust index|owner" in refused.stderr, ref
+        last = read_audit(env.paths.audit)[-1]
+        assert last["op"] == "registry-remove" and last["result"] == "refused" and "edition's default source" in last["detail"]
+    assert [s.name for s in SourceStore.load(env.paths).sources] == ["ours", "theirs"] and [m.id for m in IndexCache.load(env.paths).mods] == ["reggy"], "nothing changed"
+    listed = env.run("registry", "list")
+    assert {s["label"]: s["editionDefault"] for s in listed.json["sources"]} == {"ours": True, "theirs": False}
+    assert listed.stdout.splitlines()[0].startswith("ours:") and "the edition's default source (kept)" in listed.stdout.splitlines()[0] and "(kept)" not in listed.stdout.splitlines()[1]
+    removed = env.run("--json", "registry", "remove", "theirs")
+    assert removed.exit == 0 and read_audit(env.paths.audit)[-1]["result"] == "ok" and [s.name for s in SourceStore.load(env.paths).sources] == ["ours"]
+    # doctor flags a missing default (registries.json hand-edited) as a problem; the trigger and init heal it
+    env.paths.registries.write_text(json.dumps({"schema": 1, "sources": []}), encoding="utf-8")
+    doctor = env.run("doctor")
+    assert doctor.json["registry"]["defaults"][0]["recorded"] is False and any("default registry source ours is not recorded" in p for p in doctor.json["problems"])
+    assert "registry: default source ours missing" in doctor.stdout
+
+
+def test_the_users_trust_settings_on_the_default_survive_init_and_the_trigger(env, monkeypatch: pytest.MonkeyPatch):
+    """The default source's trust settings stay the user's: init and the re-apply trigger only add a missing row;
+    ``registry defaults`` is the explicit reset to the shipped settings (Requirement 8.12, 11.3)."""
+    from floofy_core.signing import generate_keypair
+
+    key = generate_keypair("registry")
+    row = _ship_default(monkeypatch, env, key)
+    env.publish(INDEX, key=key)
+    assert env.run("--json", "init", "--no-loader-app", "--no-trigger").exit == 0
+    loosened = env.run("--json", "registry", "add", row["url"], "--trust", "owner", "--allow-unsigned", "--no-refresh")
+    assert loosened.exit == 0 and loosened.json["loosened"] is True
+    assert env.run("--json", "init", "--no-loader-app", "--no-trigger").exit == 0
+    kept = SourceStore.load(env.paths).find("ours")
+    assert kept.trust == "owner" and kept.allow_unsigned is True, "init never resets the user's trust decision"
+    # the re-apply trigger's entry point (`apply --if-changed` runs the freshness pass): present, usable, untouched
+    tick = env.run("--json", "apply", "--if-changed", "--no-verify")
+    assert tick.exit == 0 and tick.json["freshness"]["defaultSource"] == "present, usable", tick.json.get("freshness")
+    kept = SourceStore.load(env.paths).find("ours")
+    assert kept.trust == "owner" and kept.allow_unsigned is True
+    # a missing default (registries.json hand-edited) is recorded again by the next tick: with its cache still on disk
+    # nothing is fetched and the merged cache is rebuilt; with the cache gone too it is fetched
+    env.paths.registries.write_text(json.dumps({"schema": 1, "sources": []}), encoding="utf-8")
+    tick = env.run("--json", "apply", "--if-changed", "--no-verify")
+    assert tick.exit == 0 and tick.json["freshness"]["defaultSource"] == "recorded, usable", tick.json.get("freshness")
+    healed = SourceStore.load(env.paths).find("ours")
+    assert healed is not None and healed.trust == "index" and healed.allow_unsigned is False and [m.id for m in IndexCache.load(env.paths).mods] == ["reggy"]
+    env.paths.registries.write_text(json.dumps({"schema": 1, "sources": []}), encoding="utf-8")
+    shutil.rmtree(env.paths.cache_sources / healed.key)
+    tick = env.run("--json", "apply", "--if-changed", "--no-verify")
+    assert tick.exit == 0 and tick.json["freshness"]["defaultSource"] == "recorded, fetched: usable 1, refused 0", tick.json.get("freshness")
+    assert [m.id for m in IndexCache.load(env.paths).mods] == ["reggy"]
+    rows = [r for r in read_audit(env.paths.audit) if r["op"] in ("registry-add", "registry-refresh")]
+    assert rows[-2]["op"] == "registry-add" and "re-apply trigger" in rows[-2]["detail"] and rows[-1]["op"] == "registry-refresh" and "re-apply trigger" in rows[-1]["detail"]
+    # the explicit reset: every shipped row re-added with its shipped settings
+    assert env.run("--json", "registry", "add", row["url"], "--trust", "owner", "--allow-unsigned", "--no-refresh").exit == 0
+    reset = env.run("--json", "registry", "defaults", "--no-host-registry")
+    assert reset.exit == 0 and reset.json["sources"][0]["trust"] == "index" and reset.json["sources"][0]["allowUnsigned"] is False and reset.json["usable"]
+    assert "reset to the shipped settings" in read_audit(env.paths.audit)[-2]["detail"]
