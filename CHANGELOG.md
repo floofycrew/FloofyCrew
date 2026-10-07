@@ -42,6 +42,26 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Mods
 
+* `model-retry-policy` 0.1.3 — the policy now reaches the errors that actually
+  end long turns. KiroCrew's retry ladder (the three retries this mod replaces)
+  only runs while a turn has produced no output; an error that lands after text
+  or a tool call has streamed goes down a separate dashboard path that
+  re-prompts the live session with a "continue" instruction exactly **once**
+  per user turn (`_posttoken_retry_used`) and then shows the error — so with
+  "retry forever" in force a tool-heavy turn still stopped on its second
+  mid-turn throttle (seen live: `❌ Bedrock is throttling requests` after
+  nineteen minutes of tool calls, the one recovery already spent). The hook
+  now also sits on `_ChatSlot.queue_insert` (with `_ChatSlot.append` as the
+  witness for the user row and the resuming notice): it counts the recoveries
+  per slot and, while the mechanism's mid-turn budget is not spent — N for a
+  retry count, unlimited for the two "forever" mechanisms, a profile's total
+  attempts (unlimited with "keep retrying the last model") — clears the
+  one-shot flag again right after the host has enqueued the recovery; the
+  configured delay curve applies between them. Stop still ends the turn (a
+  withheld recovery is never re-armed), the host default stays one recovery,
+  deactivate restores the host method. The page shows the mid-turn budget in
+  force, a recoveries counter and the events; sub-agents keep the host's own
+  one-shot (a hand-maintained copy in `subagent.py`, not yet hooked).
 * `model-retry-policy` 0.1.2 — ships a `files[]` that every install can verify:
   0.1.1's manifest listed six `__pycache__/*.pyc` entries that its smoke test's
   `--refresh` had hashed from the working tree, which git never commits and no

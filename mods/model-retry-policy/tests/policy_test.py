@@ -200,11 +200,29 @@ def test_rewind_falls_back_to_the_host_budget_without_an_override():
 
 def test_describe_summarises_the_policy():
     d = P.describe(cfg(retries={"mode": "infinite"}, delay={"mode": "fixed", "interval_s": 30, "jitter": 0.1}))
-    assert d["retries"] == "infinite" and d["retries_value"] == P.INFINITE
+    assert d["retries"] == "infinite" and d["retries_value"] == P.INFINITE and d["midturn"] == "infinite"
     assert d["delay"].startswith("every 30 s") and "jitter 10 %" in d["delay"]
     assert d["chain"] is None and d["profile"] is None and d["preset"] == "infinite_fixed"
     d2 = P.describe(cfg(**profile([{"model": "x"}], name="Night shift", exhausted="retry-last")))
     assert d2["profile"] == "Night shift" and d2["chain"] == ["x"] and d2["exhausted"] == "retry-last" and d2["retries"] == "3"
+    assert P.describe(cfg())["midturn"] == "host (1)"
+
+
+@pytest.mark.parametrize(
+    "over, expected",
+    [
+        ({}, None),                                                                        # host: the one-shot stays
+        ({"enabled": False, "retries": {"mode": "infinite"}}, None),
+        ({"retries": {"mode": "count", "count": 4}}, 4),
+        ({"retries": {"mode": "count", "count": 0}}, 0),                                   # zero: the first mid-turn error is shown
+        ({"retries": {"mode": "infinite"}}, P.INFINITE),
+        (profile([{"model": "a", "retries": 3}, {"model": "b", "retries": 1}], primary=2), 6),   # every attempt the profile allows, on the current model
+        (profile([{"model": "a", "retries": 3}], primary=2, exhausted="retry-last"), P.INFINITE),
+        (profile([], primary=5, exhausted="stop"), 5),
+    ],
+)
+def test_midturn_budget_follows_the_same_intent_as_the_ladder(over, expected):
+    assert P.midturn_budget(cfg(**over)) == expected
 
 
 def test_journal_records_counts_persists_and_bounds(tmp_path):
@@ -214,11 +232,12 @@ def test_journal_records_counts_persists_and_bounds(tmp_path):
         j.record(P.Event(ts=float(i), surface="dashboard", kind="retry", attempt=i))
     j.record(P.Event(ts=9.0, surface="unattended", kind="swap", model="b", previous="a"))
     j.record(P.Event(ts=10.0, surface="subagent", kind="exhausted", model="b"))
+    j.record(P.Event(ts=11.0, surface="dashboard", kind="resume", attempt=1))
     j.flush(force=True)
     again = P.Journal(path, keep=5)
     assert len(again.recent()) == 5
-    assert again.counters.retries == 8 and again.counters.swaps == 1 and again.counters.exhausted == 1
-    assert again.counters.by_surface == {"dashboard": 8, "unattended": 1, "subagent": 1}
+    assert again.counters.retries == 8 and again.counters.swaps == 1 and again.counters.exhausted == 1 and again.counters.resumes == 1
+    assert again.counters.by_surface == {"dashboard": 9, "unattended": 1, "subagent": 1}
     again.clear()
     again.flush(force=True)
     assert P.Journal(path).counters.retries == 0

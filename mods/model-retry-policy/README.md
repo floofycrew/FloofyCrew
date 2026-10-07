@@ -40,18 +40,36 @@ hook (`hook/__init__.py`) sits on the seams they share:
   — the interactive ladder encodes the per-candidate budget as a counter rewind;
 * `TRANSIENT_RETRIES` — a plain `int` the host compares against, overridden by
   attribute assignment on the modules that bind it and restored on deactivate
-  (the Loader deactivates a faulting mod, so a fault restores it too).
+  (the Loader deactivates a faulting mod, so a fault restores it too);
+* the dashboard's `_ChatSlot.queue_insert`, with `_ChatSlot.append` as the
+  witness — the **mid-turn** recovery. The ladder above only runs when zero
+  output has streamed. An error that lands after the turn already produced
+  text or ran a tool is handled by a separate host path: the live session is
+  re-prompted with a "continue" instruction, exactly **once** per user turn
+  (`_posttoken_retry_used`), whatever the retry budget says — and in a long
+  tool-using turn that is where nearly every throttle lands. The hook counts
+  those recoveries per slot and, while your mid-turn budget is not spent,
+  clears the one-shot flag again right after the host has enqueued the
+  recovery, so the next mid-turn error recovers too. The budget follows the
+  mechanism you chose: N for "retry N times", unlimited for the two "forever"
+  mechanisms, and for a profile every attempt it allows in total (unlimited
+  with "keep retrying the last model") — KiroCrew cannot switch models in the
+  middle of a turn, so those all run on the current model. The configured
+  delay curve applies between mid-turn recoveries as well.
 
 Every hook calls straight through when you have not opted in, so the default
-is KiroCrew's behaviour byte-for-byte. Retries only ever happen when zero
-output has streamed (the host's own guard), and Stop ends any retry loop —
-"forever" means until the turn succeeds, you stop it, the session is reset or
-the gateway restarts. The host's start-of-turn restore probe still moves a
-session back to its primary model once that model recovers.
+is KiroCrew's behaviour byte-for-byte. Stop ends any retry loop — "forever"
+means until the turn succeeds, you stop it, the session is reset or the
+gateway restarts; a Stop pressed during a recovery's backoff withholds the
+recovery, and the mod never re-arms what was not enqueued. The host's
+start-of-turn restore probe still moves a session back to its primary model
+once that model recovers.
 
 Not governed: the Slack cron's outer two-retry wrapper around a whole job
-(it recurses per attempt and wraps the governed turn), and Discord's own
-counter.
+(it recurses per attempt and wraps the governed turn), Discord's own
+counter, and the sub-agent runner's own one-shot post-output recovery (a
+hand-maintained copy of the dashboard rule in `subagent.py`; sub-agents are
+covered for pre-output errors only).
 
 ## Configuration
 

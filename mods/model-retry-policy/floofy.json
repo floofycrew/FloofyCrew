@@ -2,8 +2,8 @@
   "schema": 1,
   "id": "model-retry-policy",
   "name": "Model Retry Policy",
-  "version": "0.1.2",
-  "description": "Chooses what KiroCrew does when the model or its API fails transiently (throttling, overload, 5xx, dropped stream) instead of the fixed three retries: a retry count of your own, retry forever at a fixed interval, retry forever with exponential backoff, or a fallback profile that moves to other models after N retries (and optionally never gives up on the last). Applies to dashboard chats, cron/Slack turns and sub-agents; works alongside Agent Backend Router. Unofficial.",
+  "version": "0.1.3",
+  "description": "Chooses what KiroCrew does when the model or its API fails transiently (throttling, overload, 5xx, dropped stream) instead of the fixed three retries: a retry count of your own, retry forever at a fixed interval, retry forever with exponential backoff, or a fallback profile that moves to other models after N retries (and optionally never gives up on the last). Applies to dashboard chats (including errors that land mid-turn, after text or a tool call has streamed), cron/Slack turns and sub-agents; works alongside Agent Backend Router. Unofficial.",
   "authors": [
     "Oscar Tseng"
   ],
@@ -57,19 +57,19 @@
     },
     {
       "path": "README.md",
-      "sha256": "8aa392600f9f8482aed05ad6d46588fb3eac36316fde0f3d3959c9477946944c"
+      "sha256": "c6546bdc3ce5288433477ad2613ffa0b9cb081c0b87ab0823dec5e320e2f49da"
     },
     {
       "path": "hook/__init__.py",
-      "sha256": "9936fe7a9f6081cfb2af63cd8918efa3b2ed5bfca4723a90e6037a0bfc49a446"
+      "sha256": "8ae313d354677e0752cf7fabd132fd028d55a90e0a05a4486fd0cf3c5a35f36d"
     },
     {
       "path": "hook/policy.py",
-      "sha256": "c2c68778af053fe7a9cfed42b32b9d6065c8e91bb419fe9409ed523449e5a7f1"
+      "sha256": "f1641d70e2920459f01c6dd3a4aada5f2c6a4a9f2b06465889b5910debc50079"
     },
     {
       "path": "tests/hook_test.py",
-      "sha256": "826205b3aaa9e65f7eb4a8c3cd5186539b15822388f521c8efda6c09ae82a0fc"
+      "sha256": "af74c8e0c7d16558b91559bcf4577da7b660373f3238501428e567a139c78ad5"
     },
     {
       "path": "tests/page_merge_test.py",
@@ -81,7 +81,7 @@
     },
     {
       "path": "tests/policy_test.py",
-      "sha256": "1bdb6449b8a6407b917478d16038936614df7bae48b87c6878aed11939bc5b20"
+      "sha256": "5457872b719e225824f3c1211cd6c8c5ebafcee26cc9fddca529b14ae1f8ab22"
     },
     {
       "path": "tests/smoke_test.py",
@@ -93,7 +93,7 @@
     },
     {
       "path": "ui/page.mjs",
-      "sha256": "3c7ed359f56dfaa78d0dec27223424816ccb2492f22854849c92c315f286075b"
+      "sha256": "5beab8e31ad864250932306a10a9442a50574fef06d2b8a7e9b10793c7c262a2"
     }
   ]
 }

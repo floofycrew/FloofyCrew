@@ -13,6 +13,8 @@ for at those seams, and nothing else:
 * :func:`effective_delay` — the seconds to sleep before the *attempt*-th retry
 * :func:`effective_chain` — the ordered fallback chain the walk should use,
   plus :func:`step_attempts` for how many attempts each candidate gets
+* :func:`midturn_budget` — how many times the dashboard may recover a turn
+  that already streamed output (the host's hard-coded one-shot)
 
 ``None`` from any of them means "the host's own value" — the wiring in
 ``__init__`` then calls straight through, so a user who has not opted in keeps
@@ -285,6 +287,39 @@ def step_attempts(cfg: dict[str, Any], chain_index: int) -> int | None:
     return steps[chain_index]["retries"]
 
 
+def midturn_budget(cfg: dict[str, Any]) -> int | None:
+    """How many mid-turn recoveries a turn gets; ``None`` = the host's own single one.
+
+    The dashboard treats a transient error that lands AFTER the turn has already
+    streamed text or run a tool differently from one that lands before any
+    output: it never re-sends the prompt (that could re-run a tool) but
+    re-prompts the live session with a "continue" instruction — and it does so
+    EXACTLY ONCE per user turn (``_ChatSlot._posttoken_retry_used``), whatever
+    ``TRANSIENT_RETRIES`` says. In a long tool-using turn nearly every throttle
+    lands there, so a policy that only governed the pre-output ladder would
+    never be felt. This is the budget for those recoveries:
+
+    * retry count N → N recoveries per user turn;
+    * infinite → unlimited (Stop still ends the turn);
+    * a fallback profile → unlimited for ``retry-last``, otherwise every attempt
+      the profile allows in total (primary + each step) — the host cannot
+      switch models mid-turn, so they all run on the current model.
+    """
+    if not cfg["enabled"]:
+        return None
+    prof = active_profile(cfg)
+    if prof is not None:
+        if prof["exhausted"] == "retry-last":
+            return INFINITE
+        return prof["primary_retries"] + sum(step["retries"] for step in prof["steps"])
+    mode = cfg["retries"]["mode"]
+    if mode == "count":
+        return cfg["retries"]["count"]
+    if mode == "infinite":
+        return INFINITE
+    return None
+
+
 def rewind_for(cfg: dict[str, Any], attempts_left: int) -> int:
     """The dashboard counter value that grants a candidate *attempts_left* more attempts.
 
@@ -323,11 +358,13 @@ def describe(cfg: dict[str, Any]) -> dict[str, Any]:
         delay = "host curve (2 s doubling)" + (f", max {d['max_s']:g} s" if retries is not None else "")
     if d["mode"] != "host" or retries is not None:
         delay += f", jitter {round(d['jitter'] * 100)} %"
+    midturn = midturn_budget(cfg)
     return {
         "host_behaviour": is_host_behaviour(cfg),
         "retries": "host (3)" if retries is None else ("infinite" if retries >= INFINITE else str(retries)),
         "retries_value": HOST_RETRIES if retries is None else retries,
         "delay": delay,
+        "midturn": "host (1)" if midturn is None else ("infinite" if midturn >= INFINITE else str(midturn)),
         "chain": list(chain) if chain is not None else None,
         "profile": prof["name"] if prof else None,
         "exhausted": prof["exhausted"] if prof else None,
@@ -360,7 +397,7 @@ def preset_of(cfg: dict[str, Any]) -> str:
 class Event:
     ts: float
     surface: str          # dashboard | unattended | subagent | cron
-    kind: str             # retry | swap | exhausted | stay
+    kind: str             # retry | resume | swap | exhausted | stay
     attempt: int = 0
     delay: float | None = None
     model: str = ""       # the model retried / swapped to
@@ -371,6 +408,7 @@ class Event:
 @dataclass
 class Counters:
     retries: int = 0
+    resumes: int = 0      # mid-turn recoveries (dashboard: the "continue" re-prompt after output had streamed)
     swaps: int = 0
     exhausted: int = 0
     stays: int = 0
@@ -421,6 +459,8 @@ class Journal:
             c = self.counters
             if event.kind == "retry":
                 c.retries += 1
+            elif event.kind == "resume":
+                c.resumes += 1
             elif event.kind == "swap":
                 c.swaps += 1
             elif event.kind == "exhausted":

@@ -28,7 +28,7 @@ REGISTRY_PY = REPO / "loader-app" / "floofy_loader" / "hooks_registry.py"
 
 pytestmark = pytest.mark.skipif(not REGISTRY_PY.exists(), reason="needs the FloofyCrew checkout (loader-app/) for the real hook registry")
 
-FAKE_MODULES = ("kiro_crew", "kiro_crew.llm_helpers", "kiro_crew.dashboard", "kiro_crew.dashboard.chat_runner", "kiro_crew.dashboard.state", "kiro_crew.subagent", "kiro_crew.slack", "kiro_crew.slack.gateway")
+FAKE_MODULES = ("kiro_crew", "kiro_crew.llm_helpers", "kiro_crew.dashboard", "kiro_crew.dashboard.chat_runner", "kiro_crew.dashboard.chat_utils", "kiro_crew.dashboard.state", "kiro_crew.subagent", "kiro_crew.slack", "kiro_crew.slack.gateway")
 
 
 # --- the fake host ---------------------------------------------------------------------------------------------
@@ -140,23 +140,42 @@ def _fake_host():
     st = types.ModuleType("kiro_crew.dashboard.state")
 
     class _ChatSlot:
-        __slots__ = ("key", "messages", "_transient_5xx_retries", "_fallback_candidate_idx", "_fallback_walked", "_fallback_primary_model", "_active_fallback_model")
+        __slots__ = ("key", "messages", "queue", "_transient_5xx_retries", "_fallback_candidate_idx", "_fallback_walked", "_fallback_primary_model", "_active_fallback_model", "_posttoken_retry_used")
 
         def __init__(self, key="slot-1"):
             self.key = key
             self.messages = []
+            self.queue = []
             self._transient_5xx_retries = 0
             self._fallback_candidate_idx = 0
             self._fallback_walked = []
             self._fallback_primary_model = ""
             self._active_fallback_model = ""
+            self._posttoken_retry_used = False
 
         def append(self, role, content, cls="", ts="", *, broadcast=True, broadcast_user=False, meta=None, mint_mid=True):
             row = {"role": role, "content": content, "meta": meta}
             self.messages.append(row)
             return row
 
+        def queue_insert(self, index, content, kind="", payload="", meta=None, on_consumed=None, on_irreversibly_consumed=None, directive_user_origin=False, directive_channel_origin=False):
+            self.queue.insert(index, {"content": content, "kind": kind, "payload": payload})
+            return f"q-{len(self.queue)}"
+
     st._ChatSlot = _ChatSlot
+
+    # dashboard/chat_utils: the constants the mid-turn recovery rows carry
+    cu = types.ModuleType("kiro_crew.dashboard.chat_utils")
+    cu.TRANSIENT_RETRY_KIND = "transient_retry"
+    cu.TRANSIENT_NOTICE_META_KEY = "notice"
+    cu.TRANSIENT_NOTICE_RESUMING = "transient_resuming"
+    cu.TRANSIENT_NOTICE_GIVE_UP = "transient_give_up"
+    cu.TRANSIENT_RESUMING_TEXT = "⟳ Connection unstable — resuming…"
+    cu.TRANSIENT_GIVE_UP_TEXT = "⚠ Connection unstable — press Continue to resume"
+    cu.SYNTHETIC_RECOVERY_KIND = "synthetic_recovery"
+    cu.POSTTOKEN_RECOVERY_PREFIX = "[Interrupted turn — automatic recovery]"
+    cu._POSTTOKEN_RECOVER_MSG = f"{cu.POSTTOKEN_RECOVERY_PREFIX}\nThe previous response was interrupted partway through by a transient backend error. Continue from where it stopped."
+    cu._SYNTHETIC_RECOVERY_MSGS = (cu._POSTTOKEN_RECOVER_MSG,)
 
     sa = types.ModuleType("kiro_crew.subagent")
     sa.TRANSIENT_RETRIES = lh.TRANSIENT_RETRIES
@@ -171,7 +190,7 @@ def _fake_host():
 
     dash = types.ModuleType("kiro_crew.dashboard")
     slack = types.ModuleType("kiro_crew.slack")
-    return {"kiro_crew": kc, "kiro_crew.llm_helpers": lh, "kiro_crew.dashboard": dash, "kiro_crew.dashboard.chat_runner": cr, "kiro_crew.dashboard.state": st,
+    return {"kiro_crew": kc, "kiro_crew.llm_helpers": lh, "kiro_crew.dashboard": dash, "kiro_crew.dashboard.chat_runner": cr, "kiro_crew.dashboard.chat_utils": cu, "kiro_crew.dashboard.state": st,
             "kiro_crew.subagent": sa, "kiro_crew.slack": slack, "kiro_crew.slack.gateway": sg}
 
 
@@ -199,6 +218,33 @@ async def dashboard_ladder(cr, slot, client, *, max_attempts):
         slot._fallback_walked = []
         return attempts, delays, "terminal"
     return attempts, delays, "cut"
+
+
+async def midturn_ladder(cr, cu, slot, *, errors, stop_after=None):
+    """The dashboard's post-emit branch: a transient error after the turn already streamed output.
+
+    Replays ``chat_runner`` 0.7/0.8: a genuine user turn resets the one-shot flag; each
+    mid-turn error either RECOVERS (resuming notice, ``transient_retry_delay(1)``, flag set,
+    the "continue" instruction enqueued as a synthetic recovery — the recovery turn never
+    refreshes the flag) or, with the flag already set, surfaces the error and ends the turn.
+    *errors* is how many mid-turn errors the backend throws before the turn would land.
+    """
+    slot.append("user", "do the thing", "msg msg-u")
+    slot._posttoken_retry_used = False  # start of a GENUINE turn (message not synthetic)
+    recoveries, delays = 0, []
+    for n in range(errors):
+        if slot._posttoken_retry_used:
+            slot.append("error", "❌ Bedrock is throttling requests.", "msg msg-err")
+            return recoveries, delays, "terminal"
+        if stop_after is not None and recoveries >= stop_after:
+            slot.append("error", cu.TRANSIENT_GIVE_UP_TEXT, "msg msg-err", meta={cu.TRANSIENT_NOTICE_META_KEY: cu.TRANSIENT_NOTICE_GIVE_UP})
+            return recoveries, delays, "stopped"
+        slot.append("error", cu.TRANSIENT_RESUMING_TEXT, "msg msg-err", meta={"kind": cu.TRANSIENT_RETRY_KIND, cu.TRANSIENT_NOTICE_META_KEY: cu.TRANSIENT_NOTICE_RESUMING})
+        delays.append(cr.transient_retry_delay(1))
+        slot._posttoken_retry_used = True
+        slot.queue_insert(0, cu._POSTTOKEN_RECOVER_MSG, kind=cu.SYNTHETIC_RECOVERY_KIND, payload="continuation")
+        recoveries += 1
+    return recoveries, delays, "landed"
 
 
 async def unattended_ladder(lh, provider, *, max_attempts):
@@ -290,7 +336,7 @@ def host(tmp_path):
         hook.activate(ctx)
         return ctx
 
-    ns = SimpleNamespace(modules=modules, lh=modules["kiro_crew.llm_helpers"], cr=modules["kiro_crew.dashboard.chat_runner"], st=modules["kiro_crew.dashboard.state"],
+    ns = SimpleNamespace(modules=modules, lh=modules["kiro_crew.llm_helpers"], cr=modules["kiro_crew.dashboard.chat_runner"], cu=modules["kiro_crew.dashboard.chat_utils"], st=modules["kiro_crew.dashboard.state"],
                          sa=modules["kiro_crew.subagent"], sg=modules["kiro_crew.slack.gateway"], registry=registry, faults=faults, hook=hook, activate=activate)
     yield ns
     if hook is not None:
@@ -462,3 +508,75 @@ def test_a_missing_seam_is_skipped_not_fatal(host, caplog):
         ctx = host.activate({"retries": {"mode": "count", "count": 2}})
     assert any("_fallback_swap_for_turn" in r.getMessage() for r in caplog.records)
     assert host.cr.TRANSIENT_RETRIES == 2 and ctx.state["preset"] == "count"
+
+
+# --- mid-turn recoveries (a transient error after the turn already streamed output) ---------------------------------------------
+
+
+def test_host_behaviour_keeps_the_one_shot_midturn_recovery(host):
+    host.activate({})
+    recoveries, delays, end = run(midturn_ladder(host.cr, host.cu, host.st._ChatSlot(), errors=5))
+    # KiroCrew's own rule: exactly one "continue" recovery per user turn, then the error is shown
+    assert (recoveries, end) == (1, "terminal") and delays == [2.0]
+    assert not host.faults
+
+
+def test_count_mode_grants_that_many_midturn_recoveries(host):
+    ctx = host.activate({"retries": {"mode": "count", "count": 3}})
+    slot = host.st._ChatSlot()
+    recoveries, _, end = run(midturn_ladder(host.cr, host.cu, slot, errors=10))
+    assert (recoveries, end) == (3, "terminal")
+    assert len([q for q in slot.queue if q["kind"] == "synthetic_recovery"]) == 3
+    assert ctx.state["resumes_seen"] == 3 and ctx.state["midturn"] == "3"
+    # fewer errors than the budget: the turn lands and no error row is written
+    recoveries2, _, end2 = run(midturn_ladder(host.cr, host.cu, host.st._ChatSlot("slot-2"), errors=2))
+    assert (recoveries2, end2) == (2, "landed")
+    assert not host.faults
+
+
+def test_infinite_midturn_recoveries_follow_the_configured_curve(host):
+    host.activate({"retries": {"mode": "infinite"}, "delay": {"mode": "exponential", "base_s": 1, "factor": 2, "max_s": 8, "jitter": 0}})
+    slot = host.st._ChatSlot()
+    recoveries, delays, end = run(midturn_ladder(host.cr, host.cu, slot, errors=7))
+    assert (recoveries, end) == (7, "landed")
+    # the host always asks for transient_retry_delay(1); the witness hands the real attempt number across
+    assert delays == [1, 2, 4, 8, 8, 8, 8]
+    assert slot._posttoken_retry_used is False  # re-armed after the last recovery too
+    resumes = [m for m in slot.messages if m["role"] == "error" and (m["meta"] or {}).get("notice") == "transient_resuming"]
+    assert len(resumes) == 7 and not any("Bedrock" in m["content"] for m in slot.messages)
+    assert not host.faults
+
+
+def test_stop_during_a_midturn_recovery_still_ends_the_turn(host):
+    host.activate({"retries": {"mode": "infinite"}, "delay": {"mode": "fixed", "interval_s": 3, "jitter": 0}})
+    slot = host.st._ChatSlot()
+    recoveries, _, end = run(midturn_ladder(host.cr, host.cu, slot, errors=9, stop_after=2))
+    # the host's own Stop guard withholds the enqueue; the mod never re-arms what was not enqueued
+    assert (recoveries, end) == (2, "stopped")
+
+
+def test_a_new_user_turn_starts_the_midturn_count_over(host):
+    host.activate({"retries": {"mode": "count", "count": 2}})
+    slot = host.st._ChatSlot()
+    assert run(midturn_ladder(host.cr, host.cu, slot, errors=5))[::2] == (2, "terminal")
+    assert run(midturn_ladder(host.cr, host.cu, slot, errors=5))[::2] == (2, "terminal")  # not 0: the "user" row reset the count
+    assert run(midturn_ladder(host.cr, host.cu, slot, errors=1))[::2] == (1, "landed")
+
+
+def test_fallback_profile_midturn_budget_is_the_profile_total_or_unlimited(host):
+    host.activate(profile([{"model": "a", "retries": 3}, {"model": "b", "retries": 1}], primary=2, exhausted="stop"))
+    assert run(midturn_ladder(host.cr, host.cu, host.st._ChatSlot(), errors=20))[::2] == (6, "terminal")  # 2 + 3 + 1, all on the current model
+    host.hook.deactivate(None)
+    host.registry.deactivate("model-retry-policy")
+    host.activate(profile([{"model": "a", "retries": 1}], primary=1, exhausted="retry-last"))
+    assert run(midturn_ladder(host.cr, host.cu, host.st._ChatSlot(), errors=30))[::2] == (30, "landed")
+
+
+def test_deactivate_restores_the_host_one_shot(host):
+    ctx = host.activate({"retries": {"mode": "infinite"}})
+    original_qi = host.registry.original("kiro_crew.dashboard.state:_ChatSlot.queue_insert")
+    assert run(midturn_ladder(host.cr, host.cu, host.st._ChatSlot(), errors=4))[::2] == (4, "landed")
+    host.hook.deactivate(ctx)
+    host.registry.deactivate("model-retry-policy")
+    assert host.st._ChatSlot.queue_insert is original_qi
+    assert run(midturn_ladder(host.cr, host.cu, host.st._ChatSlot(), errors=4))[::2] == (1, "terminal")

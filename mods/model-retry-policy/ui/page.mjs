@@ -12,11 +12,11 @@
 "use strict";
 
 const MECHANISMS = Object.freeze({
-  host: { label: "KiroCrew default", short: "3 retries, then agent.fallback_model", help: "KiroCrew's own behaviour: three same-model retries on a 2 s doubling curve, then the agent.fallback_model chain (two attempts per candidate), then the error. Nothing is overridden." },
-  count: { label: "Retry N times", short: "a retry count of your choosing", help: "Retry the same model N times (on the host's doubling curve unless you pick another below), then hand over to KiroCrew's own agent.fallback_model chain, then the error." },
-  infinite_fixed: { label: "Retry forever, fixed interval", short: "every N seconds until it works", help: "Never give up on the selected model: retry every N seconds until the turn succeeds or you press Stop." },
-  infinite_exponential: { label: "Retry forever, backoff", short: "exponential backoff up to a cap", help: "Never give up on the selected model: back off exponentially between retries (base × factor^n, capped) until the turn succeeds or you press Stop." },
-  fallback: { label: "Fallback profile", short: "switch models after N retries", help: "Retry the primary model N times, then move to the next model in the profile for its own number of attempts, and so on. When the chain is exhausted either show the error or keep retrying the last model forever." },
+  host: { label: "KiroCrew default", short: "3 retries, then agent.fallback_model", help: "KiroCrew's own behaviour: three same-model retries on a 2 s doubling curve, then the agent.fallback_model chain (two attempts per candidate), then the error. An error that lands after the turn already produced output (text or a tool call) is recovered once, then shown. Nothing is overridden." },
+  count: { label: "Retry N times", short: "a retry count of your choosing", help: "Retry the same model N times (on the host's doubling curve unless you pick another below), then hand over to KiroCrew's own agent.fallback_model chain, then the error. A turn that already produced output is recovered up to N times too." },
+  infinite_fixed: { label: "Retry forever, fixed interval", short: "every N seconds until it works", help: "Never give up on the selected model: retry every N seconds until the turn succeeds or you press Stop — whether the error lands before any output or in the middle of a long tool-using turn." },
+  infinite_exponential: { label: "Retry forever, backoff", short: "exponential backoff up to a cap", help: "Never give up on the selected model: back off exponentially between retries (base × factor^n, capped) until the turn succeeds or you press Stop — whether the error lands before any output or in the middle of a long tool-using turn." },
+  fallback: { label: "Fallback profile", short: "switch models after N retries", help: "Retry the primary model N times, then move to the next model in the profile for its own number of attempts, and so on. When the chain is exhausted either show the error or keep retrying the last model forever. KiroCrew cannot switch models in the middle of a turn, so an error that lands after output was produced is recovered on the current model, as many times as the profile allows in total (forever with \"keep retrying\")." },
 });
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -332,13 +332,15 @@ export default async function mount(container, api) {
     if (!status) return;
     const e = status.effective || {};
     effectiveLine.replaceChildren(chip("in force:", MECHANISMS[e.preset] ? MECHANISMS[e.preset].label : e.preset), chip("same-model retries", e.retries), chip("between retries", e.delay),
-      e.chain ? chip("then", e.chain.length ? e.chain.join(" → ") + (e.exhausted === "retry-last" ? " → stay" : " → error") : "error") : chip("then", "agent.fallback_model chain"));
+      e.chain ? chip("then", e.chain.length ? e.chain.join(" → ") + (e.exhausted === "retry-last" ? " → stay" : " → error") : "error") : chip("then", "agent.fallback_model chain"),
+      chip("mid-turn recoveries", e.midturn === undefined ? "host (1)" : e.midturn));
     const c = status.counters || {};
-    counters.replaceChildren(chip("retries", c.retries || 0), chip("model swaps", c.swaps || 0), chip("stayed on a candidate", c.stays || 0), chip("chains exhausted", c.exhausted || 0), chip("last", ago(c.last_ts)),
+    counters.replaceChildren(chip("retries", c.retries || 0), chip("mid-turn recoveries", c.resumes || 0), chip("model swaps", c.swaps || 0), chip("stayed on a candidate", c.stays || 0), chip("chains exhausted", c.exhausted || 0), chip("last", ago(c.last_ts)),
       ...Object.entries(c.by_surface || {}).map(([k, v]) => chip(k, v)));
     eventsPre.textContent = (status.recent || []).slice(-40).reverse().map((ev) => {
       const when = new Date(ev.ts * 1000).toLocaleTimeString();
       if (ev.kind === "retry") return `${when}  ${ev.surface.padEnd(10)} retry #${ev.attempt}  wait ${fmtS(ev.delay)}`;
+      if (ev.kind === "resume") return `${when}  ${ev.surface.padEnd(10)} mid-turn recovery #${ev.attempt}  (${ev.detail})`;
       if (ev.kind === "swap") return `${when}  ${ev.surface.padEnd(10)} switch ${ev.previous || "?"} → ${ev.model}`;
       if (ev.kind === "stay") return `${when}  ${ev.surface.padEnd(10)} stay on ${ev.model}  (${ev.detail})`;
       return `${when}  ${ev.surface.padEnd(10)} exhausted on ${ev.model}  ${ev.detail || ""}`;
