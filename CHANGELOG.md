@@ -13,6 +13,16 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Changed
 
+* **Public-export commits are the maintainer's GitHub commits.**
+  `scripts/export_public.py --out <clone>` now pins the maintainer's public git
+  identity (`PUBLIC_GIT_NAME` / `PUBLIC_GIT_EMAIL`, spelled once in the script)
+  in the public clone's own config, so the commit made there is linked to the
+  maintainer's GitHub account — never the internal address the source history
+  is written under, never a `noreply` placeholder. The pre-push review
+  (`packaging/internal/review_public_export.py`) refuses a clone whose next
+  commit, or any commit a push would publish (`@{upstream}..HEAD`), carries
+  another identity, before the model is asked; the exporter's refusals now exit
+  2 from the review CLI instead of a traceback.
 * **The edition's registry is there from the first start, and it stays.**
   FloofyCrew's own registry for the running edition (`floofycrew-internal` on
   the internal edition, `floofycrew` on the public one, each verified against

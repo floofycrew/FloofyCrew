@@ -6,6 +6,7 @@ so this file stays clean under the very scan it exercises.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -123,6 +124,69 @@ def test_export_refuses_a_non_empty_target_without_force(tmp_path: Path) -> None
 def test_export_refuses_a_target_inside_the_repository(tmp_path: Path) -> None:
     with pytest.raises(exporter.ExportError, match="outside the repository"):
         exporter.export(REPO_ROOT / "build" / "public-export")
+
+
+def _git(clone: Path, *args: str, identity: tuple[str, str] | None = None) -> str:
+    """Run git in ``clone`` with the desk's identity variables stripped, so what a
+    commit carries comes from the clone's config — or from ``identity`` when given."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_"))}
+    if identity:
+        env.update(GIT_AUTHOR_NAME=identity[0], GIT_AUTHOR_EMAIL=identity[1],
+                   GIT_COMMITTER_NAME=identity[0], GIT_COMMITTER_EMAIL=identity[1])
+    return subprocess.run(["git", "-C", str(clone), "-c", "commit.gpgsign=false", *args],
+                          check=True, capture_output=True, text=True, env=env).stdout
+
+
+def test_export_into_a_clone_pins_the_public_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A commit made in the exported clone belongs to the maintainer's GitHub
+    account, whatever the desk's global config or environment says."""
+    for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(var, raising=False)
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(clone)], check=True)
+    _git(clone, "config", "user.name", "Desk User")
+    _git(clone, "config", "user.email", "desk@example.invalid")  # a stale or default identity
+    report = exporter.export(clone)
+    assert report["identity"] == f"{exporter.PUBLIC_GIT_NAME} <{exporter.PUBLIC_GIT_EMAIL}>"
+    assert _git(clone, "config", "--get", "user.email").strip() == exporter.PUBLIC_GIT_EMAIL
+    assert _git(clone, "config", "--get", "user.name").strip() == exporter.PUBLIC_GIT_NAME
+    assert exporter.effective_identity(clone) == (exporter.PUBLIC_GIT_NAME, exporter.PUBLIC_GIT_EMAIL)
+    _git(clone, "add", "-A")
+    _git(clone, "commit", "-q", "-m", "export")
+    assert _git(clone, "-P", "log", "-1", "--format=%an <%ae> %cn <%ce>").strip() == \
+        f"{exporter.PUBLIC_GIT_NAME} <{exporter.PUBLIC_GIT_EMAIL}> {exporter.PUBLIC_GIT_NAME} <{exporter.PUBLIC_GIT_EMAIL}>"
+    exporter.check_public_identity(clone)  # the unpushed commit passes the pre-push gate
+    assert exporter.export(tmp_path / "plain-dir")["identity"] is None, "a plain directory has nothing to commit"
+
+
+def test_check_public_identity_refuses_a_wrong_config_or_a_wrong_unpushed_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(var, raising=False)
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(clone)], check=True)
+    (clone / "a.md").write_text("x\n", encoding="utf-8")
+    _git(clone, "add", "-A")
+    # a commit under the desk's identity, as a plain `git commit` before the pin would make
+    _git(clone, "commit", "-q", "-m", "wrong author", identity=("Desk User", "desk@example.invalid"))
+    _git(clone, "config", "user.name", "Desk User")
+    _git(clone, "config", "user.email", "desk@example.invalid")
+    with pytest.raises(exporter.ExportError, match="next commit .*desk@example.invalid"):
+        exporter.check_public_identity(clone)
+    exporter.configure_public_identity(clone)  # the config is fixed; the commit is still wrong
+    with pytest.raises(exporter.ExportError, match="1 unpushed commit.*desk@example.invalid"):
+        exporter.check_public_identity(clone)
+    _git(clone, "commit", "-q", "--amend", "--reset-author", "--no-edit")  # the fix the message names
+    exporter.check_public_identity(clone)
+    # a wrongly-attributed commit that is already PUSHED is not ours to rewrite: it is not reported
+    upstream = tmp_path / "upstream.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(upstream)], check=True)
+    _git(clone, "remote", "add", "origin", "../upstream.git")
+    (clone / "b.md").write_text("y\n", encoding="utf-8")
+    _git(clone, "add", "-A")
+    _git(clone, "commit", "-q", "-m", "pushed under a placeholder", identity=("Oscar Tseng", "someone@users.noreply.github.com"))
+    _git(clone, "push", "-q", "-u", "origin", "main")
+    assert exporter.unpublished_commits(clone) == []
+    exporter.check_public_identity(clone)
 
 
 def test_cli_check_passes_on_the_current_tree() -> None:

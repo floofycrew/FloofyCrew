@@ -19,6 +19,13 @@ produce a tree for the public remote:
 4. **Refuse internal remotes**: with `--out` pointing into a git clone, every
    configured remote is checked; an internal host fails the export before a
    single file is written.
+5. **Pin the public identity**: with `--out` pointing into a git clone, the
+   clone's own `user.name` / `user.email` are set to `PUBLIC_GIT_NAME` /
+   `PUBLIC_GIT_EMAIL`, so the commit the operator makes there is attributed
+   to the maintainer's GitHub account — not to the internal address the source
+   history is written under. `check_public_identity` (run by the pre-push
+   review) refuses a clone whose effective identity, or any commit a push would
+   publish, says otherwise.
 
 The script never pushes. It prints the tree (or writes it into `--out`) and the
 operator runs `git` themselves.
@@ -35,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import shutil
 import subprocess
 import sys
@@ -104,6 +112,15 @@ SKIP_NAMES: frozenset[str] = frozenset(
     {".git", "__pycache__", "node_modules", ".venv", ".scratch", "dist", "build",
      ".pytest_cache", ".hypothesis", ".floofy-run", ".builder-mcp", ".cache"}
 )
+
+#: The identity every commit bound for the public remote carries. GitHub links a
+#: commit to an account through the author/committer e-mail, so this is the
+#: maintainer's GitHub address (verified on that account); the internal address
+#: the source history is written under must never reach the public remote.
+#: Spelled in exactly one place: the exporter writes it into the public clone
+#: and the pre-push review refuses anything else.
+PUBLIC_GIT_NAME = "Oscar Tseng"
+PUBLIC_GIT_EMAIL = "oscar217b@gmail.com"
 
 def _internal_remote_markers() -> tuple[str, ...]:
     """The scanner's denylist doubles as the internal-remote check: a git remote
@@ -256,6 +273,82 @@ def check_target_remotes(target: Path) -> None:
                 )
 
 
+def _is_clone(target: Path) -> bool:
+    """True when ``target`` itself is the top level of a git repository (a
+    worktree's ``.git`` file counts; a directory *inside* some other repository does not)."""
+    result = subprocess.run(["git", "-C", str(target), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return result.returncode == 0 and Path(result.stdout.strip()).resolve() == Path(target).resolve()
+
+
+def configure_public_identity(target: Path) -> tuple[str, str] | None:
+    """Write ``PUBLIC_GIT_NAME``/``PUBLIC_GIT_EMAIL`` into the clone's own config.
+
+    A plain ``git commit`` in the public clone then carries the maintainer's
+    GitHub identity whatever the desk's global config says. Returns the identity
+    written, or ``None`` when ``target`` is not a git clone (a plain directory
+    export has nothing to commit).
+    """
+    if not _is_clone(target):
+        return None
+    for key, value in (("user.name", PUBLIC_GIT_NAME), ("user.email", PUBLIC_GIT_EMAIL)):
+        subprocess.run(["git", "-C", str(target), "config", key, value], check=True, capture_output=True, text=True)
+    return PUBLIC_GIT_NAME, PUBLIC_GIT_EMAIL
+
+
+def effective_identity(clone: Path) -> tuple[str, str]:
+    """``(name, email)`` a commit made in ``clone`` would carry: the clone's config,
+    the desk's global config, or the ``GIT_AUTHOR_*`` environment when set."""
+    values: list[str] = []
+    for var, key in (("GIT_AUTHOR_NAME", "user.name"), ("GIT_AUTHOR_EMAIL", "user.email")):
+        value = os.environ.get(var) or ""
+        if not value:
+            result = subprocess.run(["git", "-C", str(clone), "config", "--get", key], capture_output=True, text=True)
+            value = result.stdout.strip() if result.returncode == 0 else ""
+        values.append(value)
+    return values[0], values[1]
+
+
+def unpublished_commits(clone: Path) -> list[tuple[str, str, str]]:
+    """``(short sha, author email, committer email)`` of every commit a push would
+    publish: ``@{upstream}..HEAD`` when the branch tracks one, else all of HEAD's
+    history (a branch never pushed publishes everything)."""
+    upstream = subprocess.run(["git", "-C", str(clone), "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+                              capture_output=True, text=True)
+    rev = f"{upstream.stdout.strip()}..HEAD" if upstream.returncode == 0 and upstream.stdout.strip() else "HEAD"
+    result = subprocess.run(["git", "-C", str(clone), "-P", "log", "--format=%h%x00%ae%x00%ce", rev], capture_output=True, text=True)
+    if result.returncode != 0:
+        return []  # no commit yet: the first export
+    return [tuple(line.split("\0", 2)) for line in result.stdout.splitlines() if line.count("\0") == 2]  # type: ignore[misc]
+
+
+def check_public_identity(clone: Path) -> None:
+    """Refuse a clone that would publish a commit under anything but the public identity.
+
+    Two things are checked: the identity the *next* commit would carry (what the
+    operator is about to ``git commit`` with) and every commit already made but
+    not yet pushed. The internal address, a ``noreply`` placeholder or a desk
+    default all fail — the fix is ``export_public.py --out <clone>`` (which
+    re-pins the config) and, for a wrong commit, amending it before it is pushed.
+    """
+    name, email = effective_identity(clone)
+    if email != PUBLIC_GIT_EMAIL or name != PUBLIC_GIT_NAME:
+        raise ExportError(
+            f"the next commit in {clone} would be attributed to {name or '?'} <{email or '?'}>, "
+            f"not {PUBLIC_GIT_NAME} <{PUBLIC_GIT_EMAIL}>; re-run export_public.py --out on the clone "
+            "(it pins the identity in the clone's config)"
+        )
+    wrong = [(sha, author, committer) for sha, author, committer in unpublished_commits(clone)
+             if author != PUBLIC_GIT_EMAIL or committer != PUBLIC_GIT_EMAIL]
+    if wrong:
+        listed = ", ".join(f"{sha} ({author} / {committer})" for sha, author, committer in wrong[:5])
+        raise ExportError(
+            f"{len(wrong)} unpushed commit(s) in {clone} carry an identity other than {PUBLIC_GIT_EMAIL}: {listed}; "
+            "amend them (git commit --amend --reset-author, with the pinned config) before pushing — or, if they are "
+            "already on the public remote, set the branch's upstream (git branch --set-upstream-to=origin/main) "
+            "so pushed history is not counted"
+        )
+
+
 def export(target: Path, *, force: bool = False) -> dict[str, object]:
     target = target.resolve()
     if target == REPO_ROOT or REPO_ROOT in target.parents:
@@ -273,7 +366,9 @@ def export(target: Path, *, force: bool = False) -> dict[str, object]:
     stripped = strip_internal_only_regions(target)
     check_excluded_mods_absent(target)
     scan_export(target)
-    return {"target": str(target), "paths": written, "readmeRowsDropped": dropped, "internalRegionsStripped": stripped}
+    identity = configure_public_identity(target)
+    return {"target": str(target), "paths": written, "readmeRowsDropped": dropped, "internalRegionsStripped": stripped,
+            "identity": f"{identity[0]} <{identity[1]}>" if identity else None}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -299,6 +394,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         report = export(Path(args.out), force=args.force)
         print(f"OK: exported to {report['target']} and the full-tree scan is clean")
+        if report["identity"]:
+            print(f"commits there are attributed to {report['identity']} (pinned in the clone's config)")
         print("next: run the pre-push review, then inspect `git status` there and push yourself")
         print(f"  python packaging/internal/review_public_export.py --clone {report['target']}")
         return 0
