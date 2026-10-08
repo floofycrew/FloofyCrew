@@ -176,6 +176,17 @@ KiroCrew; it never ships a rebuilt host.
   them as `UnshippableFile` instead of passing a manifest that would fail on
   the first install.
 
+* **A `replace` hook can let the host's own error through without faulting
+  (api 1.3.0).** A mod that wrapped `AcpProvider.start` to retry a failed spawn
+  once could not exist: when `call_next` raised, the Loader treated the
+  exception as the mod's, disabled the mod with reason `Error` and ran the
+  original a second time, repeating the spawn and hiding the error. An
+  exception that came out of `call_next` is now tagged on its way through the
+  chain and propagates to the caller unchanged (the same instance, so host
+  `except` clauses still match it); only an exception raised by the mod's own
+  code faults the mod. `floofy.api_version` is `1.3.0`; a mod that relies on
+  this should feature-detect it ([docs/python-api.md](docs/python-api.md)).
+
 * **An update no longer fails on a live socket in `.floofy/`.** `floofy
   install` keeps a mod's runtime state across an update by copying `.floofy/`
   aside; a python-hook that holds a unix socket there (the agent-orchestrator

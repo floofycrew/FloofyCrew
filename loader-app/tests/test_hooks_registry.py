@@ -140,6 +140,88 @@ def test_replace_chain_order_and_fallthrough(target_module):
     assert registry.registrations("t") == []
 
 
+def test_the_hosts_own_exception_through_call_next_is_not_a_fault(target_module):
+    """A replace hook that lets the original's exception out is reporting the host's failure, not faulting."""
+    faults: list[tuple[str, str, str]] = []
+    registry = HookRegistry(on_fault=lambda mod, target, exc: faults.append((mod, target, type(exc).__name__)))
+    calls = {"original": 0, "retries": 0}
+
+    class HostError(RuntimeError):
+        pass
+
+    def flaky(name: str, punctuation: str = "!") -> str:
+        calls["original"] += 1
+        raise HostError(f"host refused {name}")
+
+    target_module.greet = flaky
+
+    def retry_once(call_next, name, **kw):
+        try:
+            return call_next(name, **kw)
+        except HostError:
+            calls["retries"] += 1
+            return call_next(name, **kw)  # one retry, then the host's error is the caller's
+
+    registry.for_mod("retrier").replace("floofy_test_target:greet", retry_once)
+    with pytest.raises(HostError, match="host refused z"):
+        target_module.greet("z")
+    assert calls == {"original": 2, "retries": 1}, "exactly the mod's retry, no third run by the fault path"
+    assert faults == [] and [r.mod_id for r in registry.registrations()] == ["retrier"], "the mod stays active"
+
+    # The same exception instance reaches the caller (the host's own except clauses still match it).
+    def passthrough(call_next, name, **kw):
+        return call_next(name, **kw)
+
+    registry.for_mod("watcher").replace("floofy_test_target:greet", passthrough)
+    try:
+        target_module.greet("q")
+    except HostError as exc:
+        assert str(exc) == "host refused q"
+    else:  # pragma: no cover
+        raise AssertionError("the host's error was swallowed")
+    assert faults == []
+
+    # A mod that raises its OWN error (not the host's) still faults and falls through.
+    def explode(call_next, name, **kw):
+        raise ValueError("mod bug")
+
+    registry.for_mod("buggy").replace("floofy_test_target:greet", explode)
+    with pytest.raises(HostError):
+        target_module.greet("w")
+    assert faults == [("buggy", "floofy_test_target:greet", "ValueError")]
+    assert registry.registrations("buggy") == []
+    registry.shutdown()
+    assert target_module.greet is flaky
+
+
+def test_the_hosts_own_exception_through_async_call_next_is_not_a_fault(target_module):
+    faults: list[tuple[str, str, str]] = []
+    registry = HookRegistry(on_fault=lambda mod, target, exc: faults.append((mod, target, type(exc).__name__)))
+    calls = {"original": 0}
+
+    class Boom(Exception):
+        pass
+
+    async def failing(kind: str) -> dict:
+        calls["original"] += 1
+        await asyncio.sleep(0)
+        raise Boom(kind)
+
+    target_module.fetch_status = failing
+
+    async def retry_once(call_next, kind):
+        try:
+            return await call_next(kind)
+        except Boom:
+            return await call_next(kind)
+
+    registry.for_mod("retrier").replace("floofy_test_target:fetch_status", retry_once)
+    with pytest.raises(Boom):
+        asyncio.run(target_module.fetch_status("health"))
+    assert calls["original"] == 2 and faults == [] and registry.registrations("retrier")
+    registry.shutdown()
+
+
 def test_unknown_targets_raise(target_module):
     registry = HookRegistry(router=lambda: None)
     with pytest.raises(HookTargetError):

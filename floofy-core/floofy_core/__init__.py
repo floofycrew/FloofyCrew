@@ -11,4 +11,4 @@ __version__ = "1.3.5"
 
 #: The mod-facing API version (``floofy.api_version``). Mods depend on this,
 #: never on host internals; deprecated names are kept for two minors.
-API_VERSION = "1.2.0"
+API_VERSION = "1.3.0"
