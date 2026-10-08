@@ -93,6 +93,30 @@ KiroCrew; it never ships a rebuilt host.
   inside the child's own mask; only the exit status and Account / Arn kept) and
   `/toggle`; a page panel; public `codex_launch_record` / `repair_codex_awsenv`
   / `classify_codex_failure` for other mods.
+* `agent-backend-router` 0.3.0 — structured routing diagnostics per session
+  (selected backend, model / provider, AWS profile, whether the doctor's isolated
+  config was applied, preflight verdict, retry count, redacted failure class,
+  launch state) in the page's *Session launches* table, the exports and one JSON
+  log line per Codex launch; a failure taxonomy (`credentials`,
+  `credential_process`, `endpoint_auth`, `throttle`, `timeout`, `model`,
+  `server`, `stream_cleanup`, `http`, `transient`, `error`) on every failed turn
+  and launch; on a Loader with api ≥ 1.3.0 a Codex launch that fails with the
+  `credentials` class has the doctor rebuild the isolated config, the
+  half-started provider shut down through the host's own `shutdown`, and `start`
+  retried exactly once — everything else, and the retry's own failure,
+  propagates unchanged with the required manual action logged; a turn that
+  already produced model output can never be a `credentials` failure. Depends on
+  `agent-backend-doctor` ≥ 0.2.0. Also the two reasons Codex never took a
+  non-pinned session, both fixed: codex-acp advertises one entry per model ×
+  reasoning effort (`openai.gpt-6-sol[low]` … `[max]`) and the identity check
+  only knew the `[1m]` window marker, so no GPT model ever matched — the effort
+  suffix is now folded out of identity (the host's own `split_effort_suffix`
+  rule) and a pair is handed over as its bare model with the session's effort
+  carried through the host's per-model effort setting, never pinned by the id;
+  and on KiroCrew 0.8 Codex runs on the pooled runtime, which never feeds the
+  host's advertised-model cache, so the router now reads `available_models()`
+  off every session it starts on such a backend and keeps the list itself.
+  The page folds the pairs into one row per model.
 * `model-retry-policy` 0.1.3 — the policy now reaches the errors that actually
   end long turns. KiroCrew's retry ladder (the three retries this mod replaces)
   only runs while a turn has produced no output; an error that lands after text
