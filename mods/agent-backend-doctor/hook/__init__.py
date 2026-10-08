@@ -32,6 +32,23 @@ your own CLI tooling;
 exported into this gateway process, which every adapter child inherits) and
 symlinking the found launchers into ``~/.local/bin`` so the fix outlives the mod.
 
+3. **Codex's AWS credentials inside the sandbox** (``awsenv.py``). A Codex whose
+   ``model_provider`` is ``amazon-bedrock`` authenticates through the AWS SDK
+   chain, and the internal edition's credential broker hands every non-Claude
+   child ``AWS_CONFIG_FILE`` / ``AWS_SHARED_CREDENTIALS_FILE`` pointers at a
+   sanitized per-process copy (profile names kept, every credential-fetching key
+   stripped) plus ``AWS_PROFILE=default`` — so the SDK reports *failed to load
+   AWS credentials: the credential provider was not enabled*. Before each Codex
+   launch this mod reads ``~/.codex/config.toml`` (never ``auth.json``), selects
+   the named profile and its ``source_profile`` / ``sso_session`` chain from
+   ``~/.aws/config`` with every static key dropped, writes an isolated
+   ``<host home>/codex-aws/{config,credentials}`` pair (``0700``/``0600``,
+   outside ``~/.aws``, visible through the codex mask), and hands exactly those
+   four variables to the child through ``extra_env`` (``after``
+   ``AcpClient.__init__``) and again on the final spawn environment (``after``
+   ``CodexHarness.apply_spawn_env``). The mask itself is never widened; a
+   ``credential_process`` that needs a hidden directory is predicted and named.
+
 Every private host name is reached with ``getattr`` and feature-detected: a seam
 the running host lacks degrades that feature to *report only*, and the page says
 so. No credential is read, no socket is opened; the mod's own state lives in
@@ -42,17 +59,24 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
 import time
 from typing import Any
 
+from . import awsenv as AWS
 from . import discovery as D
 
 _ctx = None
 _report_only: dict[str, str] = {}      # feature → why it is report-only on this host
 _findings: dict[str, dict[str, Any]] = {}   # bin_name → what the after-hook answered, for the page
 _codex_prev: tuple[bool, str] | None = None  # (was set, previous value) of CODEX_PATH before we touched it
+_awsenv_last: dict[str, Any] = {}       # the last preflight, for the page and the router
+_awsenv_sessions: dict[str, dict[str, Any]] = {}  # session_key → launch record (what the child was handed)
+_AWSENV_MAX_SESSIONS = 200
 
 RESOLVER = "kiro_crew.acp.client:_resolve_node_adapter_argv"
+CLIENT_INIT = "kiro_crew.acp.client:AcpClient.__init__"
+CODEX_SPAWN_ENV = "kiro_crew.acp.harness.codex:CodexHarness.apply_spawn_env"
 
 #: backend id → the launcher name the host's ladders look for (0.8's ``ACP_BACKEND_PROCESS_NAMES`` wins when present).
 FALLBACK_PROCESS_NAMES = {"claude": "claude-agent-acp", "codex": "codex-acp", "pi": "pi-acp", "opencode": "opencode", "": "kiro-cli", "kas": "kiro-cli"}
@@ -311,6 +335,260 @@ def _reset_negatives() -> list[dict[str, Any]]:
     return out
 
 
+# --- seam 3: Codex's AWS launch environment ------------------------------------------------------------------
+
+
+def _host_home() -> str:
+    hh = getattr(getattr(_ctx, "host", None), "host_home", None) if _ctx else None
+    return str(hh) if hh else os.path.join(_home(), ".kiro", "crew")
+
+
+def awsenv_enabled() -> bool:
+    cfg = _ctx.config.to_dict() if _ctx is not None else {}
+    return cfg.get("codex_awsenv_enabled", True) is not False
+
+
+def run_preflight(*, write: bool = True, reason: str = "launch") -> AWS.Preflight:
+    """The preflight over the live HOME / host home; the result is remembered for the page and the router.
+
+    Blocking (reads two small files, writes two): the launch hooks call it on the
+    event loop deliberately — it is the same size of work as the host's own broker
+    ``start_broker`` performs on that loop (three file writes), and running it
+    off-loop would hand the child an environment the preflight has not finished
+    building.
+    """
+    global _awsenv_last
+    pf = AWS.preflight(home=_home(), host_home=_host_home(), environ=dict(os.environ), write=write)
+    _awsenv_last = {**pf.to_dict(), "reason": reason}
+    if _ctx is not None:
+        _ctx.state["codex_awsenv"] = {"ok": pf.ok, "verdict": pf.verdict, "profile": (pf.profile or {}).get("profile"), "ts": pf.ts}
+    return pf
+
+
+def _record_session(session_key: str, record: dict[str, Any]) -> None:
+    if not session_key:
+        return
+    if len(_awsenv_sessions) >= _AWSENV_MAX_SESSIONS:
+        oldest = sorted(_awsenv_sessions.items(), key=lambda kv: kv[1].get("ts", 0))[: len(_awsenv_sessions) - _AWSENV_MAX_SESSIONS + 1]
+        for k, _v in oldest:
+            _awsenv_sessions.pop(k, None)
+    _awsenv_sessions[session_key] = record
+
+
+def codex_launch_record(session_key: str) -> dict[str, Any] | None:
+    """What the doctor handed the Codex child of *session_key* (for the router's diagnostics). ``None`` if nothing."""
+    return _awsenv_sessions.get(session_key or "")
+
+
+def apply_awsenv(extra_env: dict[str, str], *, session_key: str, reason: str) -> dict[str, Any]:
+    """Run the preflight and, when it passes, put the isolated pointers into *extra_env* (in place).
+
+    The four variables REPLACE whatever the broker or the parent shell put there:
+    that is the point. Nothing else in *extra_env* is touched (the broker's URL and
+    session id stay — they are inert for a Codex child and belong to its own
+    lifecycle bookkeeping). Returns the launch record stored for the session.
+    """
+    pf = run_preflight(write=True, reason=reason)
+    superseded = {k: ("set" if k in extra_env else "unset") for k in AWS.SUPERSEDED}
+    applied = False
+    if pf.ok and pf.env:
+        for k in AWS.SUPERSEDED:
+            extra_env.pop(k, None)
+        extra_env.update(pf.env)
+        applied = True
+    record = {"session": session_key, "ts": time.time(), "reason": reason, "applied": applied, "preflight": pf.verdict, "preflight_ok": pf.ok,
+              "detail": pf.detail, "profile": (pf.profile or {}).get("profile") if pf.profile else None,
+              "credential_source": (pf.profile or {}).get("credential_source") if pf.profile else None,
+              "process_may_need_hidden_dir": (pf.profile or {}).get("process_may_need_hidden_dir") if pf.profile else None,
+              "superseded": superseded, "config_file": pf.env.get(AWS.ENV_CONFIG) if applied else None,
+              "model_provider": pf.codex.get("model_provider"), "codex_model": pf.codex.get("model"), "region": pf.codex.get("aws_region")}
+    _record_session(session_key, record)
+    if _ctx is not None:
+        if applied:
+            _ctx.log.info("codex awsenv %s session=%s: profile=%s (%s) → isolated config applied%s", reason, session_key or "-", record["profile"],
+                          record["credential_source"], f"; NOTE {pf.sandbox_note}" if pf.sandbox_note else "")
+        elif pf.verdict == "not_bedrock":
+            _ctx.log.debug("codex awsenv %s session=%s: %s", reason, session_key or "-", pf.detail)
+        else:
+            _ctx.log.warning("codex awsenv %s session=%s: NOT applied (%s): %s", reason, session_key or "-", pf.verdict, pf.detail)
+    return record
+
+
+def _after_client_init(result, self, *args, **kwargs):
+    """``after`` ``AcpClient.__init__``: a Codex client gets the isolated AWS pointers in its ``_extra_env``.
+
+    Both transports read the child's environment from this dict (``AcpClient._spawn``
+    directly; ``AcpRuntime`` through the provider's ``getattr(client, "_extra_env")``),
+    so mutating it here covers 0.7's per-session adapter and 0.8's runtime path alike.
+    """
+    try:
+        if not awsenv_enabled() or getattr(self, "backend", None) != "codex":
+            return result
+        extra_env = getattr(self, "_extra_env", None)
+        if not isinstance(extra_env, dict):
+            extra_env = {}
+            self._extra_env = extra_env
+        session_key = kwargs.get("session_key") or (args[4] if len(args) > 4 and isinstance(args[4], str) else "")
+        apply_awsenv(extra_env, session_key=str(session_key or ""), reason="launch")
+    except Exception as exc:  # noqa: BLE001 - never let a diagnostic break a spawn
+        if _ctx is not None:
+            _ctx.log.warning("codex awsenv at client init failed open: %s", exc)
+    return result
+
+
+def _after_codex_spawn_env(result, self, env, *args, **kwargs):
+    """``after`` ``CodexHarness.apply_spawn_env``: the FINAL environment of a runtime-path Codex spawn.
+
+    ``extra_env`` was already merged by the time this runs, so the pointers are
+    normally present; this re-asserts them against anything that merged later and
+    records which spelling the child actually received. The runtime does not pass
+    the session key here, so the record is keyed by the config path it applied.
+    """
+    try:
+        if not awsenv_enabled() or not isinstance(env, dict):
+            return result
+        pf_env = (_awsenv_last.get("env") or {}) if _awsenv_last.get("ok") else {}
+        if not pf_env:
+            pf = run_preflight(write=True, reason="spawn-env")
+            pf_env = pf.env if pf.ok else {}
+        if pf_env:
+            for k in AWS.SUPERSEDED:
+                env.pop(k, None)
+            env.update(pf_env)
+            _awsenv_last["spawn_env_applied"] = time.time()
+    except Exception as exc:  # noqa: BLE001
+        if _ctx is not None:
+            _ctx.log.warning("codex awsenv at spawn env failed open: %s", exc)
+    return result
+
+
+def repair_codex_awsenv(session_key: str, reason: str, client=None) -> dict[str, Any]:
+    """Re-create the isolated config and re-point *client*'s ``_extra_env`` (the router's one repair before its one retry)."""
+    try:
+        root = AWS.awsenv_dir(_host_home())
+        for name in (AWS.CONFIG_NAME, AWS.CREDENTIALS_NAME):
+            path = os.path.join(root, name)
+            if os.path.lexists(path):
+                os.unlink(path)
+    except OSError as exc:
+        if _ctx is not None:
+            _ctx.log.warning("codex awsenv repair: could not remove the old files: %s", exc)
+    extra_env = getattr(client, "_extra_env", None) if client is not None else None
+    if not isinstance(extra_env, dict):
+        extra_env = {}
+        if client is not None:
+            try:
+                client._extra_env = extra_env
+            except Exception:  # noqa: BLE001
+                pass
+    record = apply_awsenv(extra_env, session_key=session_key, reason=f"repair:{reason}")
+    record["repaired"] = True
+    return record
+
+
+def classify_codex_failure(message: str, *, transient: bool | None = None, reached_model: bool = False) -> dict[str, Any]:
+    return AWS.classify_failure(message, transient=transient, reached_model=reached_model)
+
+
+PROBE_TIMEOUT_S = 25.0
+
+
+def probe_awsenv(sandboxed: bool = True) -> dict[str, Any]:
+    """``aws sts get-caller-identity`` with exactly the child's AWS environment, inside the child's own mask.
+
+    The ONLY process this mod ever runs for credentials, and it is the provider
+    chain itself, not a reader of any file. Sandboxed through the host's
+    ``sandboxed_spawn_argv`` with the same hidden dirs the codex child gets
+    (``adapter_hidden_credential_dirs("codex")``), so the answer is the child's
+    truth, not the gateway's. ``AWS_EC2_METADATA_DISABLED`` stops a fall-through
+    to IMDS. Only the exit status and the Account / Arn fields are kept; stdout
+    is parsed for those two keys and otherwise discarded, stderr is redacted and
+    truncated. Blocking — run off-loop.
+    """
+    import shutil  # noqa: PLC0415
+
+    pf = run_preflight(write=True, reason="probe")
+    out: dict[str, Any] = {"preflight": pf.verdict, "ok": False, "sandboxed": False, "ts": time.time()}
+    if not pf.ok or not pf.env:
+        out["error"] = pf.detail
+        return out
+    aws_cli = shutil.which("aws", path=_search_path())
+    if not aws_cli:
+        out["error"] = "no `aws` CLI on the host's search path to run the provider chain with"
+        return out
+    argv = [aws_cli, "sts", "get-caller-identity", "--output", "json", "--no-cli-pager"]
+    env = {**os.environ, **pf.env, "AWS_EC2_METADATA_DISABLED": "true", "AWS_PAGER": "", "PATH": _search_path()}
+    cleanup = None
+    if sandboxed:
+        try:
+            from kiro_crew.acp_tool_gate import adapter_hidden_credential_dirs, adapter_expose_files  # noqa: PLC0415
+            from kiro_crew.sandbox import sandboxed_spawn_argv  # noqa: PLC0415
+
+            mode = str(_host_sandbox_mode() or "auto")
+            hidden = tuple(adapter_hidden_credential_dirs("codex"))
+            try:
+                expose = tuple(adapter_expose_files("codex", hidden))
+            except Exception:  # noqa: BLE001
+                expose = ()
+            try:
+                argv, env, cleanup = sandboxed_spawn_argv(argv, mode, env=env, strip_python_env=True, extra_hidden_dirs=hidden, extra_expose_files=expose)
+            except TypeError:
+                argv, env, cleanup = sandboxed_spawn_argv(argv, mode, env=env, strip_python_env=True, extra_hidden_dirs=hidden)
+            out["sandboxed"] = True
+            out["hidden_dirs"] = len(hidden)
+        except Exception as exc:  # noqa: BLE001 - no sandbox: say so, run nothing unmasked
+            out["error"] = f"cannot build the child's sandbox for the probe ({type(exc).__name__}: {exc}); refusing to probe unmasked"
+            return out
+    try:
+        completed = subprocess.run(argv, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=PROBE_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        out["error"] = f"the provider chain did not answer within {PROBE_TIMEOUT_S:.0f}s"
+        return out
+    except OSError as exc:
+        out["error"] = f"could not run the probe: {exc}"
+        return out
+    finally:
+        if cleanup:
+            try:
+                os.unlink(cleanup)
+            except OSError:
+                pass
+    out["exit_code"] = completed.returncode
+    if completed.returncode == 0:
+        try:
+            doc = json.loads(completed.stdout or "{}")
+            out.update({"ok": True, "account": str(doc.get("Account", "")), "arn": str(doc.get("Arn", ""))})
+        except ValueError:
+            out.update({"ok": True, "account": "", "arn": ""})
+    else:
+        cls = AWS.classify_failure(completed.stderr or "")
+        out.update({"category": cls["category"], "stderr": cls["redacted"]})
+    return out
+
+
+def _host_sandbox_mode() -> str | None:
+    try:
+        with open(os.path.join(_host_home(), "config.json"), "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+        value = (doc.get("agent") or {}).get("sandbox")
+        return value if isinstance(value, str) and value else None
+    except (OSError, ValueError):
+        return None
+
+
+def awsenv_snapshot() -> dict[str, Any]:
+    """The page's Codex-AWS panel: the last preflight (report-only refresh), the host facts, the recent launches."""
+    pf = AWS.preflight(home=_home(), host_home=_host_home(), environ=dict(os.environ), write=False)
+    report = pf.to_dict()
+    if _awsenv_last.get("ok") and report["verdict"] == "not_applied":
+        # Nothing on disk yet is a normal state before the first launch; say so instead of "bad".
+        report["verdict"], report["detail"] = "pending", "the isolated config is written on the first Codex launch (or Rebuild now)"
+    recent = sorted(_awsenv_sessions.values(), key=lambda r: r.get("ts", 0), reverse=True)[:20]
+    return {"enabled": awsenv_enabled(), "hook": "report-only: " + _report_only["codex_awsenv"] if "codex_awsenv" in _report_only else "active",
+            "spawn_env_hook": "report-only: " + _report_only["codex_spawn_env"] if "codex_spawn_env" in _report_only else "active",
+            "dir": AWS.awsenv_dir(_host_home()), "sandbox_mode": _host_sandbox_mode(), "report": report, "last": dict(_awsenv_last), "recent": recent}
+
+
 # --- the picture the page shows --------------------------------------------------------------------------------
 
 
@@ -517,6 +795,34 @@ def _symlink(request):
     return {"ok": all(r.get("ok") for r in results), "results": results}
 
 
+async def _awsenv_status(request):
+    return await asyncio.to_thread(awsenv_snapshot)
+
+
+def _awsenv_rebuild(request):
+    record = repair_codex_awsenv("", "page", None)
+    return {"ok": bool(record.get("applied")), "record": record, "last": dict(_awsenv_last)}
+
+
+async def _awsenv_probe(request):
+    body = request.json() if request.body else {}
+    sandboxed = True if not isinstance(body, dict) else body.get("sandboxed", True) is not False
+    result = await asyncio.to_thread(probe_awsenv, sandboxed)
+    if _ctx is not None:
+        _ctx.log.info("codex awsenv probe: ok=%s sandboxed=%s exit=%s category=%s", result.get("ok"), result.get("sandboxed"), result.get("exit_code"), result.get("category"))
+    return result
+
+
+def _awsenv_toggle(request):
+    body = request.json() if request.body else {}
+    enabled = bool(body.get("enabled", True)) if isinstance(body, dict) else True
+    if _ctx is not None:
+        _ctx.config.update({"codex_awsenv_enabled": enabled})
+        _ctx.state["codex_awsenv_enabled"] = enabled
+        _ctx.log.info("codex awsenv %s", "enabled" if enabled else "disabled (Codex children get the host's environment untouched)")
+    return {"ok": True, "enabled": enabled}
+
+
 # --- lifecycle --------------------------------------------------------------------------------------------------------
 
 
@@ -543,6 +849,22 @@ def activate(ctx):
     ctx.routes.add("POST", "reresolve", _reresolve)
     ctx.routes.add("POST", "codex-path", _codex_path)
     ctx.routes.add("POST", "symlink", _symlink)
+    ctx.routes.add("GET", "codex-awsenv", _awsenv_status)
+    ctx.routes.add("POST", "codex-awsenv/rebuild", _awsenv_rebuild)
+    ctx.routes.add("POST", "codex-awsenv/probe", _awsenv_probe)
+    ctx.routes.add("POST", "codex-awsenv/toggle", _awsenv_toggle)
+
+    # Seam 3: Codex's AWS launch environment. The client-init hook is the one that matters (both transports read
+    # the child's env from the client's _extra_env); the harness hook re-asserts on 0.8's runtime path.
+    try:
+        ctx.hooks.after(CLIENT_INIT, _after_client_init)
+    except Exception as exc:  # noqa: BLE001
+        _report_only["codex_awsenv"] = f"{type(exc).__name__}: {exc}"
+        ctx.log.warning("codex AWS launch environment is report-only on this host: %s", exc)
+    try:
+        ctx.hooks.after(CODEX_SPAWN_ENV, _after_codex_spawn_env)
+    except Exception as exc:  # noqa: BLE001 - a host without the codex harness module (older than 0.7): the client hook still covers the spawn
+        _report_only["codex_spawn_env"] = f"{type(exc).__name__}: {exc}"
 
     cfg = ctx.config.to_dict()
     if cfg.get("codex_path_enabled"):
@@ -551,11 +873,19 @@ def activate(ctx):
         if not outcome.get("ok"):
             ctx.log.warning("CODEX_PATH not applied: %s", outcome.get("error"))
     reset = _reset_negatives()
-    ctx.state.update({"hooks": {k: ("report-only" if k in _report_only else "active") for k in ("node_adapters", "plain_binaries")},
-                      "reset_on_activate": [r["backend"] or "kiro" for r in reset], "codex_path_enabled": bool(cfg.get("codex_path_enabled"))})
-    ctx.log.info("Agent Backend Doctor active on KiroCrew %s: discovery hooks %s; cached negatives reset: %s; CODEX_PATH=%s",
+    awsenv_report = None
+    if awsenv_enabled():
+        try:
+            awsenv_report = run_preflight(write=False, reason="activate")
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("codex awsenv preflight at activation failed: %s", exc)
+    ctx.state.update({"hooks": {k: ("report-only" if k in _report_only else "active") for k in ("node_adapters", "plain_binaries", "codex_awsenv", "codex_spawn_env")},
+                      "reset_on_activate": [r["backend"] or "kiro" for r in reset], "codex_path_enabled": bool(cfg.get("codex_path_enabled")),
+                      "codex_awsenv_enabled": awsenv_enabled()})
+    ctx.log.info("Agent Backend Doctor active on KiroCrew %s: discovery hooks %s; cached negatives reset: %s; CODEX_PATH=%s; codex awsenv: %s",
                  getattr(ctx.host, "version", "?"), "active" if not _report_only else _report_only, [r["backend"] or "kiro" for r in reset] or "none",
-                 os.environ.get("CODEX_PATH") or "unset")
+                 os.environ.get("CODEX_PATH") or "unset",
+                 "disabled" if not awsenv_enabled() else (f"{awsenv_report.verdict} — {awsenv_report.detail}" if awsenv_report else "unknown"))
 
 
 def deactivate(ctx):
@@ -568,4 +898,6 @@ def deactivate(ctx):
             os.environ.pop("CODEX_PATH", None)
         _codex_prev = None
     _findings.clear()
+    _awsenv_sessions.clear()
+    _awsenv_last.clear()
     _ctx = None

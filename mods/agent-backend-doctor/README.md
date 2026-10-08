@@ -5,9 +5,9 @@ Codex, OpenCode, pi — so that *"I installed it and KiroCrew still says missing
 stops being a thing. A FloofyCrew mod: a `python-hook` in the gateway plus its
 own page in the FloofyCrew App. Unofficial; not affiliated with Kiro or KiroCrew.
 
-## The two host gaps it covers
+## The three host gaps it covers
 
-Both verified in the installed 0.7.0.5 and 0.8.0.6 builds, both reached through
+All verified in the installed 0.7.0.5 and 0.8.0.6 builds, all reached through
 `ctx.hooks.after` (docs/python-api.md) and feature-detected with `getattr`.
 
 1. **Discovery.** The host resolves the Node ACP adapters (`claude-agent-acp`,
@@ -32,6 +32,43 @@ Both verified in the installed 0.7.0.5 and 0.8.0.6 builds, both reached through
    write fenced with `bump_resolution_generation` when present) and drops the probe
    cache, so the next session resolves fresh and `/api/acp-backends` flips to
    installed without a gateway restart.
+3. **Codex's AWS credentials inside the sandbox** (`hook/awsenv.py`). A Codex
+   whose `~/.codex/config.toml` says `model_provider = "amazon-bedrock"`
+   authenticates through the AWS SDK's profile chain. Two host behaviours break
+   that chain for the `codex-acp` child: Codex is a tool-gate-enforced harness,
+   so its sandbox hides `~/.aws` (the host re-exposes `~/.aws/config` read-only,
+   but only at the default location), and on the internal edition the
+   credential broker that wraps every non-Claude spawn hands the child
+   `AWS_CONFIG_FILE` / `AWS_SHARED_CREDENTIALS_FILE` pointers at a per-process
+   copy of your config with every credential-fetching key stripped, plus
+   `AWS_PROFILE=default`. The profile survives by name only, and the SDK says
+   *failed to load AWS credentials: the credential provider was not enabled*.
+
+   Before each Codex launch (`after` `AcpClient.__init__`, which both transports
+   read the child's environment from; re-asserted `after`
+   `CodexHarness.apply_spawn_env` on 0.8's runtime path) the mod runs a
+   **preflight**: reads `config.toml` (never `auth.json`), selects the named
+   profile plus its `source_profile` / `sso_session` chain from `~/.aws/config`
+   with every static key dropped (names reported, values never read into the
+   result), writes `<host home>/codex-aws/{config,credentials}` — `0700` dir,
+   `0600` files, outside `~/.aws`, visible through the codex mask, the
+   credentials file deliberately empty — checks both files exist, are regular,
+   private and writable, and hands exactly `AWS_CONFIG_FILE`,
+   `AWS_SHARED_CREDENTIALS_FILE`, `AWS_PROFILE`, `AWS_DEFAULT_PROFILE` to the
+   child, replacing whatever the broker or a parent shell put there. A preflight
+   that cannot pass (`profile_missing`, `chain_broken`, `static_only`,
+   `no_credential_source`, `files_bad`) leaves the environment untouched and
+   says why; `not_bedrock` is a pass with nothing to do.
+
+   **What it refuses to do.** `~/.aws` is never exposed, the sandbox is never
+   weakened, no static credential is ever copied, and no credential value or
+   `credential_process` output is logged. A `credential_process` whose command
+   line names a directory the mask hides gets a hint (`process_may_need_hidden_dir`),
+   not a verdict: on the test box the profile's vend talks to a system daemon
+   over a socket outside the home and works under the mask, which is exactly
+   what the sandboxed probe below is for. When a vend does fail inside the
+   child, the class is `credential_process` and the page names the manual
+   action instead of papering over it.
 
 ## The page
 
@@ -64,20 +101,37 @@ Two opt-in repairs:
 | `POST reresolve {backend?}` | reset the cache(s) on the loop, then re-probe; all non-kiro backends when no id is given |
 | `POST codex-path {enabled, path?}` | export / drop `CODEX_PATH`; 400 when the path is not an executable file |
 | `POST symlink {confirm: true, entries: [{name}]}` | create `~/.local/bin/<name>` links from the current repair plan |
+| `GET codex-awsenv` | the Codex ↔ AWS picture: codex config facts, the selected profile chain (key names only), file states, the last preflight, recent launches |
+| `POST codex-awsenv/rebuild` | delete and re-create the isolated pair now |
+| `POST codex-awsenv/probe {sandboxed: true}` | `aws sts get-caller-identity` with exactly the child's environment inside the child's own credential mask; only the exit status and Account / Arn are kept. Refuses to run unmasked when the sandbox cannot be built |
+| `POST codex-awsenv/toggle {enabled}` | switch the injection off (children get the host's environment untouched) or on |
+
+### For other mods (`sys.modules["floofy_mods.agent-backend-doctor.hook"]`)
+
+`codex_launch_record(session_key)` — what the child of that session was handed
+(`applied`, `preflight`, `profile`, `credential_source`, `superseded`, …);
+`repair_codex_awsenv(session_key, reason, client)` — re-create the pair and
+re-point a client's `_extra_env` (the agent-backend-router's one repair before
+its one retry); `classify_codex_failure(message, transient=, reached_model=)` —
+the redacted failure category (`credentials` / `credential_process` /
+`endpoint_auth` / `throttle` / `timeout` / `model` / `server` / `stream_cleanup` /
+`http` / `transient` / `error`) and whether it is repairable.
 
 ## What it never does
 
-Reads no credential, opens no socket (`network.hosts` is empty), writes nothing
-under the host install or the host data home; its own state is `ctx.config` and
-`ctx.data_dir`. A seam the running host lacks degrades that feature to
-*report only* and the page says so.
+Reads no credential value (`~/.aws/credentials`, `~/.codex/auth.json` and every
+`credential_process` output stay unread), opens no socket (`network.hosts` is
+empty), writes nothing under the host install; the one directory it creates
+under the host data home is the `0700` `codex-aws/` pair, and its own state is
+`ctx.config` and `ctx.data_dir`. A seam the running host lacks degrades that
+feature to *report only* and the page says so.
 
 ## Develop
 
 ```bash
 floofy validate .                                   # schema, hashes, targets, network scan
 python tests/smoke_test.py --refresh                # rewrite files[] after editing
-uv run pytest tests/discovery_test.py tests/hook_test.py -q   # 26 tests, both host shapes
+uv run pytest tests/ -q                             # discovery, awsenv and hook tests, both host shapes
 python tests/page_probe.py                          # headless Chromium render + actions
 floofy dev . --follow                               # link into your own gateway
 ```

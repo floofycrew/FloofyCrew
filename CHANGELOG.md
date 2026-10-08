@@ -72,6 +72,27 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Mods
 
+* `agent-backend-doctor` 0.2.0 — keeps a Bedrock-backed Codex's AWS credentials
+  usable inside KiroCrew's sandbox. Codex is a tool-gate-enforced harness whose
+  sandbox hides `~/.aws`, and on the internal edition the credential broker that
+  wraps every non-Claude spawn hands the child `AWS_CONFIG_FILE` /
+  `AWS_SHARED_CREDENTIALS_FILE` pointers at a per-process copy of the config
+  with every credential-fetching key stripped plus `AWS_PROFILE=default` — so
+  the SDK reports *failed to load AWS credentials: the credential provider was
+  not enabled*. Before each Codex launch (`after` `AcpClient.__init__`,
+  re-asserted `after` `CodexHarness.apply_spawn_env`) the mod reads
+  `~/.codex/config.toml` (never `auth.json`), selects the named profile and its
+  `source_profile` / `sso_session` chain from `~/.aws/config` with every static
+  key dropped, writes `<host home>/codex-aws/{config,credentials}` (`0700` /
+  `0600`, the credentials file deliberately empty) and hands the child exactly
+  those four variables. `~/.aws` stays hidden, the sandbox is never weakened, no
+  credential value is copied or logged; a `credential_process` whose command
+  line names a hidden directory is flagged as a hint, and the sandboxed probe
+  (not a guess) says whether the vend works under the mask. New routes
+  `codex-awsenv` (report), `/rebuild`, `/probe` (`aws sts get-caller-identity`
+  inside the child's own mask; only the exit status and Account / Arn kept) and
+  `/toggle`; a page panel; public `codex_launch_record` / `repair_codex_awsenv`
+  / `classify_codex_failure` for other mods.
 * `model-retry-policy` 0.1.3 — the policy now reaches the errors that actually
   end long turns. KiroCrew's retry ladder (the three retries this mod replaces)
   only runs while a turn has produced no output; an error that lands after text

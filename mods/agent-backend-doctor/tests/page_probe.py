@@ -47,11 +47,16 @@ HTML = """<!doctype html><html><body><div id="root"></div>
   const calls = [];
   window.__calls = calls;
   const status = %(status)s;
+  const aws = %(aws)s;
   const api = {
     theme: { tokens: () => ({}) },
     config: { get: async () => ({}), set: async (p) => p },
     routes: { fetch: async (path, init) => { const body = init && init.body ? JSON.parse(init.body) : null; calls.push([path, body]);
       if (path === "status") return new Response(JSON.stringify(status), { status: 200 });
+      if (path === "codex-awsenv") return new Response(JSON.stringify(aws), { status: 200 });
+      if (path === "codex-awsenv/rebuild") { aws.report.verdict = "ok"; aws.report.detail = "profile 'codex-work' (process) isolated under " + aws.dir; aws.report.files = { config: { exists: true, regular: true, private: true, writable: true }, credentials: { exists: true, regular: true, private: true, writable: true } }; return new Response(JSON.stringify({ ok: true, record: { profile: "codex-work", applied: true, preflight: "ok" } }), { status: 200 }); }
+      if (path === "codex-awsenv/probe") return new Response(JSON.stringify({ ok: true, sandboxed: true, exit_code: 0, account: "123456789012", arn: "arn:aws:sts::123456789012:assumed-role/Admin/x", preflight: "ok" }), { status: 200 });
+      if (path === "codex-awsenv/toggle") { aws.enabled = body.enabled; return new Response(JSON.stringify({ ok: true, enabled: body.enabled }), { status: 200 }); }
       if (path === "reresolve") return new Response(JSON.stringify({ ok: true, reset: [], probes: { codex: { installed: "installed", restart_required: false, cache: { state: "ok" } } } }), { status: 200 });
       if (path === "codex-path") { status.codex_path = body.enabled ? body.path : null; return new Response(JSON.stringify({ ok: true, enabled: body.enabled, codex_path: status.codex_path }), { status: 200 }); }
       if (path === "symlink") { status.repairs[0].exists = true; return new Response(JSON.stringify({ ok: true, results: [{ name: "codex-acp", ok: true }] }), { status: 200 }); }
@@ -64,6 +69,16 @@ HTML = """<!doctype html><html><body><div id="root"></div>
   window.__ready = true;
 </script></body></html>"""
 
+AWSENV = {
+    "enabled": True, "hook": "active", "spawn_env_hook": "active", "dir": f"{HOME}/.kiro/crew/codex-aws", "sandbox_mode": "auto",
+    "report": {"ok": False, "verdict": "pending", "detail": "the isolated config is written on the first Codex launch (or Rebuild now)",
+               "codex": {"path": f"{HOME}/.codex/config.toml", "exists": True, "parse_error": "", "model_provider": "amazon-bedrock", "model": "openai.gpt-6-sol", "aws_profile": "codex-work", "aws_region": "us-east-2", "provider_kind": "bedrock", "provider_base_url": ""},
+               "profile": {"profile": "codex-work", "found": True, "chain": ["profile codex-work"], "missing": [], "static_keys_dropped": {"profile codex-work": ["aws_session_token"]}, "credential_source": "process",
+                           "credential_process": "/opt/tools/vend --role admin", "process_may_need_hidden_dir": "", "keys": {"profile codex-work": ["credential_process", "region"]}},
+               "files": {"dir": f"{HOME}/.kiro/crew/codex-aws", "config": {"exists": False}, "credentials": {"exists": False}}, "env": {}, "sandbox_note": "", "ts": 0},
+    "last": {}, "recent": [{"session": "dash:1", "ts": 1700000000, "reason": "launch", "applied": False, "preflight": "static_only", "profile": "keys", "credential_source": "static_only", "process_may_need_hidden_dir": ""}],
+}
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
@@ -71,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            body, ctype = (HTML % {"status": json.dumps(STATUS)}).encode(), "text/html"
+            body, ctype = (HTML % {"status": json.dumps(STATUS), "aws": json.dumps(AWSENV)}).encode(), "text/html"
         elif self.path == "/ui/page.mjs":
             body, ctype = (ROOT / "ui" / "page.mjs").read_bytes(), "text/javascript"
         else:
@@ -144,6 +159,32 @@ def main() -> int:
             check(any(c[0] == "symlink" and c[1] == {"confirm": True, "entries": [{"name": "codex-acp"}]} for c in calls), "symlink posts confirm + entries")
             page.wait_for_function("document.querySelector('[data-testid=\"abd-repairs\"]').innerText.includes('already linked')", timeout=5000)
             check(page.locator('[data-testid="abd-symlink"]').count() == 0, "symlink button disappears once everything is linked")
+
+            # the Codex ↔ AWS panel
+            aws_text = page.locator('[data-testid="abd-awsenv"]').inner_text()
+            check("model_provider amazon-bedrock" in aws_text and "AWS profile codex-work" in aws_text and "credential source process" in aws_text, "aws panel shows the codex facts")
+            check("static keys never copied" in aws_text and "aws_session_token" in aws_text, "aws panel names dropped static keys by NAME")
+            check("~/.kiro/crew/codex-aws/{config,credentials}" in aws_text and "absent" in aws_text, "aws panel shows the isolated pair path and file state")
+            check("pending" in page.locator('[data-testid="abd-awsenv-verdict"]').inner_text(), "aws verdict line shows pending before the first launch")
+            check("not applied (static_only)" in aws_text, "recent launches list the preflight verdict")
+            check(page.locator('[data-testid="abd-awsenv-toggle"]').is_checked(), "aws toggle reflects enabled")
+            page.click('[data-testid="abd-awsenv-rebuild"]')
+            page.wait_for_function("window.__calls.some((c) => c[0] === 'codex-awsenv/rebuild')", timeout=5000)
+            page.wait_for_function("document.querySelector('[data-testid=\"abd-awsenv-verdict\"]').innerText.includes('ok')", timeout=5000)
+            check("0600" in page.locator('[data-testid="abd-awsenv"]').inner_text(), "after rebuild the files read 0600")
+            page.click('[data-testid="abd-awsenv-probe"]')
+            page.wait_for_function("window.__calls.some((c) => c[0] === 'codex-awsenv/probe')", timeout=5000)
+            calls = page.evaluate("window.__calls")
+            check(any(c[0] == "confirm" and "get-caller-identity" in c[1]["text"] for c in calls), "probe asks through api.dialog.confirm")
+            check(any(c[0] == "codex-awsenv/probe" and c[1] == {"sandboxed": True} for c in calls), "probe posts sandboxed: true")
+            page.wait_for_function("document.querySelector('[data-testid=\"abd-note\"]').innerText.includes('account 123456789012')", timeout=5000)
+            page.uncheck('[data-testid="abd-awsenv-toggle"]')
+            page.wait_for_function("window.__calls.some((c) => c[0] === 'codex-awsenv/toggle')", timeout=5000)
+            calls = page.evaluate("window.__calls")
+            check(any(c[0] == "codex-awsenv/toggle" and c[1] == {"enabled": False} for c in calls), "aws toggle posts enabled: false")
+            page.wait_for_function("!document.querySelector('[data-testid=\"abd-awsenv-toggle\"]').checked", timeout=5000)
+            check("AKIA" not in page.content() and "aws_secret_access_key =" not in page.content(), "no credential-shaped text on the page")
+
             page.evaluate("window.__unmount && window.__unmount()")
             check(page.locator('[data-testid="abd-page"]').count() == 0, "unmount clears the container")
             browser.close()

@@ -52,6 +52,7 @@ export default async function mount(container, api) {
   const say = (text) => { note.textContent = text; };
 
   let status = null;
+  let aws = null;
   let busy = false;
   const home = () => (status && status.local_bin ? status.local_bin.replace(/\/\.local\/bin$/, "") : "");
 
@@ -67,6 +68,7 @@ export default async function mount(container, api) {
     say("reading…");
     try {
       status = await call("status");
+      try { aws = await call("codex-awsenv"); } catch (err) { aws = { error: err.message || String(err) }; }
       render();
       say(`updated ${new Date().toLocaleTimeString()}`);
     } catch (err) {
@@ -79,6 +81,7 @@ export default async function mount(container, api) {
   const table = el("table", { "data-testid": "abd-backends", style: { borderCollapse: "collapse", width: "100%", fontSize: "0.82rem" } });
   const repairs = el("div", { "data-testid": "abd-repairs" });
   const codexBox = el("div", { "data-testid": "abd-codex" });
+  const awsBox = el("div", { "data-testid": "abd-awsenv" });
   const findings = el("div", { "data-testid": "abd-findings", style: { ...mono, color: muted } });
   const searchPath = el("details", { style: { ...mono, color: muted, marginTop: "0.4rem" } });
 
@@ -90,6 +93,7 @@ export default async function mount(container, api) {
     header, searchPath,
     h("Backends"), el("div", { style: { overflowX: "auto" } }, table),
     h("Codex binary"), codexBox,
+    h("Codex and AWS credentials inside the sandbox"), awsBox,
     h("Make it permanent"), repairs,
     h("Recent resolutions through this mod"), findings);
   container.replaceChildren(page);
@@ -230,6 +234,72 @@ export default async function mount(container, api) {
     findings.replaceChildren(rows.length
       ? el("ul", { style: { margin: 0, paddingLeft: "1.2rem" } }, ...rows.map(({ name, f }) => el("li", {}, `${name}: host ${f.host}${f.doctor ? `, doctor answered ${short(f.doctor.entry, home())} (${f.doctor.rung})` : f.host === "missing" ? ", nothing found either" : ""}`)))
       : el("span", {}, "no session has asked for an adapter since the gateway started"));
+
+    renderAws();
+  }
+
+  // --- Codex ↔ AWS panel -------------------------------------------------------------------------------------
+  async function awsAction(path, body, label) {
+    if (busy) return;
+    busy = true;
+    say(`${label}…`);
+    try {
+      const out = await call(path, body === undefined ? {} : body);
+      let message;
+      if (path === "codex-awsenv/probe") {
+        message = out.ok ? `provider chain answered${out.sandboxed ? " inside the child's sandbox" : ""}: account ${out.account || "?"}` : `probe failed (${out.category || out.preflight || "error"}): ${out.error || out.stderr || `exit ${out.exit_code}`}`;
+      } else if (path === "codex-awsenv/rebuild") {
+        message = out.ok ? `isolated config rebuilt for profile ${out.record.profile}` : `not rebuilt (${out.record.preflight}): ${out.record.detail}`;
+      } else {
+        message = out.enabled ? "Codex children get the isolated AWS config" : "disabled: Codex children get the host's environment untouched";
+      }
+      await refresh();
+      say(message);  // the outcome outlives the refresh's "updated …" line
+    } catch (err) {
+      say(`${label} failed: ${err.message || err}`);
+    } finally { busy = false; }
+  }
+
+  function renderAws() {
+    if (!aws) return;
+    if (aws.error) { awsBox.replaceChildren(el("div", { style: { color: COLORS.warn } }, `codex-awsenv route unavailable: ${aws.error}`)); return; }
+    const r = aws.report || {};
+    const codex = r.codex || {};
+    const prof = r.profile || {};
+    const verdictKind = r.verdict === "ok" ? "ok" : r.verdict === "not_bedrock" || r.verdict === "pending" ? "off" : r.verdict === "process_may_need_hidden_dir" ? "warn" : "bad";
+    const toggle = el("input", { type: "checkbox", "data-testid": "abd-awsenv-toggle" });
+    toggle.checked = aws.enabled !== false;
+    toggle.addEventListener("change", () => awsAction("codex-awsenv/toggle", { enabled: toggle.checked }, toggle.checked ? "enabling" : "disabling"));
+    const facts = el("div", { style: { ...mono, lineHeight: 1.6 } },
+      el("div", {}, `Codex config: ${codex.exists ? short(codex.path, home()) : "none"} · model_provider ${codex.model_provider || "(openai)"} · model ${codex.model || "?"}`),
+      codex.provider_kind === "bedrock" ? el("div", {}, `AWS profile ${prof.profile || codex.aws_profile || "default"} · region ${codex.aws_region || "?"} · credential source ${prof.credential_source || "?"}${prof.credential_process ? ` (${prof.credential_process})` : ""}`) : null,
+      prof.static_keys_dropped && Object.keys(prof.static_keys_dropped).length ? el("div", { style: { color: COLORS.warn } }, `static keys never copied: ${Object.entries(prof.static_keys_dropped).map(([h, ks]) => `${h}: ${ks.join(", ")}`).join("; ")}`) : null,
+      el("div", {}, `isolated pair: ${short(aws.dir, home())}/{config,credentials} · config ${describeFile(r.files && r.files.config)} · credentials ${describeFile(r.files && r.files.credentials)}`),
+      el("div", {}, `hooks: client init ${aws.hook}, spawn env ${aws.spawn_env_hook} · agent.sandbox ${aws.sandbox_mode || "(default)"}`));
+    const verdictLine = el("div", { "data-testid": "abd-awsenv-verdict", style: { marginTop: "0.3rem" } }, glyph(verdictKind, COLORS[verdictKind]), el("strong", {}, r.verdict || "?"), ` — ${r.detail || ""}`);
+    const recent = (aws.recent || []).slice(0, 8);
+    const recentList = recent.length
+      ? el("ul", { style: { margin: "0.3rem 0 0", paddingLeft: "1.2rem", ...mono } }, ...recent.map((x) => el("li", {}, `${new Date((x.ts || 0) * 1000).toLocaleTimeString()} ${x.reason} ${x.session || "-"}: ${x.applied ? `applied (profile ${x.profile}, ${x.credential_source})` : `not applied (${x.preflight})`}${x.process_may_need_hidden_dir ? ` · process names ~/${x.process_may_need_hidden_dir} (hidden; probe to confirm)` : ""}`)))
+      : el("div", { style: { color: muted } }, "no Codex session launched since the gateway started");
+    awsBox.replaceChildren(
+      el("p", { style: { color: muted, margin: "0 0 0.4rem" } },
+        "A Codex on amazon-bedrock authenticates through the AWS SDK's profile chain. The host hides ~/.aws from the Codex child and, on the internal edition, points AWS_CONFIG_FILE at a sanitized per-process copy whose profiles have no credential source — the SDK then reports \"failed to load AWS credentials: the credential provider was not enabled\". Before each launch this mod copies ONLY the configured profile's non-sensitive keys into a private pair outside ~/.aws and hands the child those pointers explicitly. ~/.aws stays hidden; no credential value is ever copied or read."),
+      el("label", { style: { display: "flex", gap: "0.5rem", alignItems: "center" } }, toggle, "Give Codex sessions the isolated AWS config"),
+      facts, verdictLine,
+      r.sandbox_note ? el("div", { style: { color: COLORS.warn, marginTop: "0.3rem" } }, r.sandbox_note) : null,
+      el("div", { style: { display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" } },
+        btn("Rebuild now", () => awsAction("codex-awsenv/rebuild", {}, "rebuilding"), { "data-testid": "abd-awsenv-rebuild" }),
+        btn("Probe the provider chain…", async () => {
+          const ok = await api.dialog.confirm("Run `aws sts get-caller-identity` with exactly the environment a Codex child gets, inside the same credential mask? Only the exit status and the account / ARN are shown; no key or token is read or displayed.", { title: "Probe the AWS provider chain", okLabel: "Run the probe" });
+          if (ok) await awsAction("codex-awsenv/probe", { sandboxed: true }, "probing");
+        }, { "data-testid": "abd-awsenv-probe" })),
+      el("div", { style: { marginTop: "0.5rem" } }, el("strong", { style: { fontSize: "0.85rem" } }, "Recent Codex launches"), recentList));
+  }
+
+  function describeFile(f) {
+    if (!f) return "?";
+    if (!f.exists) return "absent";
+    return `${f.regular ? "" : "NOT a regular file, "}${f.private ? "0600" : `mode ${f.mode} (not private)`}${f.writable ? "" : ", not writable"}`;
   }
 
   await refresh();
