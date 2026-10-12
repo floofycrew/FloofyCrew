@@ -156,6 +156,41 @@ def test_a_planted_leak_fails_the_scan(export_tree: Path) -> None:
         planted.unlink()
 
 
+def test_the_real_tree_has_no_credential_shaped_literals(export_tree: Path) -> None:
+    """GitHub's push protection declined the 1.3.6 export over a made-up key pair in a test; never again."""
+    exporter.scan_secret_shapes(export_tree)  # raises ExportError on any hit
+
+
+def test_a_planted_credential_shape_fails_the_export(export_tree: Path) -> None:
+    # the planted values are assembled at runtime so this test file itself stays clean under the gate
+    key_id = "AKIA" + "ABCDEFGHIJKLMNOP"
+    secret = "abcdefghijklmnopqrstuvwxyz" + "0123456789ABCD"
+    planted = export_tree / "docs" / "planted-credential-test.md"
+    planted.write_text(f"commit 0123456789abcdef0123456789abcdef01234567\nid {key_id}\nsecret {secret}\n", encoding="utf-8")
+    try:
+        with pytest.raises(exporter.ExportError) as excinfo:
+            exporter.scan_secret_shapes(export_tree)
+    finally:
+        planted.unlink()
+    message = str(excinfo.value)
+    assert "planted-credential-test.md:2: AWS access key id" in message
+    assert "planted-credential-test.md:3: AWS secret access key" in message
+    assert ":1:" not in message, "a 40-character hex commit hash is not a secret"
+    # a lone 40-character run without a key id in the same file is not reported (GitHub's pair rule)
+    planted.write_text(f"secret {secret}\n", encoding="utf-8")
+    try:
+        exporter.scan_secret_shapes(export_tree)
+    finally:
+        planted.unlink()
+    # a private key block is reported on its own
+    planted.write_text("-----BEGIN " + "RSA PRIVATE KEY-----\nMIIE\n", encoding="utf-8")
+    try:
+        with pytest.raises(exporter.ExportError, match="private key block"):
+            exporter.scan_secret_shapes(export_tree)
+    finally:
+        planted.unlink()
+
+
 def test_export_refuses_a_target_with_an_internal_remote(tmp_path: Path) -> None:
     clone = tmp_path / "clone"
     subprocess.run(["git", "init", "-q", str(clone)], check=True)

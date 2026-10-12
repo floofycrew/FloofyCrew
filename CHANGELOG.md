@@ -11,6 +11,17 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **The public export refuses credential-shaped literals.** GitHub's push
+  protection declined the 1.3.6 export: the doctor's redaction test spelled a
+  made-up AWS access key id next to a 40-character secret, and the remote treats
+  the shape as a leak whatever the value. `export_public.scan_secret_shapes` now
+  runs with the identifier scan (and in the pre-push review): AWS key ids, a
+  paired secret run, private key blocks and GitHub/Slack/Google/OpenAI token shapes
+  fail the export with file and line. The fixtures in `agent-backend-doctor` and
+  the withheld `agent-backend-router` assemble their values at runtime, and the
+  two AWS-config fixtures carry a plainly fake key id; manifest hashes refreshed
+  in place (same versions). Two tests pin the gate (a planted key pair fails with
+  its lines; a 40-character commit hash does not).
 - **The identifier denylist leaves the public tree.** `scripts/check_no_internal_identifiers.py`
   reads its list from `scripts/internal-identifiers.txt`, which the export drops: the
   public copy of the scanner no longer spells the names it keeps out (it reports the

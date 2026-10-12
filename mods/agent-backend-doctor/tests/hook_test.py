@@ -182,7 +182,7 @@ def _load_hook(monkeypatch):
 
 
 CODEX_TOML = 'model_provider = "amazon-bedrock"\nmodel = "openai.gpt-6-sol"\n\n[model_providers.amazon-bedrock.aws]\nregion = "us-east-2"\nprofile = "codex-work"\n'
-AWS_CONFIG = "[default]\nregion = us-west-2\n\n[profile codex-work]\ncredential_process = /opt/tools/vend --role admin\n\n[profile keys]\naws_access_key_id = AKIA" "EXAMPLEEXAMPLE01\naws_secret_access_key = nope\n"
+AWS_CONFIG = "[default]\nregion = us-west-2\n\n[profile codex-work]\ncredential_process = /opt/tools/vend --role admin\n\n[profile keys]\naws_access_key_id = NOT-A-REAL-KEY-ID\naws_secret_access_key = nope\n"
 
 
 @pytest.fixture(params=["0.7", "0.8"])

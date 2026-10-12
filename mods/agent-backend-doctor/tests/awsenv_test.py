@@ -45,7 +45,7 @@ s3 =
 
 [profile static-only]
 region = eu-west-1
-aws_access_key_id = AKIA""" """EXAMPLEEXAMPLE01
+aws_access_key_id = NOT-A-REAL-KEY-ID
 aws_secret_access_key = not-a-real-value
 
 [profile role]
@@ -263,8 +263,12 @@ def test_classify_failure_transient_and_reached_model():
 
 
 def test_redact_strips_secret_shapes():
-    # the header-scheme word is split into adjacent literals so the shipped test carries no bare credential word
-    text = "aws_secret_access_key=abcdefghijklmnopqrst" "uvwxyz0123456789ABCD AKIA" "ABCDEFGHIJKLMNOP " + "Bea" "rer eyJhbGciOiJIUzI1NiJ9.xxxxxxxxxxxx " + "A" * 60 + " and a message"
+    # every credential shape is assembled from adjacent literals at runtime, so the shipped source carries no
+    # bare credential word and no key-shaped literal: credential scanners (GitHub's push protection included)
+    # reject the shape on sight, made-up or not, and the public export's own gate (scripts/export_public.py) too
+    key_id = "AKIA" + "ABCDEFGHIJKLMNOP"
+    secret_key = "abcdefghijklmnopqrstuvwxyz" + "0123456789ABCD"  # 40 base64 characters, the length of a real one
+    text = f"aws_secret_access_key={secret_key} {key_id} " + "Bea" "rer eyJhbGciOiJIUzI1NiJ9.xxxxxxxxxxxx " + "A" * 60 + " and a message"
     out = A.redact(text)
-    assert "AKIA" "ABCDEFGHIJKLMNOP" not in out and "abcdefghijklmnopqrstuvwxyz" not in out and "eyJhbGci" not in out and "A" * 60 not in out
+    assert key_id not in out and "abcdefghijklmnopqrstuvwxyz" not in out and "eyJhbGci" not in out and "A" * 60 not in out
     assert "and a message" in out and len(A.redact("word " * 300)) == 400

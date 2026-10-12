@@ -73,7 +73,7 @@
     },
     {
       "path": "tests/awsenv_test.py",
-      "sha256": "b38cebab7536865d8f5f744e8518cc2c952afed692decd5bc9ba77932c27792f"
+      "sha256": "0ed0b5786865f67cc9bd7ce8bdd8122d17dee6804a8ecbba1cd1b63b0494a2d5"
     },
     {
       "path": "tests/discovery_test.py",
@@ -81,7 +81,7 @@
     },
     {
       "path": "tests/hook_test.py",
-      "sha256": "c2f852310b2136eaa33f1ee3f778f745e1ae4d55dff9592984811df5d5eb11e4"
+      "sha256": "b0e5846427c11898d0a0f475917c00430b073c7ee4c17f1a695ef178d4dfd05a"
     },
     {
       "path": "tests/page_probe.py",

@@ -69,9 +69,12 @@ The third step is the **advisory second net** (internal-only tooling, never
 exported): a language model reads exactly the delta a `git push` would publish
 (the clone's uncommitted state) and flags what a substring denylist cannot —
 unknown hostnames, people, codenames, ticket-shaped ids, secret-shaped
-strings. Before the model is asked it re-runs the deterministic scan (the
-blocking gate) and checks the identity: the next commit's, and every commit a
-push would publish (`@{upstream}..HEAD`), must be the public one; the review
-refuses otherwise. A model pass is never proof, and findings are printed for a
-human to judge, never auto-fixed. The review record lands in the clone's
-`.git/floofycrew-ai-review.json` (never pushed).
+strings. Before the model is asked it re-runs the deterministic scans (the
+blocking gate: the identifier scan, and the credential-shape pass that refuses
+AWS key ids, private key blocks and API-token shapes — GitHub's push protection
+declines a push carrying one, a made-up test value included, so fixtures that
+need the shape assemble it at runtime) and checks the identity: the next
+commit's, and every commit a push would publish (`@{upstream}..HEAD`), must be
+the public one; the review refuses otherwise. A model pass is never proof, and
+findings are printed for a human to judge, never auto-fixed. The review record
+lands in the clone's `.git/floofycrew-ai-review.json` (never pushed).

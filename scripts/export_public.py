@@ -21,7 +21,10 @@ produce a tree for the public remote:
 3. **Scan the WHOLE exported tree** with `check_no_internal_identifiers.py`
    (`--paths .`), against `scripts/public-export-allow.txt` — a separate,
    justified allowlist whose every line must name an existing exported path.
-   Any other hit fails the export.
+   Any other hit fails the export. A second pass (`scan_secret_shapes`) refuses
+   credential-shaped literals — AWS key ids, private key blocks, API tokens —
+   which GitHub's push protection declines on sight, made-up test values
+   included; a fixture that needs the shape assembles it at runtime.
 4. **Refuse internal remotes**: with `--out` pointing into a git clone, every
    configured remote is checked; an internal host fails the export before a
    single file is written.
@@ -50,6 +53,7 @@ import argparse
 import functools
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -59,6 +63,24 @@ from pathlib import Path, PurePosixPath
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCANNER = REPO_ROOT / "scripts" / "check_no_internal_identifiers.py"
 ALLOWLIST = "scripts/public-export-allow.txt"
+
+#: Credential-shaped literals that GitHub's push protection — and any secret scanner a
+#: fork's CI runs — rejects on sight, fake or not: a push carrying one is declined
+#: before it lands. Fixtures that need the shape at runtime assemble it from adjacent
+#: literals (the doctor's redaction tests do); the shipped source never spells it.
+#: Each pattern is written so that this file, which contains it, does not match it.
+SECRET_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("AWS access key id", re.compile(r"(?<![A-Za-z0-9])(?:A3T[A-Z0-9]|AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[A-Z0-9]{16}(?![A-Za-z0-9])")),
+    ("private key block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("GitHub token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})")),
+    ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
+    ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("OpenAI/Anthropic API key", re.compile(r"\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}")),
+)
+#: GitHub pairs an AWS secret with an access key id in the SAME file: a 40-character
+#: base64 run is reported only there, and only when it mixes cases and digits (a hex
+#: commit hash is 40 characters too, but never upper-case).
+_AWS_SECRET_RUN = re.compile(r"(?<![A-Za-z0-9/+])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+])")
 
 #: Everything the public repository receives, relative to the repository root.
 #: A directory takes its whole subtree (minus SKIP_NAMES and EXCLUDED_MODS).
@@ -304,6 +326,44 @@ def scan_export(target: Path) -> None:
                           "in the source tree?):\n" + result.stdout + result.stderr)
 
 
+def _text_files(target: Path):
+    """Every UTF-8 text file in ``target`` (``.git`` skipped; binaries — images, archives, signatures — skipped)."""
+    for path in sorted(target.rglob("*")):
+        if not path.is_file() or ".git" in path.relative_to(target).parts:
+            continue
+        try:
+            yield path, path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+
+
+def scan_secret_shapes(target: Path) -> None:
+    """Refuse any credential-shaped literal in the exported tree (``SECRET_SHAPES``).
+
+    GitHub's push protection declines a push that carries one — a made-up test key
+    included — so a tree with one in it cannot be published. The gate says so
+    here, with file and line, instead of the remote saying so after the push.
+    """
+    hits: list[str] = []
+    for path, text in _text_files(target):
+        rel = path.relative_to(target).as_posix()
+        lines = text.splitlines()
+        key_id_seen = False
+        for number, line in enumerate(lines, 1):
+            for family, rx in SECRET_SHAPES:
+                if rx.search(line):
+                    hits.append(f"{rel}:{number}: {family}")
+                    key_id_seen = key_id_seen or family == "AWS access key id"
+        if key_id_seen:
+            for number, line in enumerate(lines, 1):
+                for run in _AWS_SECRET_RUN.findall(line):
+                    if any(c.islower() for c in run) and any(c.isupper() for c in run) and any(c.isdigit() for c in run):
+                        hits.append(f"{rel}:{number}: AWS secret access key (paired with the key id in this file)")
+    if hits:
+        raise ExportError("credential-shaped literals in the exported tree — GitHub's push protection would decline the "
+                          "push; assemble such test fixtures at runtime instead:\n  " + "\n  ".join(hits))
+
+
 def check_target_remotes(target: Path) -> None:
     """Refuse a target inside a git clone that has an internal remote."""
     result = subprocess.run(["git", "-C", str(target), "remote", "-v"], capture_output=True, text=True)
@@ -413,6 +473,7 @@ def export(target: Path, *, force: bool = False) -> dict[str, object]:
     stripped = strip_internal_only_regions(target)
     check_excluded_mods_absent(target)
     scan_export(target)
+    scan_secret_shapes(target)
     identity = configure_public_identity(target)
     return {"target": str(target), "paths": written, "readmeRowsDropped": dropped, "internalRegionsStripped": stripped,
             "identity": f"{identity[0]} <{identity[1]}>" if identity else None}
