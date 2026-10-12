@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import stat
 import tempfile
 import urllib.error
 import urllib.parse
@@ -412,6 +414,10 @@ class Disclosure:
     #: The source tier this install will have (Requirement 8.11) and, for a git reference, the facts behind the extra consent line.
     tier: str = TIER_UNLISTED
     unlisted_source: dict[str, Any] | None = None
+    #: Requirement 1.4 at install time: the ``dependsOn`` plan (what will ALSO be installed, or cannot be) and,
+    #: for a recursive dependency install, which mod asked for this one.
+    dependencies: list[dict[str, Any]] = field(default_factory=list)
+    dependency_of: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -429,10 +435,15 @@ class Disclosure:
             "errors": list(self.errors),
             "tier": self.tier,
             "unlistedSource": dict(self.unlisted_source) if self.unlisted_source else None,
+            "dependencies": [dict(d) for d in self.dependencies],
+            "dependencyOf": dict(self.dependency_of) if self.dependency_of else None,
         }
 
     def lines(self) -> list[str]:
         out = [f"{self.name} ({self.mod_id} {self.version})"]
+        if self.dependency_of:
+            who = self.dependency_of
+            out.append(f"  DEPENDENCY of {who.get('id')} (needs {who.get('range') or '*'}{'; ' + str(who['reason']) if who.get('reason') else ''})")
         if self.unlisted_source:
             where = self.unlisted_source.get("ref") or self.unlisted_source.get("url")
             commit = str(self.unlisted_source.get("commit") or "")[:12]
@@ -456,13 +467,22 @@ class Disclosure:
             out.append(f"  host says: {warning['code']}: {warning['message']}")
         if self.code_parts:
             out.append("  code parts (python-hook/spa) run once installed — a confirmed install lands ENABLED; `--disabled` lands it switched off (Requirement 11.7)")
+        to_install = [d for d in self.dependencies if d.get("status") == "install"]
+        problems = [d for d in self.dependencies if d.get("status") in ("unavailable", "out-of-range", "cycle", "invalid")]
+        if to_install:
+            out.append("  ALSO INSTALLS (dependencies, from the registry): " + ", ".join(f"{d['id']} {d.get('version') or ''}".strip() + (f" [{d.get('tier')}]" if d.get("tier") else "") for d in to_install))
+            for d in to_install:
+                if d.get("reason"):
+                    out.append(f"    {d['id']}: {d['reason']}")
+        for d in problems:
+            out.append(f"  DEPENDENCY NOT AVAILABLE: {d['id']} {d.get('range') or ''} — {d.get('status')}: {d.get('detail') or ''}; this mod will stay inactive (Dependency) until it is installed")
         for error in self.errors:
             out.append(f"  ERROR {error['code']}: {error['message']}")
         return out
 
 
-def disclose(root: Path, report: ValidationReport, snapshot: GovernanceSnapshot | None, *, policy: TargetPolicy | None = None, source: ResolvedSource | None = None) -> Disclosure:
-    """Everything the user sees before saying yes; ``source`` adds the tier and, for a git reference, the unlisted-source line (Requirement 8.8, 8.11)."""
+def disclose(root: Path, report: ValidationReport, snapshot: GovernanceSnapshot | None, *, policy: TargetPolicy | None = None, source: ResolvedSource | None = None, dependencies: list[dict[str, Any]] | None = None, dependency_of: dict[str, Any] | None = None) -> Disclosure:
+    """Everything the user sees before saying yes; ``source`` adds the tier and, for a git reference, the unlisted-source line (Requirement 8.8, 8.11); ``dependencies`` the install-time ``dependsOn`` plan (Requirement 1.4)."""
     manifest = report.manifest or {}
     parts = []
     for index, part in enumerate(parts_of(manifest)):
@@ -492,6 +512,8 @@ def disclose(root: Path, report: ValidationReport, snapshot: GovernanceSnapshot 
         errors=[f.to_dict() for f in report.errors],
         tier=source.tier if source is not None else TIER_UNLISTED,
         unlisted_source=({"url": (source.git or {}).get("url"), "ref": source.ref, "commit": source.commit} if source is not None and source.unlisted_git else None),
+        dependencies=list(dependencies or []),
+        dependency_of=dict(dependency_of) if dependency_of else None,
     )
 
 
@@ -511,6 +533,25 @@ def _copy_tree(source: Path, target: Path) -> None:
     shutil.copytree(source, target, symlinks=False, ignore=shutil.ignore_patterns("__pycache__", ".git", ".pytest_cache", ".hypothesis"))
 
 
+def _runtime_state_ignore(directory: str, names: list[str]) -> set[str]:
+    """``copytree`` ignore for ``.floofy/``: skip unix sockets, fifos and device nodes.
+
+    A python-hook may keep a live unix socket under its runtime dir (the agent-orchestrator
+    bus does); ``copytree`` cannot copy one and would fail the whole update with
+    ``[Errno 6] No such device or address``. The hook recreates the socket on activation,
+    so nothing is lost by leaving it behind.
+    """
+    skipped: set[str] = set()
+    for name in names:
+        try:
+            mode = os.lstat(os.path.join(directory, name)).st_mode
+        except OSError:
+            continue
+        if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode) or stat.S_ISLNK(mode)):
+            skipped.add(name)
+    return skipped
+
+
 def place(home: DataHome, source: ResolvedSource, manifest: dict[str, Any], *, stage: bool) -> tuple[Path, str]:
     """Copy the mod into ``pending/<id>/`` (``stage``) or ``mods/<id>/``; keep ``.floofy/`` runtime state; write the source record."""
     mod_id = str(manifest["id"])
@@ -519,7 +560,7 @@ def place(home: DataHome, source: ResolvedSource, manifest: dict[str, Any], *, s
     runtime_backup: Path | None = None
     if (installed / ".floofy").is_dir() and not installed.is_symlink():
         runtime_backup = Path(tempfile.mkdtemp(prefix="floofy-runtime-")) / ".floofy"
-        shutil.copytree(installed / ".floofy", runtime_backup)
+        shutil.copytree(installed / ".floofy", runtime_backup, ignore=_runtime_state_ignore)
     target = home.pending / mod_id if stage else installed
     remove_marker = home.pending / f"{mod_id}.remove"
     if remove_marker.exists():

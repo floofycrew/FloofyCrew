@@ -20,12 +20,12 @@ tree counts as different). Every differing file must be an adapter module
 edition stamp; a difference anywhere else fails the report, as does a share of
 identical files below 80 %.
 
-Measured after 1.3.1 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.2.0's `electron:` target support (`floofy_core.asar`, `floofy_core.electron`) and the `custom-themes` editor, 1.3.0's `floofy.mod(id).dialog` and commit-pinned link records, the unattended freshness pass `floofy_core/freshness.py` — every new module is shared core, identical in both trees):
+Measured at 1.3.6 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.2.0's `electron:` target support (`floofy_core.asar`, `floofy_core.electron`) and the `custom-themes` editor, 1.3.0's `floofy.mod(id).dialog` and commit-pinned link records, the unattended freshness pass `floofy_core/freshness.py` — every new module is shared core, identical in both trees):
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 226 | 252 | 89.7 % |
-| bytes | 2 651 531 | 2 743 805 | 96.6 % |
+| files | 231 | 257 | 89.9 % |
+| bytes | 2 808 106 | 2 900 380 | 96.8 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:
@@ -40,13 +40,13 @@ python scripts/artifact_identity_report.py --keep /tmp/trees   # keep both trees
 
 `scripts/install_both_editions.py` builds each first-party mod into one
 deterministic archive — `custom-themes-1.0.1.zip` (sha256
-`36e1c5eed82571ae0f1777787cce31c57d58787a7ecc8a95c2e108def3a90f2a`, 41 967
+`f0125720a56e9459e1f0fc677f4a64e232f26decab0e31e859057e1bc058d4c5`, 41 667
 bytes: a `ui` editor, a `python-hook` backend, `spa` runtime + boot parts and the
 theme-reset `patch`), `rimuru-branding-2.0.0.zip` (sha256
 `af46e27a3953a9b4686658651222d3a60813f91a8fa7a373a652851f64a6111e`, 57 596
 bytes: a pure `theme` part depending on it) and `settings-demo-1.0.0.zip` (sha256
-`62bd60b3bb238d988a86a141e575d22d3e28abe09997a84fa853f2c8a212d579`,
-7 332 bytes: a `ui` settings page + a `python-hook` backend route, task 11.6) —
+`7e41c05c099046cf3974dc4baa148ff57b079a7b23fe73484bf29182a77cb016`,
+7 037 bytes: a `ui` settings page + a `python-hook` backend route, task 11.6) —
 and installs those bytes on two scratch hosts — one that declares itself
 the internal edition (a `BUILD_VERSION` stamp, `X.Y.Z.N`) and one that does not
 (the public edition) — each with its own scratch data home and a payload copied

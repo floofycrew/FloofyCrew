@@ -98,6 +98,15 @@ list them). A raising callback removes **all** of that mod's registrations and
 falls through to the original behaviour; `deactivate` unwinds them in reverse
 order. Mods should wrap only what they need and prefer `after` to `replace`.
 
+One distinction a `replace` hook can rely on since api `1.3.0`: an exception
+that comes **out of `call_next`** is the host's own failure, not the mod's. The
+mod may catch it, act (log, repair, retry `call_next` once) and let it
+propagate; the Loader passes it to the caller unchanged and records no fault.
+Only an exception raised by the mod's own code faults the mod. Mods that need
+this behaviour should check `floofy.api_version` (`>= 1.3.0`) and register a
+plain `after` hook instead on an older Loader, where re-raising would have
+counted as a fault and re-run the original.
+
 ## Network: `ctx.http` and `floofy.fetch`
 
 The rule, checked before a socket opens and again on every redirect:

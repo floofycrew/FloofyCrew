@@ -7,6 +7,12 @@ person that only makes sense inside the internal edition has to live in the edit
 adapters. This script scans the public-clean directories for a case-insensitive
 denylist of such identifiers and fails the build on any hit.
 
+The denylist lives in ``scripts/internal-identifiers.txt`` (one entry per line),
+not in this file: the public export drops that file, so the public copy of this
+scanner does not itself spell the names it keeps out. Run in a tree without the
+file (a public export) the scanner says so and exits 0 — the authoritative scan
+runs in the source tree before every export.
+
 Usage:
     python scripts/check_no_internal_identifiers.py [--root DIR] [--allowlist FILE]
                                                     [--paths P [P ...]] [--list]
@@ -40,41 +46,26 @@ DEFAULT_SCAN_PATHS: tuple[str, ...] = (
     "docs",
 )
 
-#: Case-insensitive substrings that only make sense inside the internal edition.
-#: Kept as a flat tuple so the unit tests and the allowlist can name entries exactly.
-DENYLIST: tuple[str, ...] = (
-    # hostnames and URL fragments
-    "amazon.com",
-    "amazon.dev",
-    "a2z.com",
-    "aws.dev",
-    "code.amazon.com",
-    "w.amazon.com",
-    "issues.amazon.com",
-    "t.corp",
-    "buildertoolbox",
-    # identity and credential tooling
-    "midway",
-    "mwinit",
-    "isengard",
-    "mcscli",
-    # internal build and distribution systems
-    "brazil",
-    "toolbox",
-    "gitfarm",
-    "aim install",
-    # internal package and repository names
-    "o3r-",
-    "kirocrewamazoninternal",
-    "kirocrew_amazon",
-    "kirocrewmirror",
-    "kirocrewappregistry",
-    "kirocrewcommunityappregistry",
-    "gardnerkirocrewappregistry",
-    "@amzn/",
-    # people and accounts
-    "liyent",
-)
+#: The denylist's home: one case-insensitive substring per line, ``#`` comments
+#: and blank lines ignored, kept as a flat tuple in file order so the unit tests
+#: and the allowlists can name entries exactly (the first entry is a hostname
+#: fragment, the last an account name). Internal-only: the public export drops it.
+TERMS_FILE = Path(__file__).resolve().parent / "internal-identifiers.txt"
+
+
+def load_denylist(path: Path = TERMS_FILE) -> tuple[str, ...]:
+    """The identifiers in ``path`` in file order; empty when the file is absent (a public tree)."""
+    if not path.is_file():
+        return ()
+    entries = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            entries.append(line)
+    return tuple(entries)
+
+
+DENYLIST: tuple[str, ...] = load_denylist()
 
 #: Directory names never descended into.
 SKIP_DIRS: frozenset[str] = frozenset(
@@ -86,15 +77,17 @@ BINARY_SUFFIXES: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".otf", ".zip", ".gz", ".br", ".tar", ".whl", ".pyc", ".so", ".pdf"}
 )
 
-#: Legal notices are reproduced verbatim, as their licenses require: a LICENSE/NOTICE
-#: file (or anything under a licenses/ directory, as in a wheel's dist-info) may carry
-#: an upstream copyright line naming a company. That is public attribution from a
-#: public repository, not an internal identifier, so these files are not scanned —
-#: including in the release workflow's ``--allowlist /dev/null`` passes, which a
-#: path allowlist could not cover.
+#: Upstream legal notices are reproduced verbatim, as their licenses require: a
+#: NOTICE/COPYING file (or anything under a licenses/ directory, as in a wheel's
+#: dist-info) may carry an upstream copyright line naming a company. That is public
+#: attribution from a public repository, not an internal identifier, so these files
+#: are not scanned — including in the release workflow's ``--allowlist /dev/null``
+#: passes, which a path allowlist could not cover. A ``LICENSE`` file in the tree is
+#: NOT exempt: those are our own MIT texts, and a copyright line there must not
+#: spell an internal account name (the public export audit found three that did).
 def is_legal_notice(path: Path) -> bool:
     stem = path.name.upper()
-    if stem.startswith(("LICENSE", "NOTICE", "COPYING")):
+    if stem.startswith(("NOTICE", "COPYING")):
         return True
     return any(part.lower() in ("licenses", "license-files") for part in path.parts[:-1])
 
@@ -209,6 +202,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="print the denylist and exit")
     args = parser.parse_args(argv)
 
+    if not DENYLIST:
+        print(f"OK: no identifier list at {TERMS_FILE.name} (a public export carries none); "
+              "nothing to scan against here — the authoritative scan runs in the source tree before export")
+        return 0
     if args.list:
         print("\n".join(DENYLIST))
         return 0

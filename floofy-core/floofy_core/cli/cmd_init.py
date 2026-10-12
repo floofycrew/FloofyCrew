@@ -17,7 +17,14 @@ set up. ``--yes`` never answers this question. Then, each step explicit and repo
 4. the re-apply trigger(s) of the edition (Requirement 6.1; ``--no-trigger`` skips,
    ``--trigger KIND`` keeps only the named kinds — the install scripts' menu answer);
 5. optionally the early shim (``--early``; Requirement 3.2), location chosen by
-   the edition adapter (user site on the bundle interpreter, venv site on a venv).
+   the edition adapter (user site on the bundle interpreter, venv site on a venv);
+6. the edition's default registry source (Requirement 8.12): recorded in
+   ``registries.json`` when missing — a row the user already has keeps its trust
+   settings — and fetched when its cache is not usable, so the App's Registry page
+   is populated from the first start. Best-effort: ``--offline`` records without
+   fetching, a failed fetch is a warning (the re-apply trigger retries hourly) and
+   never fails ``init``. The source can never be removed; ``floofy registry
+   defaults`` re-applies the shipped settings and adds the host App Store rows.
 
 ``deinit`` reverses the machine-level pieces (triggers, early shim, Loader app,
 ``floofy restore --all``) and keeps ``consent.json`` and ``audit.jsonl`` unless
@@ -265,6 +272,26 @@ def _early_step(ctx: CliContext, args: argparse.Namespace) -> dict[str, Any]:
     return {"skipped": False, "ok": True, **status.to_dict()}
 
 
+def _registry_step(ctx: CliContext) -> dict[str, Any]:
+    """Requirement 8.12: the edition's default source, recorded and fetched (best-effort; never fails ``init``)."""
+    from ..installer import InstallError  # noqa: PLC0415
+    from ..registry_sources import SourceStore  # noqa: PLC0415
+    from .cmd_registry import ensure_default_sources, fetch_default_sources, say_default_sources  # noqa: PLC0415
+
+    try:
+        store = SourceStore.load(ctx.home)
+    except InstallError as exc:
+        ctx.warn(f"registry: {exc}; the default source was not recorded (fix the file, then `floofy registry defaults`)")
+        return {"status": "error", "error": str(exc)}
+    record = ensure_default_sources(ctx, store, why="floofy init")
+    fetched: dict[str, Any] | None = None
+    if record["pending"] and not ctx.offline:
+        ctx.say(f"registry: fetching {', '.join(s['label'] for s in record['sources'] if s['key'] in record['pending'])}…")
+        fetched = fetch_default_sources(ctx, store, record["pending"], why="floofy init")
+    say_default_sources(ctx, record, fetched)
+    return {**record, "fetched": fetched}
+
+
 def init(ctx: CliContext, args: argparse.Namespace) -> int:
     ctx.say(f"{ctx.paint('floofy init', 'heading')} — {ctx.paint('FloofyCrew is unofficial and not affiliated with Kiro or KiroCrew.', 'italic')}")
     consent = _consent_step(ctx, args)
@@ -276,8 +303,9 @@ def init(ctx: CliContext, args: argparse.Namespace) -> int:
     loader = _loader_app_step(ctx, args)
     triggers = _trigger_step(ctx, args)
     early = _early_step(ctx, args)
-    ctx.audit.record("init", result="ok", detail=f"edition={ctx.edition()} loader={'installed' if installed_meta(ctx.host_home)['installed'] else 'missing'}")
-    ctx.set_result(consent=consent, dataHome=str(ctx.data_home), edition=ctx.edition(), loaderApp=loader, triggers=triggers, earlyShim=early)
+    registry = _registry_step(ctx)
+    ctx.audit.record("init", result="ok", detail=f"edition={ctx.edition()} loader={'installed' if installed_meta(ctx.host_home)['installed'] else 'missing'} defaultSource={registry.get('status')}")
+    ctx.set_result(consent=consent, dataHome=str(ctx.data_home), edition=ctx.edition(), loaderApp=loader, triggers=triggers, earlyShim=early, registry=registry)
     ctx.say("done. Next: `floofy install <mod>` — `floofy doctor` shows the state of everything above.")
     return 0
 

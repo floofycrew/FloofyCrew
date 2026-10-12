@@ -30,6 +30,7 @@ Skipped without a payload copy. The copy's ``index.html`` is patched on purpose
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import time
@@ -332,8 +333,14 @@ def test_4_import_map_remap_is_what_the_host_evaluates(harness: Harness):
 
 
 
+def open_parts(page, mod_id: str) -> None:
+    """Expand a mod row's collapsed "Parts (seam)" cell — the per-part seam lines live there, collapsed by default."""
+    if not page.evaluate(f"() => document.querySelector('[data-testid=\"floofycrew-parts-{mod_id}\"]').open"):
+        page.click(f'[data-testid="floofycrew-parts-{mod_id}"] summary')
+
+
 def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
-    """The manager page (task 6.7, 7.10): unofficial banner, mod rows with state/seam/compat/tier badges, disable through the in-process CLI."""
+    """The manager page (task 6.7, 7.10): unofficial banner, the installed-mods table (switch | name | id | compat · tier | actions | parts collapsed), disable through the switch → the in-process CLI."""
     client = harness.gw.client()
     assert client.post(f"{API}/reload").status == 200
     enabled_path = FloofyPaths(harness.gw.data_home).enabled
@@ -345,18 +352,28 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         banner = page.inner_text('[data-testid="floofycrew-banner"]')
         assert "UNOFFICIAL" in banner and "not affiliated" in banner, banner
         page.wait_for_selector('[data-testid="floofycrew-mod-row-rimuru-branding"]', timeout=30000)
+        head = page.inner_text('[data-testid="floofycrew-mod-rows-head"]')
+        assert "Host compat · source tier" in head and "Actions" in head and "Parts (seam)" in head, head
+        compact = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
+        assert "rimuru-branding" in compact and "2.0.0" in compact and "theme/gateway" not in compact and "part(s)" in compact, f"one row: switch | name | id · version | compat · tier | actions | parts collapsed to a count: {compact!r}"
+        assert "Settings" not in compact and "Enable" not in compact and "Disable" not in compact, f"no Settings panel, no Enable/Disable button — the switch is the on/off control: {compact!r}"
+        switch = page.locator('[data-testid="floofycrew-toggle-rimuru-branding"]')
+        assert switch.get_attribute("role") == "switch" and switch.get_attribute("aria-checked") == "true", "an active mod's switch is on"
+        open_parts(page, "rimuru-branding")
         row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
-        assert "rimuru-branding 2.0.0" in row and "active" in row and "theme/gateway" in row and "modifies payload files" not in row, row
+        assert "theme/gateway" in row and "modifies payload files" not in row, row
         themes_row = page.inner_text('[data-testid="floofycrew-mod-row-custom-themes"]')
-        assert "custom-themes 1.0.1" in themes_row and "active" in themes_row and "modifies payload files" in themes_row, themes_row
+        assert "1.0.1" in themes_row and "modifies payload files" in themes_row, f"the payload warning stays visible on the collapsed parts summary: {themes_row!r}"
         assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
         assert page.inner_text('[data-testid="floofycrew-tier-rimuru-branding"]') == "tier: unlisted", "copied in without a registry record: the source tier badge says so (Requirement 8.11)"
         assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')
+        open_parts(page, "spa-healthy")
         healthy = page.inner_text('[data-testid="floofycrew-mod-row-spa-healthy"]')
         assert "spa/spa" in healthy and "SPA host" in healthy
         assert page.inner_text('[data-testid="floofycrew-enabled-spa-healthy"]').startswith("enabled")
-        # disable through the UI → POST /mods/spa-healthy/disable (the same handler as `floofy disable`) → enabled.json flips → the Loader reloads
+        # disable through the switch → POST /mods/spa-healthy/disable (the same handler as `floofy disable`) → enabled.json flips → the Loader reloads
         page.click('[data-testid="floofycrew-toggle-spa-healthy"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-toggle-spa-healthy\"]')?.getAttribute('aria-checked') === 'false'", timeout=60000)
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-spa-healthy\"]')?.textContent.startsWith('disabled')", timeout=60000)
         assert json.loads(enabled_path.read_text(encoding="utf-8"))["spa-healthy"] is False
         output = page.inner_text('[data-testid="floofycrew-output"]')
@@ -382,6 +399,55 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         art = client.get("/apps/floofycrew/art/art/icon.svg")  # /apps/<name>/art/<iconPath verbatim>
         assert art.status == 200 and art.body == (REPO_ROOT / "branding" / "logo.svg").read_bytes(), f"the host serves the declared iconPath: HTTP {art.status} {art.body[:200]!r}"
         page.wait_for_function("() => { const img = document.querySelector('[data-testid=\"floofycrew-header\"] img'); return img && img.complete && img.naturalWidth > 0; }", timeout=30000)
+        # the header wears the wordmark for the host's colour mode (the -dark/-light suffix of <html data-theme>) and follows
+        # a theme switch; the gradient is a borderless, top-feathered backdrop on the masthead (header + banner + tabs), not a
+        # box around the logo: it runs from the page's top edge (the window border) down to the tabs' bottom rule, covering
+        # the tab row, and the SELECTED tab is cut out of it (a subtracted mask layer over the tab, down to the rule)
+        glow_js = "() => { const h = document.querySelector('[data-testid=\"floofycrew-header\"]'); const g = document.querySelector('[data-testid=\"floofycrew-header-glow\"]'); const cs = getComputedStyle(h); const glow = getComputedStyle(g); const hr = h.getBoundingClientRect(); const gr = g.getBoundingClientRect(); const pr = document.querySelector('[data-testid=\"floofycrew-manager\"]').getBoundingClientRect(); const n = document.querySelector('[data-testid=\"floofycrew-nav\"]'); const nr = n.getBoundingClientRect(); const tr = n.querySelector('[aria-current=\"page\"]').getBoundingClientRect(); return { border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, glowImage: glow.backgroundImage, mask: glow.maskImage || glow.webkitMaskImage, composite: glow.maskComposite || glow.webkitMaskComposite, maskSize: glow.maskSize || glow.webkitMaskSize, maskPosition: glow.maskPosition || glow.webkitMaskPosition, above: hr.top - gr.top, glowTop: gr.top, pageTop: pr.top, glowBottom: gr.bottom, navBottom: nr.bottom, tabX: tr.left - gr.left, tabY: tr.top - gr.top, tabWidth: tr.width, tabToRule: gr.bottom - tr.top, rowTop: nr.top - gr.top, tabHeight: tr.height, tabBottom: tr.bottom, ruleBottom: getComputedStyle(n.querySelector('[aria-current=\"page\"]')).borderBottomColor, ruleInactive: getComputedStyle(n.querySelector('button:not([aria-current])')).borderBottomColor, ruleSpacer: getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-rule\"]')).borderBottomWidth, active: n.querySelector('[aria-current=\"page\"]').dataset.testid }; }"
+
+        def check_glow(expected_tab: str) -> dict:
+            s = page.evaluate(glow_js)
+            assert s["active"] == f"floofycrew-nav-{expected_tab}", s
+            assert s["border"] == "0px" and s["radius"] == "0px", s
+            assert "linear-gradient" in s["glowImage"], s
+            assert s["mask"].count("linear-gradient") == 2 and s["composite"].split(",")[0].strip() in ("subtract", "source-out"), s
+            assert s["above"] > 12 and abs(s["glowTop"] - s["pageTop"]) < 1.5, s
+            assert abs(s["glowBottom"] - s["navBottom"]) < 1.5, s
+            # the feather fades the glow out across the tab row: solid at the row's top, gone at the rule
+            feather = s["mask"].split("), linear-gradient(")[0]
+            m = re.search(r"rgb\(0, 0, 0\) (\d+(\.\d+)?)px, rgba\(0, 0, 0, 0\) 100%\)?$", feather)
+            assert m and abs(float(m.group(1)) - s["rowTop"]) < 1.5, s
+            # the tabs sit on the rule (no padding under them), the row is compact, and the rule stops under the selected tab:
+            # inactive tabs and the trailing spacer carry it, the selected tab's bottom is transparent
+            assert abs(s["tabBottom"] - s["navBottom"]) < 1.5 and s["tabHeight"] < 30, s
+            assert s["ruleBottom"] == "rgba(0, 0, 0, 0)" and s["ruleInactive"] != "rgba(0, 0, 0, 0)" and s["ruleSpacer"] == "1px", s
+            # the second mask layer (the cut-out) sits exactly over the selected tab and reaches the rule
+            size = s["maskSize"].split(",")[1].split()
+            pos = s["maskPosition"].split(",")[1].split()
+            assert abs(float(size[0].rstrip("px")) - s["tabWidth"]) < 1.5 and abs(float(size[1].rstrip("px")) - s["tabToRule"]) < 1.5, s
+            assert abs(float(pos[0].rstrip("px")) - s["tabX"]) < 1.5 and abs(float(pos[1].rstrip("px")) - s["tabY"]) < 1.5, s
+            return s
+
+        mods_glow = check_glow("mods")
+        page.click('[data-testid="floofycrew-nav-registry"]')
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-nav-registry\"]').getAttribute('aria-current') === 'page'", timeout=15000)
+        page.wait_for_function(f"() => (getComputedStyle(document.querySelector('[data-testid=\"floofycrew-header-glow\"]')).maskPosition || '') !== {json.dumps(mods_glow['maskPosition'])}", timeout=15000)
+        registry_glow = check_glow("registry")
+        assert registry_glow["tabX"] > mods_glow["tabX"], (mods_glow, registry_glow)
+        page.click('[data-testid="floofycrew-nav-mods"]')
+        page.wait_for_selector('[data-testid="floofycrew-page-mods"]', timeout=15000)
+        theme_before = page.evaluate("() => document.documentElement.getAttribute('data-theme')")
+        assert theme_before.endswith("-dark"), theme_before
+        assert page.get_attribute('[data-testid="floofycrew-icon"]', "src").endswith("/art/wordmark-dark.svg")
+        try:
+            page.evaluate("() => document.documentElement.setAttribute('data-theme', 'default-light')")
+            page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-icon\"]').getAttribute('src').endsWith('/art/wordmark-light.svg')", timeout=15000)
+            assert page.get_attribute('[data-testid="floofycrew-header"]', "data-mode") == "light"
+            light = client.get("/apps/floofycrew/ui/art/wordmark-light.svg")
+            assert light.status == 200 and light.body == (REPO_ROOT / "branding" / "wordmark.svg").read_bytes()
+        finally:
+            page.evaluate(f"() => document.documentElement.setAttribute('data-theme', {json.dumps(theme_before)})")
+            page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-icon\"]').getAttribute('src').endsWith('/art/wordmark-dark.svg')", timeout=15000)
         assert page.locator('[data-testid="floofycrew-page-mods"]').count() == 1, "the manager page is the landing page"
         nav = page.inner_text('[data-testid="floofycrew-nav"]')
         assert [w for w in nav.split() if w] == ["Mods", "Registry", "Profiles", "Doctor", "Audit", "Settings"], nav
@@ -404,7 +470,8 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         try:
             page.reload(wait_until="load")
             page.wait_for_selector('[data-testid="floofycrew-update-spa-healthy"]', timeout=60000)
-            assert "update available: 1.1.0 (expected here)" in page.inner_text('[data-testid="floofycrew-update-spa-healthy"]')
+            assert page.inner_text('[data-testid="floofycrew-update-spa-healthy"]') == "↑ 1.1.0", "the compact row carries the candidate; the verdict is the badge's tooltip"
+            assert page.get_attribute('[data-testid="floofycrew-update-spa-healthy"]', "title") == "update available: 1.1.0 (expected here)"
             assert page.get_attribute('[data-testid="floofycrew-changelog-spa-healthy"]', "href") == "https://forge.example/spa-healthy/releases/1.1.0"
             assert page.locator('[data-testid="floofycrew-update-button-spa-healthy"]').count() == 1 and page.locator('[data-testid="floofycrew-update-now-spa-healthy"]').count() == 1
             page.click('[data-testid="floofycrew-nav-registry"]')
@@ -455,9 +522,29 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         rows_before = len(_audit_rows(harness))
 
         # --- a governance-altering install: the disclosure, the flags question, then the typed path (staged by default) ---
+        # the waits are visible: record every phase the activity line shows and every aria-busy the Install button takes
+        page.evaluate(
+            """() => {
+              window.__phases = []; window.__installBusy = [];
+              const note = () => {
+                const line = document.querySelector('[data-testid="floofycrew-activity"]');
+                const phase = line ? line.dataset.phase : null;
+                if (window.__phases[window.__phases.length - 1] !== phase) window.__phases.push(phase);
+                const busy = document.querySelector('[data-testid="floofycrew-install-submit"]')?.getAttribute('aria-busy') || null;
+                if (window.__installBusy[window.__installBusy.length - 1] !== busy) window.__installBusy.push(busy);
+              };
+              new MutationObserver(note).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-busy', 'data-phase'] });
+              note();
+            }"""
+        )
         page.fill('[data-testid="floofycrew-install-source"]', str(govy))
         page.click('[data-testid="floofycrew-install-submit"]')
         page.wait_for_selector('[data-testid="floofycrew-yesno-modal"]', timeout=60000)
+        assert page.locator('[data-testid="floofycrew-activity"]').count() == 0, "a question on screen is the user's turn: no spinner line behind the modal"
+        phases = page.evaluate("() => window.__phases")
+        assert "asking" in phases, f"the wait BEFORE the confirmation modal was shown as a phase: {phases}"
+        assert page.evaluate("() => window.__installBusy") == [None, "true"], "the Install button started spinning when clicked and is still busy while the question is open"
+        assert page.locator('[data-testid="floofycrew-install-submit"] [data-testid="floofycrew-spinner"]').count() == 1 and "Installing…" in page.inner_text('[data-testid="floofycrew-install-submit"]'), "while the act is in flight the button reads Installing… with a spinner"
         disclosure = page.inner_text('[data-testid="floofycrew-disclosure"]')
         assert "govy 1.0.0" in disclosure and "agent/gateway" in disclosure and "GOVERNANCE-ALTERING" in disclosure and "security_policy.json" in disclosure, disclosure
         assert "no remote hosts declared" in page.inner_text('[data-testid="floofycrew-disclosure-network"]')
@@ -469,11 +556,16 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         page.wait_for_selector('[data-testid="floofycrew-modal"]', state="detached", timeout=30000)
         assert "not confirmed (yes-no); nothing was changed" in page.inner_text('[data-testid="floofycrew-output"]')
         assert len(_audit_rows(harness)) == rows_before and not (data_home / "pending" / "govy").exists()
+        page.wait_for_selector('[data-testid="floofycrew-activity"]', state="detached", timeout=30000)
+        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-install-submit\"]')?.getAttribute('aria-busy') === null", timeout=30000)
+        assert page.locator('[data-testid="floofycrew-spinner"]').count() == 0, "declined: nothing is spinning any more"
+        page.evaluate("() => { window.__phases = []; }")
         # again: Yes, then the typed field — the submit stays disabled until the exact path is typed
         page.click('[data-testid="floofycrew-install-submit"]')
         page.wait_for_selector('[data-testid="floofycrew-yesno-yes"]', timeout=60000)
         page.click('[data-testid="floofycrew-yesno-yes"]')
         page.wait_for_selector('[data-testid="floofycrew-typed-modal"]', timeout=60000)
+        assert page.locator('[data-testid="floofycrew-activity"]').count() == 0, "the second question is on screen: still the user's turn"
         assert "Type the exact path" in page.inner_text('[data-testid="floofycrew-typed-prompt"]')
         assert page.is_disabled('[data-testid="floofycrew-typed-submit"]')
         page.fill('[data-testid="floofycrew-typed-0"]', "security_policy")
@@ -483,6 +575,10 @@ def test_5b_confirmations_need_the_user(harness: Harness):
         page.fill('[data-testid="floofycrew-typed-0"]', "security_policy.json")
         page.click('[data-testid="floofycrew-typed-submit"]')
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-pending\"]')?.textContent.includes('govy')", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-activity"]', state="detached", timeout=30000)
+        phases = page.evaluate("() => window.__phases")
+        assert "running" in phases and phases[-1] is None, f"after the answer the install itself was shown as running, then the line went away: {phases}"
+        assert page.locator('[data-testid="floofycrew-spinner"]').count() == 0 and page.get_attribute('[data-testid="floofycrew-install-submit"]', "aria-busy") is None, "done: nothing spins"
         assert (data_home / "pending" / "govy").is_dir() and not (data_home / "mods" / "govy").exists(), "staged into pending/ (Requirement 7.6)"
         rows = _audit_rows(harness)[rows_before:]
         assert [r["op"] for r in rows] == ["governance-target-confirm", "agent-install", "install"], rows
@@ -650,7 +746,13 @@ def test_5c_mod_pages_are_isolated(harness: Harness):
         page.goto(dashboard_url(harness.gw, "/apps/floofycrew"), wait_until="load", timeout=60000)
         page.wait_for_selector('[data-testid="floofycrew-mod-pages"]', timeout=60000)
         listing = page.inner_text('[data-testid="floofycrew-mod-pages"]')
-        assert "Open Healthy settings" in listing and "Open Broken page" in listing, listing
+        assert "Healthy settings" in listing and "Broken page" in listing and "ui-healthy" in listing and "ui-broken" in listing, f"[icon + mod name] | mod id: {listing!r}"
+        assert "Open " not in listing, f"the page opens from the mod's NAME, not an 'Open …' button: {listing!r}"
+        opener = page.locator('[data-testid="floofycrew-open-page-ui-healthy"]')
+        assert opener.evaluate("el => el.tagName") == "A" and opener.get_attribute("href") == "#/mods/ui-healthy", "the name is a link to the page"
+        assert opener.get_attribute("title") == "Open Healthy settings" and "ui-healthy" in opener.inner_text(), "the link is the mod's name, titled for what it opens"
+        assert page.locator('[data-testid="floofycrew-open-page-ui-healthy"] svg').count() == 0, "no gear glyph any more"
+        assert page.locator('[data-testid="floofycrew-mod-icon-fallback-ui-healthy"], [data-testid="floofycrew-mod-icon-ui-healthy"]').count() == 1, "every page row has a face: the part's icon, the manifest icon, or the puzzle glyph"
         # the healthy page: mounted with floofy.mod(id); config round-trips through the Loader and reaches the mod's Python side
         page.click('[data-testid="floofycrew-open-page-ui-healthy"]')
         page.wait_for_selector('[data-testid="ui-healthy-input"]', timeout=60000)
@@ -688,7 +790,10 @@ def test_5c_mod_pages_are_isolated(harness: Harness):
         page.wait_for_selector('[data-testid="floofycrew-modpage-disable"]', timeout=60000)
         page.click('[data-testid="floofycrew-modpage-disable"]')
         page.wait_for_selector('[data-testid="floofycrew-mod-pages"]', timeout=60000)
-        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-open-page-ui-broken\"]')?.disabled === true", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-page-inactive-ui-broken"]', timeout=60000)
+        assert page.locator('[data-testid="floofycrew-open-page-ui-broken"]').count() == 0, "a disabled mod's name is no longer a link"
+        row = page.inner_text('[data-testid="floofycrew-mod-page-ui-broken"]')
+        assert "UserDisabled" in row and "ui-broken" in row, f"the row says why the page is not served: {row!r}"
         state = client.get(f"{API}/state").json()
         assert state["mods"]["ui-broken"]["active"] is False and state["mods"]["ui-broken"]["reason"] == "UserDisabled"
         assert state["mods"]["ui-healthy"]["active"] is True, "the other page's mod is unaffected"
@@ -835,7 +940,7 @@ def test_6_manager_app_smoke(harness: Harness):
         page.click('[data-testid="floofycrew-nav-mods"]')
         page.wait_for_selector('[data-testid="floofycrew-mod-row-settings-demo"]', timeout=60000)
         page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-enabled-settings-demo\"]')?.textContent.startsWith('enabled')", timeout=90000)
-        page.wait_for_function("() => document.querySelector('[data-testid=\"floofycrew-open-page-settings-demo\"]')?.disabled === false", timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-open-page-settings-demo"]', timeout=60000)  # the name is a link only while the mod is active
         state = client.get(f"{API}/state").json()["mods"]["settings-demo"]
         assert state["active"] is True and state["routes"] == [{"method": "GET", "path": "echo"}, {"method": "POST", "path": "echo"}]
         page.click('[data-testid="floofycrew-open-page-settings-demo"]')
@@ -896,10 +1001,12 @@ def test_7_ui_polish_and_the_restart_button(harness: Harness):
         page.wait_for_selector('[data-testid="floofycrew-page-registry"] [data-testid="floofycrew-sources"]', timeout=60000)
         page.click('[data-testid="floofycrew-nav-mods"]')
         page.wait_for_selector('[data-testid="floofycrew-page-mods"]', timeout=60000)
+        # (its bottom is the row's rule, which every inactive tab carries — see styles.nav)
         left_tab = page.evaluate("() => { const s = getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-registry\"]')); return [s.borderTopColor, s.borderLeftColor, s.borderRightColor, s.borderBottomColor]; }")
-        assert all(c in transparent for c in left_tab), f"a tab that was clicked once keeps a grey frame: {left_tab}"
-        active_tab = page.evaluate("() => getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-mods\"]')).borderTopColor")
-        assert active_tab not in transparent, "the active tab is framed in the accent colour"
+        assert all(c in transparent for c in left_tab[:3]), f"a tab that was clicked once keeps a grey frame: {left_tab}"
+        assert left_tab[3] not in transparent, f"an inactive tab's bottom is the row's rule: {left_tab}"
+        active_tab = page.evaluate("() => { const s = getComputedStyle(document.querySelector('[data-testid=\"floofycrew-nav-mods\"]')); return [s.borderTopColor, s.borderBottomColor]; }")
+        assert active_tab[0] not in transparent and active_tab[1] in transparent, f"the active tab is framed in the accent colour and open at the bottom: {active_tab}"
         # pages are flex columns with the card gap; the page leaves room below the last card
         assert page.evaluate("() => getComputedStyle(document.querySelector('[data-testid=\"floofycrew-page-mods\"]')).display") == "flex"
         gap = page.evaluate("() => parseFloat(getComputedStyle(document.querySelector('[data-testid=\"floofycrew-page-mods\"]')).rowGap)")

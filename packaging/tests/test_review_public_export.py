@@ -19,6 +19,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 REVIEWER = REPO_ROOT / "packaging" / "internal" / "review_public_export.py"
 pytestmark = pytest.mark.skipif(not REVIEWER.exists(), reason="internal-only tooling; absent from the public export")
 
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+import export_public as exporter  # noqa: E402
+
+#: What every commit in a public clone must carry; the review refuses anything else.
+PUBLIC_ID = {"GIT_AUTHOR_NAME": exporter.PUBLIC_GIT_NAME, "GIT_AUTHOR_EMAIL": exporter.PUBLIC_GIT_EMAIL,
+             "GIT_COMMITTER_NAME": exporter.PUBLIC_GIT_NAME, "GIT_COMMITTER_EMAIL": exporter.PUBLIC_GIT_EMAIL}
+
 
 def _load():
     spec = importlib.util.spec_from_file_location("review_public_export", REVIEWER)
@@ -37,15 +44,14 @@ def _clone(tmp_path: Path, *, committed: dict[str, str] = None, pending: dict[st
     clone = tmp_path / "clone"
     clone.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(clone)], check=True)
+    exporter.configure_public_identity(clone)  # what export_public.py --out does to a real public clone
     for rel, text in (committed or {}).items():
         (clone / rel).parent.mkdir(parents=True, exist_ok=True)
         (clone / rel).write_text(text, encoding="utf-8")
     if committed:
-        env_id = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
-                  "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
         subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
         subprocess.run(["git", "-C", str(clone), "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base"],
-                       check=True, env={**__import__("os").environ, **env_id})
+                       check=True, env={**__import__("os").environ, **PUBLIC_ID})
     for rel, text in (pending or {}).items():
         (clone / rel).parent.mkdir(parents=True, exist_ok=True)
         (clone / rel).write_text(text, encoding="utf-8")
@@ -150,14 +156,38 @@ def test_committed_but_unpushed_changes_are_reviewed_against_the_upstream(review
     subprocess.run(["git", "-C", str(clone), "remote", "add", "origin", "../upstream.git"], check=True)
     subprocess.run(["git", "-C", str(clone), "push", "-q", "-u", "origin", "main"], check=True)
     (clone / "a.md").write_text("published\nplus a committed-but-unpushed line marker-beta\n", encoding="utf-8")
-    env_id = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
-              "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
     subprocess.run(["git", "-C", str(clone), "-c", "commit.gpgsign=false", "commit", "-q", "-am", "local"],
-                   check=True, env={**__import__("os").environ, **env_id})
+                   check=True, env={**__import__("os").environ, **PUBLIC_ID})
     record = reviewer.review(clone, model="m", effort="low", max_bytes=90_000, timeout=60,
                              model_cmd=_fake_model(tmp_path, [], capture=capture), skip_scan=True)
     assert record["verdict"] == "clean" and record["base"] == "origin/main"
     assert "marker-beta" in capture.read_text(encoding="utf-8"), "the unpushed COMMIT is part of the reviewed delta"
+    assert record["identity"] == f"{exporter.PUBLIC_GIT_NAME} <{exporter.PUBLIC_GIT_EMAIL}>"
+
+
+def test_refuses_a_clone_whose_commits_would_not_belong_to_the_maintainer(reviewer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The internal address or a placeholder on the next commit — or on one
+    already made but not pushed — fails the review before the model is asked."""
+    for var in PUBLIC_ID:
+        monkeypatch.delenv(var, raising=False)
+    marker = tmp_path / "called"
+    clone = _clone(tmp_path, committed={"a.md": "x\n"}, pending={"b.md": "y\n"})
+    subprocess.run(["git", "-C", str(clone), "config", "user.email", "someone@users.noreply.github.com"], check=True)
+    with pytest.raises(Exception, match="next commit .*someone@users.noreply.github.com"):
+        reviewer.review(clone, model="m", effort="low", max_bytes=90_000, timeout=60,
+                        model_cmd=_fake_model(tmp_path, [], capture=marker), skip_scan=True)
+    exporter.configure_public_identity(clone)
+    subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(clone), "-c", "commit.gpgsign=false", "commit", "-q", "-m", "x"],
+                   check=True, env={**__import__("os").environ, "GIT_AUTHOR_NAME": "d", "GIT_AUTHOR_EMAIL": "desk@example.invalid"})
+    with pytest.raises(Exception, match="unpushed commit.*desk@example.invalid"):
+        reviewer.review(clone, model="m", effort="low", max_bytes=90_000, timeout=60,
+                        model_cmd=_fake_model(tmp_path, [], capture=marker), skip_scan=True)
+    assert not marker.exists(), "the model is never asked about a clone that fails the identity gate"
+    result = subprocess.run([sys.executable, str(REVIEWER), "--clone", str(clone), "--skip-scan",
+                             "--model-cmd", _fake_model(tmp_path, [])], capture_output=True, text=True,
+                            env={k: v for k, v in __import__("os").environ.items() if k not in PUBLIC_ID})
+    assert result.returncode == 2 and "desk@example.invalid" in result.stderr
 
 
 def test_base_full_reviews_every_tracked_file(reviewer, tmp_path: Path):

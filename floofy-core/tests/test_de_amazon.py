@@ -21,6 +21,7 @@ sys.path.insert(0, str(SCRIPT.parent))
 
 import check_no_internal_identifiers as checker  # noqa: E402
 
+pytestmark = pytest.mark.skipif(not checker.DENYLIST, reason="the internal identifier list (scripts/internal-identifiers.txt) is not part of the public tree")
 TOKEN = checker.DENYLIST[0]  # a hostname fragment
 OTHER_TOKEN = checker.DENYLIST[-1]  # an account name
 
@@ -70,22 +71,25 @@ def test_binary_and_skip_dirs_are_ignored(tmp_path: Path) -> None:
 
 
 def test_legal_notice_files_are_not_scanned(tmp_path: Path) -> None:
-    """A LICENSE/NOTICE file (or anything under licenses/) reproduces upstream attribution
-    verbatim, as the upstream license requires — public attribution, not an internal
-    identifier. Everything else still is scanned, including a name that merely contains
-    the words."""
+    """A NOTICE/COPYING file (or anything under licenses/) reproduces upstream
+    attribution verbatim, as the upstream license requires — public attribution, not
+    an internal identifier. A LICENSE file is our own text and IS scanned: a
+    copyright line must not carry an internal account name. Everything else is
+    scanned too, including a name that merely contains the words."""
     root = _tree(
         tmp_path,
         {
             "core/NOTICE.md": TOKEN.encode(),
+            "core/COPYING": TOKEN.encode(),
             "core/LICENSE": TOKEN.encode(),
             "core/LICENSES/Apache-2.0.txt": TOKEN.encode(),
             "core/dist-info/licenses/NOTICE.md": TOKEN.encode(),
+            "core/dist-info/licenses/LICENSE": TOKEN.encode(),
             "core/licensing.py": TOKEN.encode(),
         },
     )
     hits = checker.scan(root, ("core",))
-    assert [hit.path for hit in hits] == ["core/licensing.py"]
+    assert [hit.path for hit in hits] == ["core/LICENSE", "core/licensing.py"]
 
 
 def test_allowlist_covers_exact_file_and_subtree(tmp_path: Path) -> None:

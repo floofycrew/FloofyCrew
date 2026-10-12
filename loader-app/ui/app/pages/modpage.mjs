@@ -13,7 +13,9 @@
 // down — the shell, its navigation and the other pages keep working.
 import React from "react";
 
+import { ensureStarted } from "../../host.mjs";
 import { API } from "../api.mjs";
+import { ModIcon } from "../modicon.mjs";
 import { commandNote, styles } from "../palette.mjs";
 
 /** The mods of the Loader state that declare a `ui` part, with the part's entry/title/icon. */
@@ -72,8 +74,12 @@ export function ModPage({ manager, modId, navigate }) {
         const mount = typeof module.default === "function" ? module.default : module.mount;
         if (typeof mount !== "function") throw new Error(`${page.entry} has no default export mount(container, api)`);
         where = "mount";
+        // The host may have given up on a cold, session-less load (it now resumes on
+        // demand); wait for it rather than reading a stale window.floofy.
+        await ensureStarted().catch(() => undefined);
+        if (cancelled) return;
         const api = window.floofy && typeof window.floofy.mod === "function" ? window.floofy.mod(modId) : null;
-        if (!api) throw new Error("window.floofy.mod is not available: the SPA host did not start");
+        if (!api) throw new Error("window.floofy.mod is not available: the SPA host did not start (no dashboard session yet? sign in, then reopen this page)");
         const result = await mount(target, api);
         if (cancelled) return;
         cleanupRef.current = typeof result === "function" ? result : result && typeof result.unmount === "function" ? () => result.unmount() : null;
@@ -138,23 +144,50 @@ export function ModPage({ manager, modId, navigate }) {
   );
 }
 
-/** The "Mods with pages" list of the Mods page. */
+/**
+ * The "Mod pages" list of the Mods page: one compact row per mod with a ui part — [icon + mod name] | mod id.
+ * The NAME is the link (`#/mods/<id>`): click it to open the page. While the mod is not active the name is dimmed and
+ * not a link, with the reason beside it — its page is not served.
+ * The icon is the ui part's own (served while active), else the mod's manifest icon through the Loader, else the glyph.
+ */
 export function ModPagesList({ manager, navigate }) {
   const pages = pagesOf(manager.state);
   if (!pages.length) return null;
+  const rows = new Map((manager.rows || []).map((row) => [row.id, row]));
   return React.createElement(
     "div",
     { style: styles.card, "data-testid": "floofycrew-mod-pages" },
     React.createElement("h2", { style: styles.cardTitle }, "Mod pages"),
-    React.createElement("div", { style: styles.muted }, "Mods that ship their own settings page (a ui part); a page is served only while its mod is active and runs inside an error boundary."),
-    pages.map((page) =>
-      React.createElement(
+    React.createElement("div", { style: { ...styles.muted, marginBottom: "0.4rem" } }, "Mods that ship their own settings page — click a name to open it. A page is served only while its mod is active and runs inside an error boundary."),
+    pages.map((page) => {
+      const row = rows.get(page.id);
+      const title = page.title && page.title !== page.name ? page.title : null;
+      const face = React.createElement(ModIcon, { id: page.id, hasIcon: Boolean(row && row.icon), src: page.active && page.icon ? entryUrl(page.id, page.icon) : null });
+      const href = `#/mods/${encodeURIComponent(page.id)}`;
+      return React.createElement(
         "div",
-        { key: page.id, style: { display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.3rem 0" }, "data-testid": `floofycrew-mod-page-${page.id}` },
-        React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: !page.active, title: page.active ? "" : `${page.id} is ${page.reason || "not active"}`, "data-testid": `floofycrew-open-page-${page.id}`, onClick: () => navigate("mods", page.id) }, `Open ${page.title}`),
-        React.createElement("code", null, `${page.id} ${page.version}`),
-        React.createElement("span", { style: { ...styles.badge, ...(page.active ? styles.ok : styles.warn) } }, page.active ? "active" : page.reason || (page.enabled ? "inactive" : "disabled")),
-      ),
-    ),
+        { key: page.id, style: styles.pageRow, "data-testid": `floofycrew-mod-page-${page.id}` },
+        React.createElement(
+          "div",
+          { style: styles.pageCell },
+          page.active
+            ? React.createElement(
+                "a",
+                { href, style: styles.pageLink, title: `Open ${page.title}`, "data-testid": `floofycrew-open-page-${page.id}`, onClick: (event) => { event.preventDefault(); navigate("mods", page.id); } },
+                face,
+                React.createElement("strong", { style: styles.pageLinkName }, page.name),
+              )
+            : React.createElement(
+                "span",
+                { style: styles.pageInactive, title: `${page.id} is ${page.reason || "not active"}; its page is not served`, "aria-disabled": "true", "data-testid": `floofycrew-page-inactive-${page.id}` },
+                face,
+                React.createElement("strong", null, page.name),
+              ),
+          title ? React.createElement("span", { style: styles.muted, title: `${page.name} — ${title}` }, title) : null,
+          page.active ? null : React.createElement("span", { style: { ...styles.badge, ...styles.warn } }, page.reason || (page.enabled ? "inactive" : "disabled")),
+        ),
+        React.createElement("code", { style: { ...styles.modId, overflowWrap: "anywhere" }, title: `${page.id} ${page.version}` }, page.id),
+      );
+    }),
   );
 }

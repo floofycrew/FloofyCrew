@@ -162,8 +162,37 @@ def mod_logger(data_home: Path, mod_id: str, *, payload_root: Path | None = None
     log_path = mod_data_dir(data_home, mod_id, payload_root=payload_root) / "mod.log"
     for handler in logger.handlers:
         if isinstance(handler, logging.handlers.RotatingFileHandler) and Path(handler.baseFilename) == log_path:
+            _reopen_if_replaced(handler, log_path)
             return logger
     file_handler = logging.handlers.RotatingFileHandler(log_path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(file_handler)
     return logger
+
+
+def _reopen_if_replaced(handler: logging.handlers.RotatingFileHandler, log_path: Path) -> None:
+    """Reopen the handler when the file on disk is no longer the one it holds open.
+
+    The logger is process-wide and survives Loader reloads, but ``floofy install`` of an update carries the mod's
+    ``.floofy/`` aside and back, so ``mod.log`` becomes a NEW inode while the handler's stream still points at the
+    old, now-unlinked one — every line after the update vanished (seen on the test box: no "active" line after
+    three updates). Same check ``WatchedFileHandler`` makes, applied to the rotating handler we already use.
+    """
+    stream = handler.stream
+    try:
+        on_disk = log_path.stat()
+        held = os.fstat(stream.fileno()) if stream is not None else None
+    except (OSError, ValueError):
+        on_disk, held = None, None
+    if stream is not None and held is not None and on_disk is not None and (held.st_ino, held.st_dev) == (on_disk.st_ino, on_disk.st_dev):
+        return
+    handler.acquire()
+    try:
+        if handler.stream is not None:
+            try:
+                handler.stream.close()
+            except OSError:
+                pass
+        handler.stream = handler._open()  # the standard reopen the stdlib handlers use
+    finally:
+        handler.release()

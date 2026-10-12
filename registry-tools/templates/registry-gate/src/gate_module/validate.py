@@ -33,7 +33,12 @@ What it checks, in order (Requirement 8.7, 8.9, 8.10):
    validate`` must report zero errors; licence, masquerade and tag rules apply.
    This step reaches the forge with the builder's own credentials; setting
    ``{{GATE_ENV_PREFIX}}_SKIP_CLONE=1`` skips it for an offline local run and says
-   so — the merge gate never sets it.
+   so — the merge gate never sets it. An environment that provably cannot
+   clone (no ``git``, or the forge's hostname does not resolve — the package
+   build fleet a CR's dry-run build runs on is one) is reported as a note, not
+   a problem: steps 1–5 are its verdict, and a link record's content is still
+   verified by the contributor's own gate run and by every client at install
+   (commit, canonical-manifest hash and files against the index).
 
 The checks are implemented by the FloofyCrew tooling vendored under
 ``vendor/`` (``floofy_core`` and ``registry_tools``, byte copies of the FloofyCrew
@@ -58,6 +63,8 @@ __all__ = [
     "ReservedNames",
     "SKIP_CLONE_ENV",
     "find_repository_root",
+    "forge_host",
+    "forge_unreachable",
     "load_reserved_names",
     "main",
     "reserved_name_hit",
@@ -129,6 +136,8 @@ class GateReport:
     notes: list[str] = field(default_factory=list)
     records: int = 0
     cloned: int = 0
+    #: Why step 6 could not run in this environment (``None`` when it ran or was skipped on request).
+    forge_unreachable: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -143,6 +152,42 @@ class GateReport:
         lines += [f"  PROBLEM: {p}" for p in self.problems]
         lines.append("OK" if self.ok else f"FAIL: {len(self.problems)} problem(s)")
         return "\n".join(lines)
+
+
+def forge_host(repo_url_pattern: str | None) -> str | None:
+    """The forge's hostname out of ``registry.json`` ``repoUrlPattern`` (the regex ``^ssh://git\\.example\\.com/pkg/...`` gives ``git.example.com``), or ``None``."""
+    if not repo_url_pattern:
+        return None
+    match = re.search(r"://([A-Za-z0-9\\.-]+?)(?:[/:]|\\$|$)", repo_url_pattern)
+    if not match:
+        return None
+    return match.group(1).replace("\\", "")
+
+
+def forge_unreachable(repo_url_pattern: str | None) -> str | None:
+    """Why step 6 cannot run here, or ``None`` when it can.
+
+    The clone step needs ``git`` and a route to the forge. Measured on the first
+    CR against a rendered registry package (2026-09-27): the package build fleet
+    that runs a CR's dry-run build has neither — one platform had no ``git`` on
+    PATH, the other could not resolve the forge's hostname — so a gate that
+    treated that as a record problem failed every CR, whatever the records said.
+    An environment that provably cannot clone is reported as such; a clone that
+    CAN run and disagrees with a record is still a problem.
+    """
+    import shutil  # noqa: PLC0415
+    import socket  # noqa: PLC0415
+
+    if shutil.which("git") is None:
+        return "git is not on PATH in this environment"
+    host = forge_host(repo_url_pattern)
+    if host is None:
+        return None
+    try:
+        socket.getaddrinfo(host, None)
+    except OSError as exc:
+        return f"the forge {host} does not resolve from this environment ({exc})"
+    return None
 
 
 def _has_license_file(files: Iterable[dict[str, Any]]) -> bool:
@@ -272,12 +317,18 @@ def validate_registry(root: Path | None = None, *, clone: bool | None = None) ->
     except Exception as exc:  # noqa: BLE001 - an unreadable key record is one problem, not a crash
         report.problem(f"{key_path}: {exc}")
     # 6. clone every link record at its tag and compare
+    unreachable = forge_unreachable(repo.repo_url_pattern) if clone else None
+    if unreachable:
+        report.forge_unreachable = unreachable
+        report.notes.append(f"clone step not run: {unreachable}. Steps 1-5 are the verdict here; a link record's content is verified by the contributor's own gate run (which reaches the forge) and by every client at install (commit, manifest hash and files against the index)")
     for mod in mods:
         for record in mod.versions:
             if not record.is_link:
                 continue
             if not clone:
                 report.notes.append(f"{record.mod_id}@{record.version}: clone step skipped ({SKIP_CLONE_ENV}=1) — the merge gate never skips it")
+                continue
+            if unreachable:
                 continue
             submission = validate_submission(None, registry=root, record=f"{record.mod_id}@{record.version}")
             report.cloned += 1

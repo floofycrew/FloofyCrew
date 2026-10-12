@@ -20,6 +20,7 @@ the SPA file route is declared once per depth (1–4 segments below the mod id).
 | GET | ``/registry`` | the registry cache summary, every source's trust settings and last-refresh verdict, the matrix row for this host, the update available for each installed mod (graded like the CLI: ``best_version`` against the matrix) and each installed mod's source tier (``tiers``, Requirement 8.11) |
 | GET | ``/banner`` | the FloofyCrew banner cells (``floofy_core/cli/banner.json``) for the App's About card (Requirement 15.5 mirrored) |
 | GET | ``/ui/mods/{id}/{file...}`` | an **active** mod's ``ui`` part files (Requirement 16.4), read from the installed mod directory, only files the manifest lists (``text/javascript`` for the entry, ``no-cache``, path-escape safe); what the App ``import()``s same-origin |
+| GET | ``/mods/{id}/icon`` | the manifest's ``icon`` (``.svg``/``.png``, ``files[]``-listed) of any installed mod, active or not — the face in the App's mod rows |
 | GET / PUT | ``/mods/{id}/config`` | the mod's ``.floofy/config.json`` (``floofy.mod(id).config.get/set``): ``PUT {patch}`` merges key by key, ``null`` deletes, 64 KiB cap |
 | * | ``/mods/{id}/api/{path...}`` | the mod's own backend routes (``ctx.routes.add``, :mod:`floofy_loader.modroutes`), one catch-all per method and depth |
 | * | the manager App's typed routes | one route per CLI action — ``/mods/install``, ``/mods/{id}/enable`` …, ``/registries``, ``/profiles``, ``/doctor``, ``/audit``, ``/consent`` — each running the same handler as the CLI with ``actor: app`` and the 409 confirmation protocol; see :mod:`floofy_loader.app_routes` |
@@ -86,6 +87,7 @@ ROUTE_TABLE: tuple[tuple[str, str], ...] = (
     ("GET", "/banner"),
     ("GET", "/mods/{id}/config"),
     ("PUT", "/mods/{id}/config"),
+    ("GET", "/mods/{id}/icon"),
     *(("GET", "/spa/{id}/" + "/".join(f"{{p{i}}}" for i in range(1, depth + 1))) for depth in range(1, SPA_MAX_DEPTH + 1)),
     *(("GET", "/ui/mods/{id}/" + "/".join(f"{{p{i}}}" for i in range(1, depth + 1))) for depth in range(1, SPA_MAX_DEPTH + 1)),
     *((method, "/mods/{id}/api/" + "/".join(f"{{p{i}}}" for i in range(1, depth + 1))) for method in MOD_API_METHODS for depth in range(1, MOD_API_MAX_DEPTH + 1)),
@@ -302,6 +304,41 @@ def ui_file_response(runtime: Any, mod_id: str, segments: list[str]) -> Responde
     return 200, {"Content-Type": content_type_for(resolved.name), "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}, resolved.read_bytes()
 
 
+ICON_SUFFIXES = (".svg", ".png")
+
+
+def icon_response(runtime: Any, mod_id: str) -> Responder:
+    """``GET /mods/{id}/icon`` — the manifest's ``icon`` of ANY installed mod (active or not), for the App's mod rows.
+
+    Unlike ``/ui/mods/{id}/…`` this does not require the mod to be active or to
+    have a ``ui`` part: a disabled mod still shows its face in the list. The
+    same safety holds — the file must be the manifest's ``icon``, listed in
+    ``files[]``, an ``.svg``/``.png`` inside the mod directory; anything else is
+    404. ``no-cache`` so a reinstall shows the new icon.
+    """
+    if runtime.paths is None or not re.fullmatch(r"[a-z][a-z0-9_-]{1,63}", mod_id or ""):
+        return _not_found()
+    mod_dir = runtime.paths.mod_dir(mod_id)
+    try:
+        manifest = json.loads((mod_dir / "floofy.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return _not_found()
+    icon = manifest.get("icon")
+    if not isinstance(icon, str) or not icon or icon.startswith(("/", ".")) or "\\" in icon or ".." in icon.split("/") or not icon.lower().endswith(ICON_SUFFIXES):
+        return _not_found()
+    listed = {str(f.get("path")) for f in (manifest.get("files") or []) if isinstance(f, dict) and isinstance(f.get("path"), str)}
+    if icon not in listed:
+        return _not_found()
+    base = mod_dir.resolve()
+    try:
+        resolved = (mod_dir / icon).resolve(strict=True)
+    except OSError:
+        return _not_found()
+    if not resolved.is_relative_to(base) or not resolved.is_file():
+        return _not_found()
+    return 200, {"Content-Type": content_type_for(resolved.name), "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}, resolved.read_bytes()
+
+
 def config_response(runtime: Any, mod_id: str, method: str, body: Any = None) -> Responder:
     """``GET`` / ``PUT /mods/{id}/config`` — the mod's ``.floofy/config.json`` for ``floofy.mod(id).config`` (Requirement 16.4).
 
@@ -466,6 +503,7 @@ def build_routes(runtime: Any) -> list:
     ]
     routes.append(AppRoute("GET", "/mods/{id}/config", config))
     routes.append(AppRoute("PUT", "/mods/{id}/config", config))
+    routes.append(AppRoute("GET", "/mods/{id}/icon", make(lambda request: icon_response(runtime, request.match_info.get("id", "")))))
     for method, path in ROUTE_TABLE:
         if path.startswith("/spa/"):
             routes.append(AppRoute(method, path, spa))

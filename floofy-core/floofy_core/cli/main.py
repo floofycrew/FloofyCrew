@@ -72,6 +72,22 @@ class _Parser(argparse.ArgumentParser):
         raise CliError(f"{self.prog}: {message}", exit_code=2)
 
 
+class _SubParsers(argparse._SubParsersAction):  # noqa: SLF001 - argparse's documented extension point is registering an action subclass
+    """Every subcommand also accepts a trailing ``--quiet``/``-q``.
+
+    ``--quiet`` is a global flag, but the re-apply units written until 1.3.2
+    placed it AFTER the subcommand (``apply --if-changed --quiet``), which the
+    subparser rejected — the hourly trigger failed on every fire. Accepting it
+    per-subcommand heals every unit already on disk without regenerating it.
+    ``default=SUPPRESS`` keeps the main parser's value when the flag is absent.
+    """
+
+    def add_parser(self, *args: Any, **kwargs: Any) -> argparse.ArgumentParser:
+        sub = super().add_parser(*args, **kwargs)
+        sub.add_argument("--quiet", "-q", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+        return sub
+
+
 def _lands_later(task: str) -> Callable[[CliContext, argparse.Namespace], int]:
     def handler(ctx: CliContext, args: argparse.Namespace) -> int:
         ctx.console.error(f"`floofy {args.command}` lands in task {task}")
@@ -95,6 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-color", action="store_true", help="plain output: no ANSI styling (also off on a non-terminal, under NO_COLOR, and with --json)")
     parser.add_argument("--offline", action="store_true", help="never contact a network endpoint: skips the daily FloofyCrew update check (a cached notice may still show)")
     parser.add_argument("--vanilla", action="store_true", help="same as `floofy vanilla`: the next gateway boot runs with every mod disabled, once")
+    parser.register("action", "parsers", _SubParsers)
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     from . import cmd_doctor, cmd_init  # noqa: PLC0415

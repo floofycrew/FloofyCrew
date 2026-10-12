@@ -9,7 +9,6 @@
 # license attribution reproduced verbatim) — never an internal hostname, system,
 # ticket or account leaking through. When in doubt, fix the file instead.
 
-scripts/check_no_internal_identifiers.py:*:the scanner's denylist has to spell the identifiers it bans
 scripts/public-export-allow.txt:*:this allowlist names the patterns it excepts
 
 # "toolbox" is the internal edition adapter's directory name (editions/toolbox,

@@ -2,15 +2,17 @@
 //
 // The sources with their trust settings and last-refresh verdict (refresh,
 // change trust, accept/require unsigned indexes — behind the same loosening
-// warning as `--allow-unsigned` — remove, add, record the edition defaults),
-// a search over the merged cache with the source tier and the host-compat
-// verdict each record would install with, install from a record or from a
-// pasted git reference, and per installed mod the update availability with
-// the changelog link — everything through the typed routes.
+// warning as `--allow-unsigned` — remove, add; the edition's default source is
+// badged and has no Remove, Requirement 8.12), a search over the merged cache
+// with the source tier and the host-compat verdict each record would install
+// with, install from a record or from a pasted git reference, and per
+// installed mod the update availability with the changelog link — everything
+// through the typed routes.
 import React from "react";
 
 import { UpdateAndRestartButton } from "../actions.mjs";
 import { apiFetch } from "../api.mjs";
+import { BusyButton, Spinner } from "../busy.mjs";
 import { commandNote, styles } from "../palette.mjs";
 
 const TRUST_LEVELS = ["index", "owner"];
@@ -23,26 +25,70 @@ export function sourceVerdict(source) {
   return { signature: (cache.signature || {}).status || "—", fetch: `refused: ${cache.refusal || cache.error || "?"}`, tone: "danger" };
 }
 
-/** One source as a table row: name and URL, trust, signature policy and pinned key, the last refresh, the actions. */
+/** The verdict of one refresh act() for the feedback line: what was fetched, what was refused, or the error. */
+export function refreshVerdict(result) {
+  if (!result) return { tone: "danger", text: "refresh failed: no answer" };
+  if (result.declined) return { tone: "muted", text: "refresh not confirmed; nothing changed" };
+  if (!result.ok) return { tone: "danger", text: `refresh failed: ${result.error || `HTTP ${result.httpStatus}`}` };
+  // the route document carries the CLI's --json payload under `json` (app_routes._document); `registry refresh` puts its per-source records in `sources[]`
+  const payload = result.json && typeof result.json === "object" ? result.json : {};
+  const sources = Array.isArray(payload.sources) ? payload.sources : [];
+  const usable = sources.filter((s) => s && s.usable);
+  const refused = sources.filter((s) => s && !s.usable);
+  const mods = usable.reduce((n, s) => n + (Number(s.mods) || 0), 0);
+  if (!sources.length) return { tone: "ok", text: "refreshed" };
+  return { tone: refused.length ? (usable.length ? "warn" : "danger") : "ok", text: `refreshed ${usable.length} source(s), ${mods} mod(s)${refused.length ? `; refused ${refused.length}: ${refused.map((s) => `${s.label || s.url} (${s.refusal || s.error || "?"})`).join(", ")}` : ""}` };
+}
+
+/** A button that shows it is working and reports what happened: `label` → `busyLabel` while `run()` is in flight, then a verdict line beside it. */
+function FeedbackButton({ label, busyLabel, run, verdictOf, disabled, style, testid }) {
+  const [running, setRunning] = React.useState(false);
+  const [verdict, setVerdict] = React.useState(null);
+  const click = async () => {
+    setRunning(true);
+    setVerdict(null);
+    try {
+      setVerdict(verdictOf(await run()));
+    } catch (exc) {
+      setVerdict({ tone: "danger", text: `failed: ${exc}` });
+    } finally {
+      setRunning(false);
+    }
+  };
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement("button", { style: style || styles.button, disabled: disabled || running, "aria-busy": running ? "true" : undefined, "data-testid": testid, onClick: click }, running ? React.createElement("span", { style: styles.busyLabel }, React.createElement(Spinner), busyLabel) : label),
+    running ? React.createElement("span", { style: styles.muted, "data-testid": testid ? `${testid}-busy` : undefined }, "working…") : null,
+    verdict ? React.createElement("span", { style: styles[verdict.tone] || styles.muted, "data-testid": testid ? `${testid}-result` : undefined, title: verdict.text }, verdict.text) : null,
+  );
+}
+
+/** One source as a table row: name and URL, trust, signature policy and pinned key, the last refresh, the actions.
+ *
+ * The edition's default source (`editionDefault` from `registry list`) is FloofyCrew's own registry: recorded at
+ * `floofy init`, kept fetched by the re-apply trigger and never removable (Requirement 8.12) — the row says so and
+ * has no Remove; its trust settings stay the user's. */
 function SourceRow({ source, manager }) {
   const key = encodeURIComponent(source.key);
   const verdict = sourceVerdict(source);
   const flip = source.trust === "index" ? "owner" : "index";
+  const isDefault = Boolean(source.editionDefault);
   return React.createElement(
     "tr",
     { "data-testid": `floofycrew-source-${source.label}` },
-    React.createElement("td", { style: styles.td }, React.createElement("div", null, React.createElement("strong", null, source.label)), React.createElement("code", { style: { ...styles.command, wordBreak: "break-all" } }, source.url)),
+    React.createElement("td", { style: styles.td }, React.createElement("div", null, React.createElement("strong", null, source.label), isDefault ? React.createElement("span", { style: { ...styles.badge, marginLeft: "0.4rem" }, title: "FloofyCrew's own registry for this edition: recorded when FloofyCrew was set up and kept fetched; it cannot be removed, its trust settings are yours", "data-testid": `floofycrew-source-default-${source.label}` }, "default · kept") : null), React.createElement("code", { style: { ...styles.command, wordBreak: "break-all" } }, source.url)),
     React.createElement("td", { style: styles.td }, React.createElement("span", { style: styles.badge }, source.trust)),
     React.createElement("td", { style: styles.td }, React.createElement("div", { style: source.allowUnsigned ? styles.warn : undefined }, source.allowUnsigned ? "unsigned indexes accepted" : "signature required"), React.createElement("div", { style: styles.muted }, `key ${source.keyId || (source.publicKey ? "pinned" : "—")}`)),
     React.createElement("td", { style: styles.td }, React.createElement("div", { style: styles[verdict.tone] || styles.muted }, verdict.signature), React.createElement("div", { style: styles.muted }, verdict.fetch)),
     React.createElement(
       "td",
       { style: { ...styles.td, whiteSpace: "nowrap" } },
-      React.createElement("button", { style: styles.button, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}/refresh`) }, "Refresh"),
+      React.createElement(FeedbackButton, { label: "Refresh", busyLabel: "Refreshing…", disabled: manager.busy, testid: `floofycrew-source-refresh-${source.label}`, run: () => manager.act(`/registries/${key}/refresh`), verdictOf: refreshVerdict }),
       React.createElement("button", { style: styles.button, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}/trust`, { trust: flip, allowUnsigned: Boolean(source.allowUnsigned) }) }, `Trust → ${flip}`),
       React.createElement("br", null),
       React.createElement("button", { style: { ...styles.button, ...(source.allowUnsigned ? {} : styles.warn) }, disabled: manager.busy, "data-testid": `floofycrew-source-unsigned-${source.label}`, onClick: () => manager.act(`/registries/${key}/trust`, { trust: source.trust, allowUnsigned: !source.allowUnsigned }) }, source.allowUnsigned ? "Require a signature again" : "Accept unsigned…"),
-      React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: manager.busy, onClick: () => manager.act(`/registries/${key}`, {}, { method: "DELETE" }) }, "Remove"),
+      isDefault ? null : React.createElement("button", { style: { ...styles.button, ...styles.danger }, disabled: manager.busy, "data-testid": `floofycrew-source-remove-${source.label}`, onClick: () => manager.act(`/registries/${key}`, {}, { method: "DELETE" }) }, "Remove"),
     ),
   );
 }
@@ -107,6 +153,24 @@ export function compatCell(version, hostVersion) {
   return cell || "untested";
 }
 
+const DESCRIPTION_PREVIEW = 96;
+
+/** The record's description, collapsed: one clipped line as the summary, the whole text on demand. */
+export function HitDescription({ hit }) {
+  const text = (hit.description || "").trim();
+  if (!text) return null;
+  const firstLine = text.split(/\r?\n/, 1)[0];
+  const clipped = firstLine.length < text.length || firstLine.length > DESCRIPTION_PREVIEW;
+  const preview = clipped ? `${firstLine.slice(0, DESCRIPTION_PREVIEW).trimEnd()}…` : firstLine;
+  if (!clipped) return React.createElement("div", { style: styles.muted, "data-testid": `floofycrew-hit-description-${hit.key}` }, text);
+  return React.createElement(
+    "details",
+    { "data-testid": `floofycrew-hit-description-${hit.key}` },
+    React.createElement("summary", { style: { ...styles.muted, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, preview),
+    React.createElement("div", { style: { ...styles.muted, whiteSpace: "pre-wrap", padding: "0.2rem 0 0 1rem" } }, text),
+  );
+}
+
 /** One search hit: the tier an install would have here, the version known to work, every version's compat cell for this host, Install. */
 export function SearchHit({ hit, manager }) {
   const hostVersion = ((manager.state || {}).host || {}).version;
@@ -116,7 +180,7 @@ export function SearchHit({ hit, manager }) {
     "div",
     { style: { borderTop: styles.row.borderTop, padding: "0.5rem 0" }, "data-testid": `floofycrew-hit-${hit.key}` },
     React.createElement("div", null, React.createElement("strong", null, hit.name || hit.key), " ", React.createElement("code", null, hit.key), " ", React.createElement("span", { style: styles.muted }, `newest ${hit.newest || "?"}`), hit.installed ? React.createElement("span", { style: { ...styles.badge, marginLeft: "0.4rem" } }, `installed ${hit.installed}`) : null),
-    React.createElement("div", { style: styles.muted }, hit.description || ""),
+    React.createElement(HitDescription, { hit }),
     React.createElement(
       "div",
       { style: { marginTop: "0.3rem" } },
@@ -133,8 +197,8 @@ export function SearchHit({ hit, manager }) {
     React.createElement(
       "div",
       { style: { marginTop: "0.3rem" } },
-      React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: manager.busy || !hit.worksHere, "data-testid": `floofycrew-hit-install-${hit.key}`, onClick: () => manager.act("/mods/install", { source: hit.key }) }, hit.installed ? "Reinstall (staged)" : "Install (staged)"),
-      React.createElement("button", { style: styles.button, disabled: manager.busy || !hit.worksHere, onClick: () => manager.act("/mods/install", { source: hit.key, now: true }) }, "Install now"),
+      React.createElement(BusyButton, { style: { ...styles.button, ...styles.primary }, disabled: manager.busy || !hit.worksHere, running: manager.running("/mods/install", { source: hit.key, now: undefined }), testid: `floofycrew-hit-install-${hit.key}`, label: hit.installed ? "Reinstall (staged)" : "Install (staged)", busyLabel: "Installing…", onClick: () => manager.act("/mods/install", { source: hit.key }) }),
+      React.createElement(BusyButton, { style: styles.button, disabled: manager.busy || !hit.worksHere, running: manager.running("/mods/install", { source: hit.key, now: true }), label: "Install now", busyLabel: "Installing…", onClick: () => manager.act("/mods/install", { source: hit.key, now: true }) }),
     ),
   );
 }
@@ -186,7 +250,7 @@ export function RegistryPage({ manager, rest }) {
               React.createElement("strong", null, id),
               ` ${update.installed} → ${update.candidate}${update.verdict ? ` (${update.verdict} here)` : " (untested here)"} `,
               update.changelog ? React.createElement("a", { href: update.changelog, target: "_blank", rel: "noopener noreferrer", style: styles.accent, "data-testid": `floofycrew-update-changelog-${id}` }, "release notes") : null,
-              React.createElement("div", { style: { marginTop: "0.2rem" } }, React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, {}) }, "Update (staged)"), React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, { now: true }) }, "Update now")),
+              React.createElement("div", { style: { marginTop: "0.2rem" } }, React.createElement(BusyButton, { style: { ...styles.button, ...styles.primary }, disabled: busy, running: manager.running(`/mods/${encodeURIComponent(id)}/update`, { now: undefined }), label: "Update (staged)", busyLabel: "Updating…", onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, {}) }), React.createElement(BusyButton, { style: styles.button, disabled: busy, running: manager.running(`/mods/${encodeURIComponent(id)}/update`, { now: true }), label: "Update now", busyLabel: "Updating…", onClick: () => manager.act(`/mods/${encodeURIComponent(id)}/update`, { now: true }) })),
             ),
           ),
       React.createElement(
@@ -209,13 +273,13 @@ export function RegistryPage({ manager, rest }) {
               }
             },
           },
-          checking ? "Checking…" : "Check for updates",
+          checking ? React.createElement("span", { style: styles.busyLabel }, React.createElement(Spinner), "Checking…") : "Check for updates",
         ),
         checking ? React.createElement("span", { style: styles.muted, "data-testid": "floofycrew-update-check-busy" }, "asking every source…") : null,
         // `updates` re-renders from the refresh act() ran, so the count below is the post-check truth
         checked ? React.createElement("span", { style: checked.ok ? (updates.length ? styles.ok : styles.muted) : styles.danger, "data-testid": "floofycrew-update-check-result" }, checked.ok ? (updates.length ? `checked — ${updates.length} update(s) available above` : "checked — everything is at the newest version known to work here") : `check failed: ${checked.error}`) : null,
-        updates.length ? React.createElement("button", { style: { ...styles.button, ...styles.primary }, disabled: busy, "data-testid": "floofycrew-update-all", onClick: () => manager.act("/mods/update-all", {}) }, `Update all ${updates.length} (staged)`) : null,
-        updates.length ? React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act("/mods/update-all", { now: true }) }, "Update all now") : null,
+        updates.length ? React.createElement(BusyButton, { style: { ...styles.button, ...styles.primary }, disabled: busy, running: manager.running("/mods/update-all", { now: undefined }), testid: "floofycrew-update-all", label: `Update all ${updates.length} (staged)`, busyLabel: "Updating every mod…", onClick: () => manager.act("/mods/update-all", {}) }) : null,
+        updates.length ? React.createElement(BusyButton, { style: styles.button, disabled: busy, running: manager.running("/mods/update-all", { now: true }), label: "Update all now", busyLabel: "Updating every mod…", onClick: () => manager.act("/mods/update-all", { now: true }) }) : null,
       ),
       commandNote(React, "The same at a terminal:", "floofy update [--all] [--check] [--now]"),
     ),
@@ -223,14 +287,13 @@ export function RegistryPage({ manager, rest }) {
       "div",
       { style: styles.card, "data-testid": "floofycrew-sources" },
       React.createElement("h2", { style: styles.cardTitle }, "Sources"),
-      React.createElement("div", { style: styles.cardIntro }, "Where mods come from: each source is a signed registry directory (index.json, compat.json, .sig). The merged cache is what Search and Updates read."),
+      React.createElement("div", { style: styles.cardIntro }, "Where mods come from: each source is a signed registry directory (index.json, compat.json, .sig). The merged cache is what Search and Updates read. FloofyCrew's own registry for this edition is recorded when FloofyCrew is set up and kept fetched; it cannot be removed."),
       React.createElement("div", { style: styles.muted }, `merged cache: ${cache.mods ?? 0} mod(s)${cache.generatedAt ? `, generated ${cache.generatedAt}` : ""}${(cache.notes || []).length ? ` — ${cache.notes.join("; ")}` : ""}`),
       sources.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.4rem 0" } }, "no registry source configured") : React.createElement(SourcesTable, { sources, manager }),
       React.createElement(
         "div",
-        { style: { marginTop: "0.8rem" } },
-        React.createElement("button", { style: styles.button, disabled: busy, onClick: () => manager.act("/registries/refresh") }, "Refresh every source"),
-        React.createElement("button", { style: styles.button, disabled: busy, "data-testid": "floofycrew-registry-defaults", onClick: () => manager.act("/registries/defaults", { refresh: true, hostRegistry: true }) }, "Record the edition's default source"),
+        { style: { marginTop: "0.8rem", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.2rem 0.4rem" } },
+        React.createElement(FeedbackButton, { label: "Refresh every source", busyLabel: "Refreshing every source…", disabled: busy, testid: "floofycrew-registry-refresh-all", run: () => manager.act("/registries/refresh"), verdictOf: refreshVerdict }),
       ),
       React.createElement("h3", { style: { ...styles.cardTitle, marginTop: "0.8rem", fontSize: "0.9rem" } }, "Add a source"),
       React.createElement(AddSourceForm, { manager }),
@@ -246,7 +309,7 @@ export function RegistryPage({ manager, rest }) {
         React.createElement("input", { style: { ...styles.input, minWidth: "20rem" }, value: query, onChange: (e) => setQuery(e.target.value), placeholder: "words to match in id, name, description and tags (empty lists everything)", "aria-label": "search", "data-testid": "floofycrew-search-input" }),
         React.createElement("button", { type: "submit", style: styles.button, disabled: busy, "data-testid": "floofycrew-search-submit" }, "Search"),
       ),
-      hits === null ? React.createElement("div", { style: styles.muted }, "searching…") : hits.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.4rem 0" } }, "no match in the registry cache (refresh a source, or record the edition's default source)") : hits.map((hit) => React.createElement(SearchHit, { key: hit.key, hit, manager })),
+      hits === null ? React.createElement("div", { style: styles.muted }, "searching…") : hits.length === 0 ? React.createElement("div", { style: { ...styles.muted, padding: "0.4rem 0" } }, "no match in the registry cache (refresh a source above)") : hits.map((hit) => React.createElement(SearchHit, { key: hit.key, hit, manager })),
     ),
     React.createElement(
       "div",
@@ -257,7 +320,7 @@ export function RegistryPage({ manager, rest }) {
         "form",
         { onSubmit: async (e) => { e.preventDefault(); if (reference.trim()) { const r = await manager.act("/mods/install", { source: reference.trim() }); if (r && r.ok) setReference(""); } }, style: { display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.4rem" } },
         React.createElement("input", { style: { ...styles.input, minWidth: "28rem" }, value: reference, onChange: (e) => setReference(e.target.value), placeholder: "ssh://… or https://… (@tag optional — default branch without it)", "aria-label": "git reference", "data-testid": "floofycrew-reference-input" }),
-        React.createElement("button", { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: busy || !reference.trim(), "data-testid": "floofycrew-reference-submit" }, "Install (staged)"),
+        React.createElement(BusyButton, { type: "submit", style: { ...styles.button, ...styles.primary }, disabled: busy || !reference.trim(), running: manager.running("/mods/install", { source: reference.trim() }), testid: "floofycrew-reference-submit", label: "Install (staged)", busyLabel: "Installing…" }),
       ),
     ),
   );

@@ -16,6 +16,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .validator import UNSHIPPED_DIRS
+
 __all__ = ["KINDS", "refresh_files", "scaffold"]
 
 KINDS = ("theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch", "ui")
@@ -84,6 +86,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+#: Never shipped (git ignores them, installs copy around them): the validator
+#: rejects a files[] entry under any of these, so the refresh must not list one.
+UNSHIPPED_DIRS = frozenset({".git", "__pycache__", "node_modules", ".hypothesis", ".pytest_cache"})
 
 
 def refresh() -> None:
@@ -91,8 +96,9 @@ def refresh() -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     files = []
     for path in sorted(ROOT.rglob("*")):
+        parts = path.relative_to(ROOT).parts
         rel = path.relative_to(ROOT).as_posix()
-        if not path.is_file() or rel == "floofy.json" or any(part.startswith(".") for part in path.relative_to(ROOT).parts):
+        if not path.is_file() or rel == "floofy.json" or any(part in UNSHIPPED_DIRS or part.startswith(".") for part in parts):
             continue
         files.append({"path": rel, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     manifest["files"] = files
@@ -122,8 +128,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install the floofy CLI
-        run: pip install floofycrew
+      - name: Install the floofy CLI (the wheel from FloofyCrew's latest GitHub release, verified against SHA256SUMS)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag=$(gh release view --repo floofycrew/FloofyCrew --json tagName --jq .tagName)
+          gh release download "$tag" --repo floofycrew/FloofyCrew --pattern 'SHA256SUMS' --pattern 'floofycrew-*-py3-none-any.whl' --dir dist
+          cd dist
+          grep -- '-py3-none-any.whl$' SHA256SUMS > wheel.sum
+          sha256sum -c wheel.sum
+          pip install ./floofycrew-*-py3-none-any.whl
       - name: Validate the mod (schema, hashes, parts, targets, network scan)
         run: floofy validate .
       - name: Smoke test
@@ -228,13 +243,19 @@ def _part_files(kind: str, mod_id: str, name: str) -> tuple[list[dict[str, Any]]
 
 
 def refresh_files(root: Path) -> list[dict[str, str]]:
-    """Rewrite ``files[]`` from every non-dot file except ``floofy.json``; returns the list."""
+    """Rewrite ``files[]`` from every shipped file except ``floofy.json``; returns the list.
+
+    Dot-files and the directories the validator never treats as shipped
+    (``__pycache__``, ``.git``, ``node_modules``, test caches) are skipped, so a
+    refresh run from a working tree cannot list bytecode that no install ever
+    carries.
+    """
     manifest_path = Path(root) / "floofy.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     files = []
     for path in sorted(Path(root).rglob("*")):
         rel = path.relative_to(root)
-        if not path.is_file() or rel.as_posix() == "floofy.json" or any(part.startswith(".") for part in rel.parts):
+        if not path.is_file() or rel.as_posix() == "floofy.json" or any(part in UNSHIPPED_DIRS or part.startswith(".") for part in rel.parts):
             continue
         files.append({"path": rel.as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     manifest["files"] = files

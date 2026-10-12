@@ -11,7 +11,609 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **The public export refuses credential-shaped literals.** GitHub's push
+  protection declined the 1.3.6 export: the doctor's redaction test spelled a
+  made-up AWS access key id next to a 40-character secret, and the remote treats
+  the shape as a leak whatever the value. `export_public.scan_secret_shapes` now
+  runs with the identifier scan (and in the pre-push review): AWS key ids, a
+  paired secret run, private key blocks and GitHub/Slack/Google/OpenAI token shapes
+  fail the export with file and line. The fixtures in `agent-backend-doctor` and
+  the withheld `agent-backend-router` assemble their values at runtime, and the
+  two AWS-config fixtures carry a plainly fake key id; manifest hashes refreshed
+  in place (same versions). Two tests pin the gate (a planted key pair fails with
+  its lines; a 40-character commit hash does not).
+- **The identifier denylist leaves the public tree.** `scripts/check_no_internal_identifiers.py`
+  reads its list from `scripts/internal-identifiers.txt`, which the export drops: the
+  public copy of the scanner no longer spells the names it keeps out (it reports the
+  missing list and exits 0; the authoritative scan runs in the source tree before every
+  export, and `scan_export` now refuses a vacuous pass). The export-side tests skip in a
+  tree without the list.
+- **Public export audit (before the first GitHub sync since 1.3.0).** The
+  exporter now ships **only git-tracked files**: a dev-linked mod's `.floofy/`
+  runtime state (log, journal, config — gitignored in the source tree) had been
+  copied into the export because the exporter walked the working tree. A new
+  `INTERNAL_ONLY_FILES` list drops the standalone-patcher migration guide (that
+  patcher only ever existed internally) together with its docs-index row; the
+  internal registry package's rendering test moved to the internal adapter's
+  own test directory, where its fixture can exist. Two tests pin
+  the rules (every exported file is tracked; internal-only files and rows are
+  gone).
+- **The de-Amazon checker scans `LICENSE` files again.** The licensing carve-out
+  had exempted every `LICENSE*` file, which hid an account alias in the copyright
+  line of three mod licences (`agent-backend-doctor`, `kiro-spec-plan`,
+  `model-retry-policy`; also the withheld `agent-backend-router`). Only
+  `NOTICE`/`COPYING` files and `licenses/` directories — upstream attribution
+  reproduced verbatim — stay exempt. The four copied-in "fan artwork" scope
+  paragraphs in `custom-themes`, `settings-demo`, `os-notify-bridge` and
+  `display-comfort` (they belonged to `rimuru-branding` and named the internal
+  repository) are removed; a stale predecessor name in boot-script comments, two
+  test fixtures and a registry-template example are neutral now. Every touched
+  mod's `files[]` hashes are refreshed in place (same versions; the registry
+  treats a same-version commit as a refresh).
+
+## 1.3.6 — 2026-10-12
+
+A patch on 1.3.5 that ships ten days of work on the manager and its mods, and
+the first release to list KiroCrew 0.8.0.9 (internal, stable) among the hosts
+it supports — the Loader runs `ok` on it on two live desks, so `floofy
+self-update` on such a host now sees this release. The App's Mods page is laid
+out as a switch table, with the mod's name as the link to its page, and every
+action shows the wait it causes; the edition's own registry is recorded and
+fetched from the first start and cannot be removed; public-export commits carry
+the maintainer's GitHub identity. The mod-facing API is 1.3.0: a `replace` hook
+can let the host's own error through without faulting. Two new first-party mods
+— `agent-backend-doctor` (0.2.0; finds, un-caches and repairs the agent-backend
+harnesses, and keeps a Bedrock-backed Codex's AWS credentials usable inside the
+sandbox) and `agent-orchestrator` (0.2.4; parallel multi-agent orchestration
+over a typed message bus, hub-and-spoke by default) — join `agent-backend-router`
+0.3.0 and `model-retry-policy` 0.1.3; the router stays out of the public export
+until it stops naming the internal edition's package. Fixed: bytecode can no
+longer be hashed into `files[]`, an update neither fails on a live socket in
+`.floofy/` nor loses `mod.log` lines, and a manifest `icon` path no longer breaks
+the registry index.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.9 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
+### Changed
+
+- **The public export holds `agent-backend-router` back for now.** Its hook
+  imports the internal edition's companion package by name — the credential
+  broker's contract keys, the edition's Claude Code factory and client classes
+  — and the public-export scan rightly refuses that. Until the mod learns those
+  names from the host at runtime it stays internal-only: `scripts/export_public.py`
+  keeps it in `WITHHELD_MODS`, separate from the mods that are internal-only by
+  nature (`EXCLUDED_MODS`), so the public tree drops its directory and its
+  `mods/README.md` row while the rows that mention it stay. Shipping it publicly
+  is removing it from that tuple.
+- **Public-export commits are the maintainer's GitHub commits.**
+  `scripts/export_public.py --out <clone>` now pins the maintainer's public git
+  identity (`PUBLIC_GIT_NAME` / `PUBLIC_GIT_EMAIL`, spelled once in the script)
+  in the public clone's own config, so the commit made there is linked to the
+  maintainer's GitHub account — never the internal address the source history
+  is written under, never a `noreply` placeholder. The pre-push review
+  (`packaging/internal/review_public_export.py`) refuses a clone whose next
+  commit, or any commit a push would publish (`@{upstream}..HEAD`), carries
+  another identity, before the model is asked; the exporter's refusals now exit
+  2 from the review CLI instead of a traceback.
+- **The edition's registry is there from the first start, and it stays.**
+  FloofyCrew's own registry for the running edition (`floofycrew-internal` on
+  the internal edition, `floofycrew` on the public one, each verified against
+  the key the edition pins) used to wait for a *Record the edition's default
+  source* click or `floofy registry defaults` — a fresh install searched an
+  empty cache. `floofy init` now records the source itself and fetches it, so
+  Registry › Search and Updates are populated when the App first opens; the
+  hourly re-apply trigger records it again should it go missing and fetches it
+  while its cache is not usable (never fetched, refused, errored). Both are
+  best-effort: `--offline` records without fetching, a fetch that fails is a
+  warning the trigger retries, `init` never fails on it, and `floofy doctor`
+  reports the source's state (a problem when it is missing or unusable). The
+  source cannot be removed: `floofy registry remove` refuses it (audited), the
+  App's row shows a *default · kept* badge and no Remove, the interactive
+  terminal offers none. The trust settings on it remain yours — `init` and the
+  trigger only add a missing row, never reset `trust` / `allowUnsigned`; `floofy
+  registry defaults` is the explicit reset to the shipped settings and the way
+  to add the host App Store row. `registry list` flags the row
+  (`editionDefault`); the App's manual *Record…* button is gone.
+  Requirement 8.12.
+- **The Mods page, laid out as asked.** *Mod pages* is one compact line per mod
+  with its own page — icon + mod name | mod id — and the **name is the link**
+  that opens the page (dimmed and unlinked, with the reason beside it, while the
+  mod is not active); the "Open …" buttons and the short-lived gear icon are
+  gone. *Installed mods* is a table — an on/off
+  switch in the shape KiroCrew's own settings use (it reflects the enabled
+  state and flips it through the enable/disable routes) | name | id · version |
+  Host compat · source tier (with the warnings) | Actions (Update, release
+  notes, Registry entry, Uninstall) | Parts (seam), collapsed to a count and
+  the kinds with the "modifies payload files" warning kept on the summary line.
+  The per-row Settings panel of 1.3.4 is retired; an enabled mod that is not
+  running shows its typed reason beside its name, so the switch alone never
+  hides a fault.
+- **Every wait is visible.** Installing, updating, uninstalling, enabling,
+  reloading and restoring take seconds — the Loader runs the floofy CLI, which
+  clones a repository or reads a registry before it can even *ask* the
+  confirmation question. The button that was clicked now spins with a busy label
+  (`Installing…`, `Updating…`) until the act has finished *and* the mod list has
+  been re-read, and one fixed line in the corner of the page says what is being
+  waited for, phase by phase: *Reading … and preparing the install — the
+  confirmation opens next…* before the modal, *Installing …* after the answer,
+  then the re-read. The line hides while a question is on screen (that wait is
+  the user's). The same spinner sits in Registry's Refresh / Check for updates /
+  Install buttons, beside a switch while it flips, and in Update & restart. The
+  spinner is an SVG ring animated by SMIL — nothing is injected into the host
+  page — and stands still under `prefers-reduced-motion`.
+
+### Mods
+
+- `agent-orchestrator` 0.2.4 — `demo/seam-check.sh` finds the host payload
+  through FloofyCrew's own host discovery (`floofy doctor` names the current
+  payload and its path, or pass a `kiro_crew` package directory) instead of a
+  hard-coded install location of one edition, so the script runs on either
+  edition and the mod passes the public-export scan. No hook change.
+- `agent-backend-doctor` 0.2.0 — keeps a Bedrock-backed Codex's AWS credentials
+  usable inside KiroCrew's sandbox. Codex is a tool-gate-enforced harness whose
+  sandbox hides `~/.aws`, and on the internal edition the credential broker that
+  wraps every non-Claude spawn hands the child `AWS_CONFIG_FILE` /
+  `AWS_SHARED_CREDENTIALS_FILE` pointers at a per-process copy of the config
+  with every credential-fetching key stripped plus `AWS_PROFILE=default` — so
+  the SDK reports *failed to load AWS credentials: the credential provider was
+  not enabled*. Before each Codex launch (`after` `AcpClient.__init__`,
+  re-asserted `after` `CodexHarness.apply_spawn_env`) the mod reads
+  `~/.codex/config.toml` (never `auth.json`), selects the named profile and its
+  `source_profile` / `sso_session` chain from `~/.aws/config` with every static
+  key dropped, writes `<host home>/codex-aws/{config,credentials}` (`0700` /
+  `0600`, the credentials file deliberately empty) and hands the child exactly
+  those four variables. `~/.aws` stays hidden, the sandbox is never weakened, no
+  credential value is copied or logged; a `credential_process` whose command
+  line names a hidden directory is flagged as a hint, and the sandboxed probe
+  (not a guess) says whether the vend works under the mask. New routes
+  `codex-awsenv` (report), `/rebuild`, `/probe` (`aws sts get-caller-identity`
+  inside the child's own mask; only the exit status and Account / Arn kept) and
+  `/toggle`; a page panel; public `codex_launch_record` / `repair_codex_awsenv`
+  / `classify_codex_failure` for other mods.
+- `agent-backend-router` 0.3.0 — structured routing diagnostics per session
+  (selected backend, model / provider, AWS profile, whether the doctor's isolated
+  config was applied, preflight verdict, retry count, redacted failure class,
+  launch state) in the page's *Session launches* table, the exports and one JSON
+  log line per Codex launch; a failure taxonomy (`credentials`,
+  `credential_process`, `endpoint_auth`, `throttle`, `timeout`, `model`,
+  `server`, `stream_cleanup`, `http`, `transient`, `error`) on every failed turn
+  and launch; on a Loader with api ≥ 1.3.0 a Codex launch that fails with the
+  `credentials` class has the doctor rebuild the isolated config, the
+  half-started provider shut down through the host's own `shutdown`, and `start`
+  retried exactly once — everything else, and the retry's own failure,
+  propagates unchanged with the required manual action logged; a turn that
+  already produced model output can never be a `credentials` failure. Depends on
+  `agent-backend-doctor` ≥ 0.2.0. Also the two reasons Codex never took a
+  non-pinned session, both fixed: codex-acp advertises one entry per model ×
+  reasoning effort (`openai.gpt-6-sol[low]` … `[max]`) and the identity check
+  only knew the `[1m]` window marker, so no GPT model ever matched — the effort
+  suffix is now folded out of identity (the host's own `split_effort_suffix`
+  rule) and a pair is handed over as its bare model with the session's effort
+  carried through the host's per-model effort setting, never pinned by the id;
+  and on KiroCrew 0.8 Codex runs on the pooled runtime, which never feeds the
+  host's advertised-model cache, so the router now reads `available_models()`
+  off every session it starts on such a backend and keeps the list itself.
+  The page folds the pairs into one row per model.
+- `model-retry-policy` 0.1.3 — the policy now reaches the errors that actually
+  end long turns. KiroCrew's retry ladder (the three retries this mod replaces)
+  only runs while a turn has produced no output; an error that lands after text
+  or a tool call has streamed goes down a separate dashboard path that
+  re-prompts the live session with a "continue" instruction exactly **once**
+  per user turn (`_posttoken_retry_used`) and then shows the error — so with
+  "retry forever" in force a tool-heavy turn still stopped on its second
+  mid-turn throttle (seen live: `❌ Bedrock is throttling requests` after
+  nineteen minutes of tool calls, the one recovery already spent). The hook
+  now also sits on `_ChatSlot.queue_insert` (with `_ChatSlot.append` as the
+  witness for the user row and the resuming notice): it counts the recoveries
+  per slot and, while the mechanism's mid-turn budget is not spent — N for a
+  retry count, unlimited for the two "forever" mechanisms, a profile's total
+  attempts (unlimited with "keep retrying the last model") — clears the
+  one-shot flag again right after the host has enqueued the recovery; the
+  configured delay curve applies between them. Stop still ends the turn (a
+  withheld recovery is never re-armed), the host default stays one recovery,
+  deactivate restores the host method. The page shows the mid-turn budget in
+  force, a recoveries counter and the events; sub-agents keep the host's own
+  one-shot (a hand-maintained copy in `subagent.py`, not yet hooked).
+- `model-retry-policy` 0.1.2 — ships a `files[]` that every install can verify:
+  0.1.1's manifest listed six `__pycache__/*.pyc` entries that its smoke test's
+  `--refresh` had hashed from the working tree, which git never commits and no
+  install carries, so the registry's `validate-submission` (and any install from
+  the record) failed `MissingFiles`. The refresh now skips what is never
+  shipped; no behaviour change. 0.1.1 — fixes the page forgetting every selection: the
+  save path spread the `enabled` flag through its object merge, so the flag was
+  stored as `{}`, which the hook read as "off" and every mechanism rendered back
+  as the host default. Scalars now pass through unchanged, the hook treats only
+  an explicit boolean `false` as off (a malformed value already on disk heals
+  itself), and a headless page probe replays the pick / toggle / count /
+  profile / reload sequence against a stateful fake api.
+- `agent-orchestrator` 0.2.3 — a run goes when its chats go. A run whose chats
+  had been deleted stayed on the graph page for ever as *archived (sessions
+  gone)* and runs piled up: the record on disk was only swept when closed and
+  older than `run_retention_days`, and a never-closed run (an orchestrator that
+  stopped without `bus_run close`) never aged. The page now follows the host's
+  two notions. Deleting a chat for good (the host's session delete, or the bulk
+  clear) removes the run's record through after hooks — at once when no worker
+  tab is open, else when the last worker chat goes. Closing tabs only moves
+  chats to history, so such a run is drawn as *archived (chats gone)* with a
+  Remove button (`POST runs/remove`, refused with `run_live` while any tab of
+  the run is open). An hourly sweep on the slots push ages out closed runs and
+  idle never-closed runs, never a live one, and drops records whose transcript
+  the host no longer has; the first sweep after activation is forced, so a run
+  deleted while the mod was inactive goes at the first slots push instead of
+  the hourly tick (0.2.3). `follow_session_delete` (default on) switches the
+  delete hooks off.
+- `agent-backend-doctor` 0.1.0 (new) — finds and un-caches KiroCrew's
+  agent-backend harnesses (Claude Code, Codex, OpenCode, pi). A `python-hook`
+  sits after the host's Node-adapter resolver and the plain-binary ladders and
+  fills a miss from the npm global prefixes the host does not search
+  (`~/.local/node`, `~/.npm-global`, a `~/.npmrc` prefix, `$NPM_CONFIG_PREFIX`)
+  with the host's own completeness rule; on activation and on demand it resets
+  the gateway's cached *not found*, so a backend installed after the gateway
+  started works without a restart. A `ui` page shows one row per backend (host
+  verdict, adapter path and rung, CLI, cache state, advertised models) with an
+  opt-in `CODEX_PATH` switch and an opt-in symlink repair into `~/.local/bin`.
+  Proven on KiroCrew 0.8.0.6, where `claude-agent-acp` and `codex-acp` sat
+  under `~/.local/node` after the host had searched 27 directories and missed
+  them.
+- `agent-backend-router` 0.2.0 — routes across model namespaces: Claude Code
+  and Codex join the pool when installed, and a session goes to one of them
+  only when that backend's own served-model list carries the very same model
+  (same base name and, where the id spells it, the same context window), in
+  which case it receives that list's spelling of it. No model is ever
+  substituted: Claude models may land on kiro/KAS/Claude Code, GPT models on
+  kiro/KAS/Codex, `auto` and warm-pool spawns stay in the requested namespace.
+  On the internal edition a session that leaves the kiro family sheds the
+  kiro-only credential-broker env and one that lands on Claude Code gains what
+  that edition's Claude factory adds (Bedrock env, permission mode, companion
+  classes). The page shows each backend's namespace, family rule and served
+  list, lets you declare served ids for a backend whose list is still cold,
+  and answers "which backends may serve model X?" for any id. New config keys
+  `cross_namespace` (default on) and `served_overrides`.
+- `agent-orchestrator` 0.2.0 (new) — real parallel multi-agent orchestration
+  with a centralized orchestrator: an orchestrator session divides a goal into
+  items, runs one `agent-orchestrator-worker` session per item at the same time
+  and coordinates them live over a typed, bounded message bus (a stdlib stdio
+  MCP server per worker, forwarding over a 0600 unix socket; identity is the
+  host's own `KIROCREW_SESSION_KEY`, membership is derived from
+  `slots[].created_by`), with wake-ups that carry no body, a wait-any primitive
+  for the hub, live per-worker status lines and a hub-and-spoke graph page
+  (orchestrator centred, worker cards with state / progress / summary, messages
+  as travelling dots, a bus log). **Hub-and-spoke by default**: a worker posts
+  only to the orchestrator, which relays what a sibling needs to know; a direct
+  worker → worker post is refused (`peer_messaging_off`) unless the
+  `peer_messaging` setting is on. The host's `session_create` / `session_send`
+  and the work ledger stay untouched (the mod observes them to draw the whole
+  conversation); an optional non-retryable `max_workers` cap applies to the
+  mod's own orchestrators only. Ships a scripted four-worker demo with a
+  checker that proves the topology from the bus log (`demo/`). Research and
+  design in `research/orchestration-mod/`. 0.2.1: the graph page actually
+  draws on a live host — 0.2.0 passed its query string inside the route path
+  (`routes.fetch("graph?run=…")`), which the SPA API percent-encodes into one
+  segment the Loader rejects, so the picker listed the run while the stage sat
+  on "No run on screen" (seen on the test box). The page now appends the query
+  after `routes.url()`, shows a route failure instead of a silent `idle`, uses
+  the host's real `--text` tokens (its text was light-grey on the light theme),
+  and a run whose sessions are gone (tabs closed, a reload before the next
+  slots push) is drawn from `meta.json`/`status.json` as *archived* rather than
+  empty; disk-only runs no longer count the orchestrator as a worker in the
+  picker. The page probe now runs end to end through the real `createModApi`
+  and the real Loader route dispatch — the stub that hid the bug is gone.
+  Also 0.2.1: **the bus now has an identity on the KAS backend.** The host
+  projects a spec's `mcpServers` onto the KAS wire and withholds `env` for
+  every server it does not own, so `KIROCREW_SESSION_KEY` never reached the
+  bus server there and every bus call in the demo run failed
+  `caller_unidentified` (the agents fell back to the ledger and finished
+  anyway). An after-hook on `kas_agents._project_mcp_servers` now puts the
+  same session key the host gives its managed servers onto the mod's own bus
+  server — recognised by its argv, nothing else touched; hosts without the
+  seam log a warning and keep working on kiro-cli. And the reducer now reads
+  `slots[].created_by` in both of the host's spellings — `dashboard:<slot>`
+  (0.7.x) and the bare `<slot>` (0.8.0.6) — so the hub and its workers land in
+  ONE run; on the bare form the orchestrator had identified itself in a
+  different run from its workers, which is why none of its six `session_send`
+  calls in the demo were logged as `send` rows.
+
 ### Fixed
+
+- **Bytecode can no longer be hashed into `files[]`.** Both `files[]`
+  refreshers — `floofy_core.scaffold.refresh_files` and the `tests/smoke_test.py
+  --refresh` that `floofy new` scaffolds — walked every non-dot file, so a mod
+  refreshed after its tests had run listed `__pycache__/*.pyc`; git ignores
+  those, the installer copies around them, and every install from such a record
+  failed `MissingFiles` (seen on kirocrew-ide 0.15.0 and model-retry-policy
+  0.1.1). Both refreshers now prune the directories the validator never treats
+  as shipped (`__pycache__`, `.git`, `node_modules`, `.pytest_cache`,
+  `.hypothesis`), and `floofy validate` rejects a `files[]` entry under any of
+  them as `UnshippableFile` instead of passing a manifest that would fail on
+  the first install.
+
+- **A `replace` hook can let the host's own error through without faulting
+  (api 1.3.0).** A mod that wrapped `AcpProvider.start` to retry a failed spawn
+  once could not exist: when `call_next` raised, the Loader treated the
+  exception as the mod's, disabled the mod with reason `Error` and ran the
+  original a second time, repeating the spawn and hiding the error. An
+  exception that came out of `call_next` is now tagged on its way through the
+  chain and propagates to the caller unchanged (the same instance, so host
+  `except` clauses still match it); only an exception raised by the mod's own
+  code faults the mod. `floofy.api_version` is `1.3.0`; a mod that relies on
+  this should feature-detect it ([docs/python-api.md](docs/python-api.md)).
+
+- **An update no longer fails on a live socket in `.floofy/`.** `floofy
+  install` keeps a mod's runtime state across an update by copying `.floofy/`
+  aside; a python-hook that holds a unix socket there (the agent-orchestrator
+  bus) made that copy raise `[Errno 6] No such device or address` and the whole
+  update fail (seen on the test box, floofy 1.3.5). Sockets, fifos and device
+  nodes are now skipped — the hook recreates them on activation — and regular
+  files and directories still survive. Until a release carries this, update
+  such a mod with `floofy disable <id>` first.
+
+- **`mod.log` keeps receiving lines after an update.** The same copy-aside of
+  `.floofy/` gives `mod.log` a new inode, while the Loader's process-wide mod
+  logger still held the old one open — so every line a python-hook logged
+  after `floofy install` of an update (its "active" line included) vanished
+  into an unlinked file (seen on the test box after three updates). The
+  Loader now reopens the handler when the file on disk is not the one it
+  holds, the way `WatchedFileHandler` does.
+
+- **A mod's manifest `icon` no longer breaks the registry index.** A manifest
+  `icon` is a relative path to a file shipped with the mod (`floofy.schema`);
+  `registry_tools build` copied it into the index entry, whose schema wants a
+  URL, so recording the first mod with one (kirocrew-ide 0.17.2) made
+  `index.json` fail its own schema check. The build now indexes an icon only
+  when it is a URL — a curated `mods/<id>/mod.json` `icon`, or an https manifest
+  icon — and leaves a path out; a registry client has nothing to fetch it from
+  anyway. FloofyCrewRegistry carries the same bytes under `vendor/`.
+
+## 1.3.5 — 2026-10-02
+
+A patch on 1.3.4 that ships what landed right after its cut: the finished
+manager tab row (described in 1.3.4's notes, but committed two hours after that
+release), the registry gate's handling of a CR build fleet that cannot reach
+the forge, and two first-party mods — `agent-backend-router` (0.1.1; routes
+new sessions across agent backends) and the new `model-retry-policy` (0.1.0;
+a retry count of your own, retry forever at a fixed interval or with
+exponential backoff, or fallback profiles across models when the model or its
+API fails transiently).
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
+### Added
+
+- **New first-party mod: `model-retry-policy`** (0.1.0). Chooses what KiroCrew
+  does when the model or its API fails transiently (throttling, overload, 5xx, a
+  dropped stream) instead of the host's fixed three same-model retries: a
+  `python-hook` that replaces the shared retry seams at every surface —
+  dashboard chats, cron and Slack turns, sub-agents — with one of four
+  mechanisms: a retry count of your own, retry forever at a fixed interval,
+  retry forever with exponential backoff, or fallback profiles (the primary N
+  times, then each model in the profile for its own count, then stop or stay on
+  the last forever). The default leaves the host byte-for-byte. A `ui` page
+  carries the mechanism cards, the parameters, a profiles editor, a "what will
+  happen" attempt timeline and a live retry/switch log. Runs alongside
+  `agent-backend-router` (different seams).
+- **`agent-backend-router` ships in the package** (0.1.1). The router landed in
+  the source tree as 0.1.0 after the 1.3.4 cut and the internal registry already
+  carries that record; 0.1.1 is the same mod with its author named in the
+  manifest instead of an alias, which the public export refuses.
+
+### Fixed
+
+- **The manager's tab row is finished.** 1.3.4's notes described the finished
+  row, but the commit (`63242da`) landed two hours after that release was cut;
+  it ships here. The tab row is shorter, its tabs sit on the rule, the rule
+  stops under the selected tab so the tab opens onto the page instead of sitting
+  above a line, and the masthead glow fades out across the row.
+- **The registry gate on a build fleet without the forge.** The gate's clone
+  step treated "cannot clone" as a record problem, so the first CR against the
+  registry package failed on every existing link record (the fleet has no `git`
+  on one platform and no route to the forge on the other). The gate now probes
+  the environment once — `git` on PATH, the forge hostname from
+  `repoUrlPattern` resolving — and when it provably cannot clone it records
+  that as a note and steps 1–5 are the verdict; a clone that runs and disagrees
+  with a record is still a failure. The templates say where step 6 is verified
+  instead: the contributor's own gate run, and every client at install.
+
+## 1.3.4 — 2026-09-27
+
+A patch on 1.3.3 from installing mods through the FloofyCrew App on a live
+host: a mod's App Kit app never installed from the App (the `app` kind refused
+the host launcher inside the gateway), so app-kind mods came up "App Not Found"
+while the install reported ok — fixed, and a refused part is now said out loud.
+Also in this release: dependencies install themselves, a tidier manager with
+mod icons, a wordmark header and per-row Settings panels, registry refreshes
+that report what they did, and the new `kiro-spec-plan` mod.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
+### Added
+
+- **Dependencies install themselves** (Requirement 1.4 at install time). Installing a
+  mod now resolves every `dependsOn` entry no installed mod satisfies against the
+  registry cache and installs those first — `rimuru-branding` brings
+  `custom-themes` along instead of landing inactive with `Dependency`. The plan is
+  part of the disclosure ("ALSO INSTALLS (dependencies, from the registry): …"; the
+  App's confirm modal lists them), so one confirmation covers it; each dependency's
+  own disclosure names who asked for it; the outcome carries a `dependencies[]`
+  report and the summary line says what was brought along. A dependency that is
+  unavailable, out of range or declined is reported plainly and the mod still
+  installs, inactive until it is satisfied — the same state as before, never
+  silently different.
+- **Registry refresh shows its work.** "Refresh" on a source and "Refresh every
+  source" read "Refreshing…" while the fetch runs and then report what happened —
+  sources fetched, mods merged, and any refusal with its reason — instead of
+  leaving the user to guess whether anything ran.
+
+- **Mods show their face.** A new Loader route `GET /mods/{id}/icon` serves the
+  manifest's `icon` (`.svg`/`.png`, `files[]`-listed) of any installed mod, active
+  or not; `floofy status` rows carry `icon` and `description`. A mod without one
+  gets a puzzle glyph.
+- **New first-party mod: `kiro-spec-plan`.** Kiro's own Spec, Quick Spec, Bug Fix
+  and Plan modes as KiroCrew agents: four `agent` drop-ins named after the kiro-cli
+  v3 (KAS) bundled mode ids, so picking one runs Kiro's real workflow with nothing
+  copied out of Kiro; a read-only `python-hook` publishes the `agent.acp_backend`
+  verdict as exports (a doctor warning when KAS is off) and a `spa` part badges the
+  four rows in the agent selector.
+
+### Fixed
+
+- **A mod's app never installed from the FloofyCrew App** (`floofy_core.kinds.app`,
+  `floofy_core.cli.cmd_mods`). The manager App runs every install inside the
+  gateway (`in_gateway=True`), and the `app` kind refused the `kirocrew` launcher
+  there — a guard meant for the loopback HTTP route, which would wait on the
+  gateway's own loop — so every app-kind mod installed from the App landed with
+  its python-hook and ui parts active and its App Kit app silently missing: the
+  install reported ok, the sidebar said "App Not Found" (seen live with
+  `kirocrew-ide`; `floofy install` from a terminal was never affected). The host
+  CLI's `app install|enable|uninstall` is a separate process doing file work under
+  `<host home>/apps/`, reconciled from disk by a running gateway, so the launcher
+  is now used in-gateway too; only the HTTP route stays off-limits there. A part
+  that refuses is no longer a footnote: the install warns
+  "the <kind> part was NOT installed — <reason>", the result carries
+  `partErrors[]`, and the audit row reads `partial` instead of `ok`.
+
+### Changed
+
+- **A tidier manager.** The Mods page lists compact rows — icon | name | id | state |
+  **Settings** — and keeps everything else (version and description, badges and
+  warnings, the update, Enable/Disable, Update, Open page, Uninstall) in the row's
+  Settings panel; the parts list is collapsed behind its count and kinds, with the
+  "modifies payload files" warning kept on the summary line. The Registry page
+  collapses long descriptions to one line that expands on click. The header wears
+  the FloofyCrew wordmark — the dark-text lockup on a light host theme, the peach
+  one on a dark theme, following theme switches — over a borderless peach-to-orange
+  glow that feathers in from the window edge and fades out again across the tab
+  row; the selected tab is cut out of it, showing the plain page. The tab row is
+  shorter, its tabs sit on the rule, and the rule stops under the selected tab
+  so the tab opens onto the page instead of sitting above a line.
+- The internal source repository has one branch, `mainline` (its forge's default);
+  the historical `main` head is retired and `ci.yml` triggers on `mainline`.
+
+## 1.3.3 — 2026-09-24
+
+A patch on 1.3.2 from building a large mod (the KiroCrew IDE) against a live
+host: three failures a mod update could trigger are fixed — mod pages dead
+after signing back in through the token banner, a refreshed mod app coming
+back disabled because the host's uninstall had dropped its trust grant, and
+an app landing disabled when its enable raced the Loader reload. The
+hourly re-apply trigger, broken since it shipped, now runs. Also new: the
+`display-comfort` mod.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
+### Fixed
+
+- **Mod pages stayed dead after a session-less cold load** (`spa-host`).
+  A document loaded without a dashboard session (expired token, the "paste
+  a token URL" banner) made the SPA host give up after its 10 s backoff and
+  pin `null` for the document's lifetime; signing in through the banner
+  never reloads the document, so every mod page then failed with
+  `window.floofy.mod is not available: the SPA host did not start` until a
+  hard reload. The host now forgets a failed start: `ensureStarted()`
+  retries on demand (the manager and the mod page await it), a
+  focus/visibility nudge and a bounded idle timer resume it in the
+  background, and `__floofyHostStatus` reports `started` once it runs.
+- **A refreshed mod app came back disabled** (`floofy_core.kinds.app`). A
+  mod update refreshes its app through the host's `app uninstall` +
+  `install`, and the host's uninstall also revokes the app's
+  `agent.apps_trusted` entry — so `app enable` was refused while the kind,
+  judging from a governance snapshot taken before the uninstall, reported
+  `grant: not-needed`. The kind now reads the grant from `config.json`
+  before and after the uninstall, re-records a grant the user had already
+  given (no new decision; audited as a restore, the same rule `floofy init`
+  applies to the Loader) and judges the verdict from the config on disk. A
+  never-granted app is still offered the grant, never granted silently.
+- **An app enable refused during the Loader reload** (`floofy_core.kinds.app`).
+  `floofy install --now` reloads the Loader inside the running gateway at
+  the same moment the kind calls `app enable`; the host refuses lifecycle
+  operations while its startup hook runs, so the app landed disabled with
+  both grants on disk (the identical enable succeeded by hand seconds
+  later). The kind retries the enable up to three times over ~5 s before
+  reporting it disabled.
+- **The hourly re-apply trigger never ran** (`floofy_core.triggers`,
+  `floofy_core.cli.main`). The generated systemd unit and launchd agent
+  invoked `floofy … apply --if-changed --quiet` — but `--quiet` is a global
+  flag, so the `apply` subparser rejected it and every fire exited 2 before
+  doing anything: patches silently stopped surviving host updates, and the
+  1.3.1 unattended freshness pass never got to run. The units now emit
+  `--quiet` before the subcommand, and every subcommand also accepts a
+  trailing `--quiet`/`-q`, which heals the units already written on user
+  machines without regenerating them.
+
+### Added
+
+- **`display-comfort` 1.0.0**, a quality-of-life mod answering the two
+  most-asked-for display requests upstream: a persistent chat text scale
+  (50–250 %, every message bubble, optionally the composer too) and an
+  arbitrary page zoom (25–300 % in 1 % steps, not just the browser's fixed
+  stops). A `ui` settings page with live-preview sliders persisting through
+  `floofy.mod(id).config` (no python-hook — the Loader's own config route),
+  a `spa` runtime part applying one custom property on `<html>` that the
+  mod's stylesheet turns into `zoom` on `[data-testid="message-bubble"]`
+  (explicit rem/px utility classes would ignore an inherited font-size),
+  and a `spa` boot part with a baked stylesheet plus a localStorage cache so
+  the chosen sizes paint on the first frame — a reload never flashes the
+  defaults. Fail-open everywhere: no settings, an out-of-range value, or a
+  renamed host marker leaves the dashboard stock.
+
+## 1.3.2 — 2026-09-22
+
+A patch on 1.3.1 for hosts whose `$HOME` is a symlink: payload paths are now
+canonical everywhere, so the deployment manifest keeps one entry per file and a
+gateway restart no longer wipes the first-frame boot script and SPA-host loader
+tag out of `index.html` — the regression that made custom themes flash the
+stale pre-hydration theme and kept runtime parts from loading. Also new:
+the hourly re-apply trigger now refreshes the App's release banner and
+per-mod update rows, so update reminders reach users who never open a
+terminal.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5 |
+| internal | stable | 0.7.0.5 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
+### Fixed
+
+- **Disabling the last patch-carrying mod now reverts its baked ops**
+  (`floofy_loader.boot`). The Loader's patch step used to be skipped whenever
+  the enabled set planned no patches, so disabling or removing the last mod
+  with a `patch` part or a `boot` activation through the App left its ops
+  baked into `index.html` — the "disabled" mod's boot hook and stylesheet
+  kept running on every load until a `floofy apply` from a terminal. The
+  step now also runs (with an empty plan — the Patcher's revert-then-patch
+  restores stock) whenever a deployment manifest records applied work, and
+  is skipped only when there is genuinely nothing to revert.
 
 - **One canonical spelling per payload file** (`floofy_core.payloads.make_payload`,
   `floofy_core.deploy`). On a host whose `$HOME` is a symlink (a common
@@ -31,19 +633,14 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Added
 
-- **`display-comfort` 1.0.0**, a quality-of-life mod answering the two
-  most-asked-for display requests upstream: a persistent chat text scale
-  (50–250 %, every message bubble, optionally the composer too) and an
-  arbitrary page zoom (25–300 % in 1 % steps, not just the browser's fixed
-  stops). A `ui` settings page with live-preview sliders persisting through
-  `floofy.mod(id).config` (no python-hook — the Loader's own config route),
-  a `spa` runtime part applying one custom property on `<html>` that the
-  mod's stylesheet turns into `zoom` on `[data-testid="message-bubble"]`
-  (explicit rem/px utility classes would ignore an inherited font-size),
-  and a `spa` boot part with a baked stylesheet plus a localStorage cache so
-  the chosen sizes paint on the first frame — a reload never flashes the
-  defaults. Fail-open everywhere: no settings, an out-of-range value, or a
-  renamed host marker leaves the dashboard stock.
+- **`os-notify-bridge` 1.0.0**, a first-party mod that mirrors KiroCrew's
+  in-app notifications to native OS banners: approval waits, cron reports,
+  skill reviews and the rest of the feed reach the desktop even when the
+  dashboard is in the background. Listens to the host's own notification
+  fan-out (channel mutes keep their meaning), enriches banners from the feed
+  API (title, body, deep link), and adds the settings surface the platform
+  needs: a real permission button, a background-only policy, one switch per
+  kind, and the host's hidden turn-complete flag surfaced as a switch.
 
 - **Update reminders without a terminal** (Requirement 7.7 extended). The
   re-apply trigger's `floofy apply --if-changed` — the one run that happens

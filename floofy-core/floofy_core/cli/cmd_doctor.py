@@ -196,6 +196,9 @@ def doctor(ctx: CliContext, args: argparse.Namespace) -> int:
     report["governance"] = governance_report(ctx)
     report["drift"] = _drift_report(ctx, live=live)
     report["compat"] = compat_row(ctx)
+    report["registry"] = _registry_report(ctx)
+    for problem in report["registry"]["problems"]:
+        problems.append(problem)
     report["playwright"] = {"available": importlib.util.find_spec("playwright") is not None, "note": "needed by `floofy verify --spa`; `pip install playwright && playwright install chromium`"}
     # Requirement 7.7: the daily FloofyCrew release check (cached, never blocking; skipped --offline / updates.check false)
     from .cmd_selfupdate import summary_for  # noqa: PLC0415
@@ -238,6 +241,40 @@ def _trigger_report(ctx: CliContext) -> dict[str, Any]:
     managers = trigger_managers(ctx.host_home, ctx.adapters(), edition=ctx.edition(), payload=ctx.current_payload())
     statuses = [m.status().to_dict() for m in managers]
     return {"managers": statuses, "loaderStartup": loader_startup_status(ctx.host_home).to_dict()}
+
+
+def _registry_report(ctx: CliContext) -> dict[str, Any]:
+    """Requirement 8.12: the edition's default source — recorded? fetched and usable? — plus the source count."""
+    from ..installer import InstallError  # noqa: PLC0415
+    from ..registry_sources import SourceStore, is_default_source  # noqa: PLC0415
+
+    rows = ctx.default_registry_sources()
+    report: dict[str, Any] = {"sources": 0, "defaults": [], "problems": []}
+    try:
+        store = SourceStore.load(ctx.home)
+    except InstallError as exc:
+        report["error"] = str(exc)
+        report["problems"].append(f"registries.json unreadable: {exc}")
+        return report
+    report["sources"] = len(store.sources)
+    for row in rows:
+        source = next((s for s in store.sources if is_default_source(s, [row])), None)
+        entry: dict[str, Any] = {"url": row.get("url"), "name": row.get("name"), "recorded": source is not None, "usable": False, "state": "missing"}
+        if source is not None:
+            entry["label"] = source.label
+            meta = _read_json(ctx.home.cache_sources / source.key / "meta.json")
+            if not isinstance(meta, dict):
+                entry["state"] = "never fetched"
+            elif meta.get("usable"):
+                entry.update({"usable": True, "state": "usable", "mods": meta.get("mods"), "fetchedAt": meta.get("fetchedAt"), "signature": (meta.get("signature") or {}).get("status")})
+            else:
+                entry["state"] = f"refused: {meta.get('refusal') or meta.get('error')}"
+        report["defaults"].append(entry)
+        if source is None:
+            report["problems"].append(f"the edition's default registry source {row.get('name') or row.get('url')} is not recorded (floofy init records it; the re-apply trigger does too on its next run)")
+        elif not entry["usable"]:
+            report["problems"].append(f"the edition's default registry source {source.label} is {entry['state']} (floofy registry refresh {source.label}; the re-apply trigger retries hourly)")
+    return report
 
 
 def _drift_report(ctx: CliContext, *, live: bool) -> dict[str, Any]:
@@ -324,6 +361,15 @@ def _print_doctor(ctx: CliContext, report: dict[str, Any]) -> None:
         ctx.say(f"compat verdict for {compat['row']['hostVersion']} ({compat['row']['edition']}/{compat['row']['channel']}): loader={framework.get('loader')} spaFingerprints={framework.get('spaFingerprints')} mods={compat['row'].get('mods')}")
     else:
         ctx.say("compat verdict: none cached for this host version (floofy registry refresh fetches compat.json)" + (f" — {'; '.join(compat['notes'])}" if compat["notes"] else ""))
+    registry = report["registry"]
+    if registry.get("error"):
+        ctx.say(f"registry: {ctx.paint(registry['error'], 'danger')}")
+    elif not registry["defaults"]:
+        ctx.say(f"registry: {registry['sources']} source(s); this edition ships no default source")
+    for entry in registry["defaults"]:
+        tone = "ok" if entry["usable"] else "warn"
+        detail = f"{entry.get('mods')} mod(s), signature {entry.get('signature')}, fetched {entry.get('fetchedAt')}" if entry["usable"] else entry["state"]
+        ctx.say(f"registry: default source {entry.get('label') or entry.get('name')} {ctx.paint('recorded' if entry['recorded'] else 'missing', tone)} — {detail} ({registry['sources']} source(s) in all; the default is never removable)")
     ctx.say(f"playwright: {'available' if report['playwright']['available'] else 'missing'} ({report['playwright']['note']})")
     _say_self_update(ctx, report["selfUpdate"])
     mods = report["mods"]
@@ -393,6 +439,9 @@ def status(ctx: CliContext, args: argparse.Namespace) -> int:
             "governance": _merge_governance(published.get("governance") or [], seam_status),
             "link": mod.is_link,
             "stateSource": "published" if published else "manifest",
+            # for the App's rows: the manifest's icon (served by the Loader's /mods/{id}/icon) and the one-line description
+            "icon": mod.manifest.get("icon") if isinstance(mod.manifest.get("icon"), str) else None,
+            "description": str(mod.manifest.get("description") or "") or None,
         }
         rows.append(row)
     pending = ctx.home.staged_mods()

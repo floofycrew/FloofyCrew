@@ -1,0 +1,142 @@
+{
+  "schema": 1,
+  "id": "agent-orchestrator",
+  "name": "Agent Orchestrator",
+  "version": "0.2.4",
+  "description": "Real parallel multi-agent orchestration for KiroCrew: an orchestrator session divides a goal into items, runs one worker session per item at the same time, and coordinates them live over a typed, bounded message bus (hub-and-spoke: every worker reports to the orchestrator, which relays; worker \u21c4 worker is an opt-in setting) with wake-ups, a wait-any primitive and per-worker status lines. Ships the `agent-orchestrator` and `agent-orchestrator-worker` agents (built on the host's session-control and work-ledger tools, which stay untouched) and a live hub-and-spoke graph page with an animated message bus. Unofficial.",
+  "authors": [
+    "Oscar Tseng"
+  ],
+  "license": "MIT",
+  "tags": [
+    "orchestration",
+    "multi-agent",
+    "parallel",
+    "message-bus",
+    "conductor",
+    "graph",
+    "visualization"
+  ],
+  "kirocrew": {
+    "version": ">=0.7.0 <0.9.0",
+    "editions": [
+      "internal",
+      "external"
+    ],
+    "strict": false
+  },
+  "dependsOn": {
+    "floofycrew": "^1.0"
+  },
+  "network": {
+    "hosts": [],
+    "credentials": false
+  },
+  "parts": [
+    {
+      "kind": "python-hook",
+      "side": "gateway",
+      "path": "hook/",
+      "module": "hook",
+      "early": false
+    },
+    {
+      "kind": "ui",
+      "side": "spa",
+      "path": "ui/",
+      "entry": "ui/page.mjs",
+      "title": "Agent Orchestrator",
+      "icon": "ui/icon.svg"
+    }
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+    },
+    {
+      "path": "README.md",
+      "sha256": "6d9accd0d5b5e6a83c72cd37d2214d002d49bab1a1f9875418017bb1444c19ee"
+    },
+    {
+      "path": "agents/agent-orchestrator-worker.json.tmpl",
+      "sha256": "2dfaeb08829fb09f1f52d1f455b1665fb52fb09f9859f8c9d9dc339b1a4262d5"
+    },
+    {
+      "path": "agents/agent-orchestrator.json.tmpl",
+      "sha256": "90fcc74fc0c2c9f233f5ab64d40c9e545b3c2db01adf076e05aa1eee9ec713d6"
+    },
+    {
+      "path": "demo/README.md",
+      "sha256": "c4e6581b383b2c8912b2ce98c8083f48715d64baff2da8099ce5f1f1058c4cce"
+    },
+    {
+      "path": "demo/check.py",
+      "sha256": "5c76cf96db1257b3049211fd690f12b223ff0274f83eec4247f63ee4f4f1f316"
+    },
+    {
+      "path": "demo/live-probe.py",
+      "sha256": "0173f5c6a0a4f473957952059944093f31befc108e7ffd1a6056bfe5dc3d63ef"
+    },
+    {
+      "path": "demo/prompt.txt",
+      "sha256": "b096b461d3f18b6000c363c50bff1b76105ebf1c7d0a3fec69a3ba0e43841caa"
+    },
+    {
+      "path": "demo/seam-check.sh",
+      "sha256": "846974bf674c3302653788df68576efa33194807def79185cc8d7a183afa1ffe"
+    },
+    {
+      "path": "hook/__init__.py",
+      "sha256": "5b0e153016bcfc8293b223b670fdc6333a5f0bd573a63a46bff039f30fde8717"
+    },
+    {
+      "path": "hook/bus.py",
+      "sha256": "8969bb4193308cf3402bb5b839db981f0a2dced22034f75af5ba6fc805a0a0a1"
+    },
+    {
+      "path": "hook/graph.py",
+      "sha256": "f63fb8f00004b799fbc32446c397de2c148106ea92e1e2008057bcfc17bbb9fe"
+    },
+    {
+      "path": "hook/rpc.py",
+      "sha256": "471640e72909f843f4ebd6461eeb4dd4356174bc01a2f4d5900d53e9cc130b24"
+    },
+    {
+      "path": "mcp/server.py",
+      "sha256": "622b98db527859f9ce5f398172cfcfec970242e568c68ba03ba49aa7f9ca1e3e"
+    },
+    {
+      "path": "tests/bus_test.py",
+      "sha256": "839323ee023cac6fb315e89d1a70de413612ac6119500018c9c7468c0934ea2f"
+    },
+    {
+      "path": "tests/graph_test.py",
+      "sha256": "17df061542d491ffee3911947c163ab45ab49fed8a41b387a22f7aec73c6b0b2"
+    },
+    {
+      "path": "tests/hook_test.py",
+      "sha256": "1237deb2f53eb2e11840903c2b8b8dd0fc4bfd8be163622d25779e9b5e588289"
+    },
+    {
+      "path": "tests/mcp_server_test.py",
+      "sha256": "411448ce7a1648f0ca317a5250596fdf527ea02c5eb5e13537654fdacd562226"
+    },
+    {
+      "path": "tests/page_probe.py",
+      "sha256": "2741a19a9929991aff8b53bcbaa28fd2d673e1ebd51d9b74017d5bef1cdcc562"
+    },
+    {
+      "path": "tests/smoke_test.py",
+      "sha256": "f9e77eb5d0dcb83ad56aeff330d9f7a96c795c5e95f8c911495f69b38e3b9322"
+    },
+    {
+      "path": "ui/icon.svg",
+      "sha256": "261dc1857ca73f77698eefc3801f9e9f86ce3458452bce45ab8157dd052b73ac"
+    },
+    {
+      "path": "ui/page.mjs",
+      "sha256": "4d4c8a2b79f5aa42852813aa609369cb64aa50e5a79ce519deada06e6a78b2b1"
+    }
+  ]
+}

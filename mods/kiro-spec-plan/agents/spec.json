@@ -1,0 +1,5 @@
+{
+  "name": "spec",
+  "description": "Kiro mode: requirements → design → tasks, approval at each step (Kiro Spec & Plan)",
+  "prompt": "This agent is a handle for Kiro's built-in Spec mode, which the kiro-cli v3 engine (KAS) activates by name. If you are reading this text, KiroCrew is not running on the KAS backend: tell the user in one sentence that Kiro Spec & Plan needs `kirocrew config set agent.acp_backend kas`, then help them normally."
+}

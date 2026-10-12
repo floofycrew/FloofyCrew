@@ -50,6 +50,9 @@ jobs:
           cat build/public/dist/SHA256SUMS
 
       - name: No internal identifiers in the public artifacts
+        # The identifier list is not part of the public tree (the exporter drops it), so in
+        # a public checkout this step only confirms the scanner runs; the authoritative
+        # scan happens in the source tree on every export, before anything reaches here.
         run: |
           python scripts/check_no_internal_identifiers.py --paths build/public/app build/public/install.sh build/public/README.md build/public/RELEASE.md build/public/app-registry.json
           rm -rf /tmp/wheel && mkdir /tmp/wheel && (cd /tmp/wheel && unzip -q "$GITHUB_WORKSPACE"/build/public/dist/floofycrew-*.whl)

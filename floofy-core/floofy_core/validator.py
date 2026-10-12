@@ -35,6 +35,7 @@ __all__ = [
     "MANIFEST_NAME",
     "SchemaError",
     "TargetPolicy",
+    "UNSHIPPED_DIRS",
     "ValidationReport",
     "open_archive_safely",
     "sha256_file",
@@ -46,7 +47,12 @@ MANIFEST_NAME = "floofy.json"
 
 #: Files a mod directory may contain without being listed in ``files[]``.
 _UNLISTED_OK: frozenset[str] = frozenset({MANIFEST_NAME})
-_SKIP_DIRS: frozenset[str] = frozenset({".git", "__pycache__", "node_modules", ".hypothesis", ".pytest_cache"})
+#: Directories that are never part of a shipped mod: bytecode and tool caches
+#: that a working tree grows and git ignores. The validator neither expects them
+#: listed nor accepts them in ``files[]`` (``UnshippableFile``); every hasher
+#: that rewrites ``files[]`` prunes the same set.
+UNSHIPPED_DIRS: frozenset[str] = frozenset({".git", "__pycache__", "node_modules", ".hypothesis", ".pytest_cache"})
+_SKIP_DIRS = UNSHIPPED_DIRS
 _DEPENDENCY_MAPS = ("dependsOn", "recommends", "suggests", "conflicts", "breaks")
 _MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
@@ -296,6 +302,13 @@ def _check_files(root: Path, manifest: dict[str, Any], report: ValidationReport)
         target = _relative_inside(root, rel)
         if target is None:
             report.error("PathEscape", f"{rel} escapes the mod root", pointer)
+            continue
+        skipped = next((part for part in Path(rel).parts if part in _SKIP_DIRS), None)
+        if skipped is not None:
+            # Bytecode and tool caches are never shipped (git ignores them, installs
+            # copy around them), so a listing can only come from a hasher that walked
+            # a working tree; every install would then fail MissingFiles.
+            report.error("UnshippableFile", f"{rel} is under {skipped}/, which is never shipped — remove it from files[] (re-run the refresh with that directory absent)", pointer)
             continue
         if not target.is_file():
             report.error("MissingFiles", f"listed file is missing: {rel}", pointer)

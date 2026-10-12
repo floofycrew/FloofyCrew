@@ -52,7 +52,7 @@ Five maps of `id → range` (or `id → {"range", "reason"}`):
 
 | Map | Effect |
 |---|---|
-| `dependsOn` | hard: missing or out of range → reason `Dependency`, propagated to dependents. Must contain `floofycrew` — the **framework** version is the hard dependency, never the host version |
+| `dependsOn` | hard: missing or out of range → reason `Dependency`, propagated to dependents. Must contain `floofycrew` — the **framework** version is the hard dependency, never the host version. At **install time** the manager resolves every other entry no installed mod satisfies against the registry cache and installs those first — the disclosure lists what will also be installed, so one confirmation covers the plan, and the outcome says what was brought along; an entry the registry cannot supply is reported and the mod still installs, inactive until it is satisfied |
 | `recommends`, `suggests` | warnings only |
 | `conflicts` | mutual: when both are active the declaring mod is disabled with reason `Conflict` (ties broken by id) |
 | `breaks` | one-directional: the declaring mod is disabled, the other stays |
@@ -155,8 +155,12 @@ like any other shipped code. `floofy new ui` scaffolds one.
 `{"path", "sha256"}`. A missing or mismatched file is the non-load reason
 `MissingFiles`; a shipped file that is not listed is a warning. `floofy
 validate` recomputes the hashes; the scaffold's smoke test and the registry's
-CI gate do the same. Archives with symlinks, absolute paths or `..` segments are
-rejected before extraction.
+CI gate do the same. Bytecode and tool caches (`__pycache__/`, `.git/`,
+`node_modules/`, `.pytest_cache/`, `.hypothesis/`) are never shipped — every
+hasher skips them, and a `files[]` entry under one of them is the error
+`UnshippableFile`, since a listing that only exists in a working tree would
+fail every install with `MissingFiles`. Archives with symlinks, absolute paths
+or `..` segments are rejected before extraction.
 
 ## What the loader does with all of this
 

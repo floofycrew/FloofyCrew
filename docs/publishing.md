@@ -124,9 +124,12 @@ App show that link beside the available update, falling back to the mod's `repo`
 Anyone can run a registry with the same layout (`registry-tools/README.md`,
 `init_registry_repo.sh`), and users add it with `floofy registry add <url>
 [--public-key …] [--trust index|owner]`; a mod id that collides across sources
-is namespaced by the source. `floofy registry defaults` records the edition's
-default source, verified against the pinned key, and — on confirmation — adds
-it as an operator row of the host's App Store so app-kind mods appear there too.
+is namespaced by the source. The edition's default source — FloofyCrew's own
+registry, verified against the pinned key — needs no step: `floofy init`
+records and fetches it, the re-apply trigger keeps it recorded and fetched, and
+it cannot be removed (its trust settings stay the user's). `floofy registry
+defaults` re-applies its shipped settings and — on confirmation — adds it as an
+operator row of the host's App Store so app-kind mods appear there too.
 
 ## The internal registry
 

@@ -1,6 +1,6 @@
 {
   "name": "floofycrew",
-  "version": "1.3.1",
+  "version": "1.3.6",
   "displayName": "FloofyCrew",
   "description": "FloofyCrew — the unofficial mod manager and loader for KiroCrew. Not affiliated with Kiro or KiroCrew. Runs the mods you chose, on your consent, inside the gateway; the App does everything the floofy CLI does and hosts the mods' own settings pages.",
   "author": "FloofyCrew contributors",
@@ -87,6 +87,11 @@
         "method": "GET",
         "path": "/ui/mods/{id}/{file...}",
         "purpose": "an ACTIVE mod's ui part files (Requirement 16.4), manifest-listed only, from the installed mod directory (1-4 segments) — what the App imports same-origin"
+      },
+      {
+        "method": "GET",
+        "path": "/mods/{id}/icon",
+        "purpose": "the manifest's icon (.svg/.png, files[]-listed) of ANY installed mod, active or not — the face in the App's mod rows"
       },
       {
         "method": "GET",

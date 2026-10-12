@@ -11,13 +11,21 @@
   pinned keys always apply as well. ``--key-id`` restricts the source to one key.
 * ``registry defaults`` records the edition adapter's default source(s) — the
   registries FloofyCrew ships with, verified against the keys pinned per edition.
+  ``floofy init`` records them itself (:func:`ensure_default_sources`, add-only:
+  a row the user already has keeps its trust settings) and the re-apply trigger
+  keeps them recorded and fetched, so this command is the explicit reset (every
+  row re-added with the shipped settings) and the way to add the host App Store
+  rows (Requirement 8.12).
 * ``registry refresh [SOURCE]`` fetches ``index.json`` / ``compat.json`` (+ ``.sig``)
   over HTTPS into ``cache/sources/<key>/``, verifies the detached signatures,
   refuses an unverified index unless the source allows unsigned, and rebuilds the
   merged cache from the usable sources; the ``registry-refresh`` audit row records
   the per-source decision (``sources[] {label, url, status, usable, allowUnsigned}``).
-* ``registry remove <url|key|name>`` drops the source and rebuilds the merged cache.
-* ``registry list`` shows every source with its trust settings and cache state.
+* ``registry remove <url|key|name>`` drops the source and rebuilds the merged cache;
+  the edition's default source is refused (audited ``registry-remove`` /
+  ``refused``) — it is never removable, only its trust settings are the user's.
+* ``registry list`` shows every source with its trust settings and cache state;
+  each row says whether it is the edition's default (``editionDefault``).
 * ``audit [--tail N] [--op OP …] [--json]`` reads ``audit.jsonl`` (Requirement 11.5).
 * ``which <sha256>`` resolves a file hash to ``mod@version`` through the cached
   index and the installed mods' ``files[]`` (Requirement 8.5).
@@ -28,14 +36,15 @@ import argparse
 import json
 from typing import Any
 
+from .. import registry_sources
 from ..audit import read_audit
 from ..hostregistry import DEFAULT_ROW_NAME, HostRegistryError, HostRegistryRow, apply_row, current_rows, remove_row
 from ..installer import InstallError
 from ..registry import IndexCache
-from ..registry_sources import STATUS_VERIFIED, TRUST_LEVELS, Source, SourceStore, rebuild_merged, refresh
+from ..registry_sources import STATUS_VERIFIED, TRUST_LEVELS, RefreshOutcome, Source, SourceStore, is_default_source, rebuild_merged
 from .context import CliContext, CliError
 
-__all__ = ["audit_cmd", "register", "registry", "which"]
+__all__ = ["audit_cmd", "ensure_default_sources", "fetch_default_sources", "is_edition_default", "register", "registry", "say_default_sources", "which"]
 
 LOOSENING_WARNING = (
     "TRUST LOOSENED for {url}: its index will be used WITHOUT a verified signature. "
@@ -58,12 +67,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     add.add_argument("--no-refresh", action="store_true", help="do not fetch right away")
     add.add_argument("--host-registry", default=None, metavar="REPO[@BRANCH]", help="also list the source's app-kind mods in the host's App Store: add its git repository as an operator row of the host's federated app registries (PUT /api/apps/registries, or config.json when no gateway runs)")
     add.add_argument("--host-registry-name", default=None, help=f"the id of that operator row (default the source name, else {DEFAULT_ROW_NAME!r}; never an id the edition pins)")
-    rm = actions.add_parser("remove", help="remove a source (by url, key or name); its host-registry row goes too")
+    rm = actions.add_parser("remove", help="remove a source (by url, key or name); its host-registry row goes too — the edition's default source is refused")
     rm.add_argument("ref")
     actions.add_parser("list", help="list the sources and their cache state")
     rf = actions.add_parser("refresh", help="fetch index.json/compat.json of every (or one) source into the cache")
     rf.add_argument("source", nargs="?", default=None)
-    df = actions.add_parser("defaults", help="record the edition's default registry source(s) (verified against the keys pinned per edition) and their host-registry rows")
+    df = actions.add_parser("defaults", help="re-apply the edition's default registry source(s) with their shipped settings (floofy init records them; this resets trust to the shipped values, verified against the keys pinned per edition) and add their host-registry rows")
     df.add_argument("--no-refresh", action="store_true", help="do not fetch right away")
     df.add_argument("--no-host-registry", action="store_true", help="do not add the host App Store rows")
     hr = actions.add_parser("host-registry", help="show or re-apply the host App Store rows of the configured sources")
@@ -91,9 +100,15 @@ def registry(ctx: CliContext, args: argparse.Namespace) -> int:
     if action == "add":
         return _add(ctx, store, args)
     if action == "remove":
-        removed = store.remove(args.ref)
-        if removed is None:
+        target = store.find(args.ref)
+        if target is None:
             raise CliError(f"no registry source matches {args.ref!r}")
+        if is_edition_default(ctx, target):
+            # Requirement 8.12: the edition's own registry stays recorded; the trust settings are still the user's
+            ctx.audit.record("registry-remove", result="refused", detail=f"{target.url} ({target.label}) is the edition's default source", files=[str(ctx.home.registries)])
+            raise CliError(f"{target.label} is this edition's default registry source and cannot be removed — FloofyCrew keeps it recorded and fetched. Its trust settings are yours: `floofy registry add {target.url} --trust index|owner [--allow-unsigned]`")
+        removed = store.remove(args.ref)
+        assert removed is not None
         store.save()
         mods, rows = rebuild_merged(ctx.home, store)
         ctx.audit.record("registry-remove", result="ok", detail=f"{removed.url} ({removed.label})", files=[str(ctx.home.registries), str(ctx.home.index_cache)])
@@ -188,6 +203,112 @@ def _host_registry(ctx: CliContext, store: SourceStore, *, apply: bool) -> int:
     return 0
 
 
+# --- the edition's default source (Requirement 8.12) -----------------------------------------------------
+
+
+def is_edition_default(ctx: CliContext, source: Source) -> bool:
+    """Whether ``source`` is one of the sources the running edition ships (matched by URL); never true in an isolated run."""
+    return is_default_source(source, ctx.default_registry_sources())
+
+
+def ensure_default_sources(ctx: CliContext, store: SourceStore, *, why: str) -> dict[str, Any]:
+    """Record the edition's default source(s) when missing; the unattended path (``floofy init``, the re-apply trigger).
+
+    Add-only: a default the user already has keeps every trust setting (the explicit
+    ``floofy registry defaults`` is the reset). Never raises; ``why`` names the caller
+    in the audit row. Returns ``{status: none|error|recorded|present, sources[],
+    added[], pending[]}`` — ``pending`` lists the defaults whose cache is not usable
+    (never fetched, refused or errored), the ones :func:`fetch_default_sources` pulls.
+    """
+    rows = ctx.default_registry_sources()
+    if not rows:
+        return {"status": "none", "sources": [], "added": [], "pending": []}
+    try:
+        added = store.ensure_defaults(rows)
+    except InstallError as exc:
+        return {"status": "error", "error": str(exc), "sources": [], "added": [], "pending": []}
+    if added:
+        store.save()
+        ctx.audit.record("registry-add", result="ok", detail=f"edition default(s) recorded ({why}): " + ", ".join(f"{s.url} ({s.label})" for s in added), files=[str(ctx.home.registries)])
+    defaults = [s for s in store.sources if is_default_source(s, rows)]
+    pending = [s.key for s in defaults if not _cache_usable(ctx, s)]
+    if added and any(s.key not in pending for s in added):
+        # a row re-added over a cache that is still usable (registries.json was hand-edited): its mods come back without a fetch
+        rebuild_merged(ctx.home, store)
+    return {"status": "recorded" if added else "present", "sources": [s.to_dict() for s in defaults], "added": [s.key for s in added], "pending": pending}
+
+
+def fetch_default_sources(ctx: CliContext, store: SourceStore, keys: list[str], *, why: str) -> dict[str, Any]:
+    """Fetch the default sources ``keys`` (the ``pending`` of :func:`ensure_default_sources`) — never the user's other sources.
+
+    Best-effort: a failed fetch is a refused record in the returned ``sources[]``
+    (the caller warns), the ``registry-refresh`` audit row says so, nothing is
+    raised. ``--offline`` fetches nothing. Returns :meth:`RefreshOutcome.to_dict`.
+    """
+    outcome = RefreshOutcome()
+    if ctx.offline:
+        return outcome.to_dict()
+    for key in keys:
+        source = store.find(key)
+        if source is None:
+            continue
+        try:
+            # through the module, not a name bound at import: the one refresh implementation, replaceable by tests
+            part = registry_sources.refresh(ctx.home, store, only=source.key, opener_for=ctx.url_opener)
+        except (InstallError, OSError) as exc:  # the cache directory or the store is unusable: reported, never fatal here
+            outcome.sources.append({"url": source.url, "key": source.key, "label": source.label, "error": str(exc), "usable": False})
+            outcome.refused.append(source.key)
+            continue
+        outcome.sources.extend(part.sources)
+        outcome.usable.extend(part.usable)
+        outcome.refused.extend(part.refused)
+        outcome.merged_mods, outcome.merged_rows = part.merged_mods, part.merged_rows
+    if outcome.sources:
+        ctx.audit.record(
+            "registry-refresh",
+            result="ok" if not outcome.refused else ("partial" if outcome.usable else "refused"),
+            detail=f"edition default(s) ({why}): usable {len(outcome.usable)}, refused {len(outcome.refused)}; merged {outcome.merged_mods} mod(s)",
+            files=[str(ctx.home.index_cache), str(ctx.home.compat_cache)],
+            sources=outcome.decisions(),
+        )
+    return outcome.to_dict()
+
+
+def _cache_usable(ctx: CliContext, source: Source) -> bool:
+    """Whether the source's last fetch left a usable cache (``meta.json`` ``usable``); never fetched counts as not."""
+    try:
+        meta = json.loads((ctx.home.cache_sources / source.key / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(meta, dict) and bool(meta.get("usable"))
+
+
+def say_default_sources(ctx: CliContext, record: dict[str, Any], fetched: dict[str, Any] | None) -> None:
+    """The human lines for :func:`ensure_default_sources` + :func:`fetch_default_sources` (``floofy init`` prints them as its registry step)."""
+    status = record.get("status")
+    if status == "none":
+        ctx.say("registry: this edition ships no default source (floofy registry add <url> to add one)")
+        return
+    if status == "error":
+        ctx.warn(f"registry: the default source could not be recorded: {record.get('error')}")
+        return
+    added = set(record.get("added") or [])
+    for source in record.get("sources") or []:
+        ctx.say(f"registry source: {source['label']} {'recorded' if source['key'] in added else 'already recorded'} — {source['url']} (trust={source['trust']}, keyId={source['keyId'] or '-'}); the edition's default, kept recorded and fetched")
+    if not record.get("pending"):
+        ctx.say("registry: the default source's cache is usable; nothing to fetch")
+        return
+    if ctx.offline or fetched is None:
+        ctx.say("registry: not fetched (--offline); the re-apply trigger fetches it on its next run")
+        return
+    for item in fetched.get("sources") or []:
+        signature = item.get("signature") or {}
+        if item.get("usable"):
+            ctx.say(f"registry: {item['label']} fetched — {item.get('mods')} mod(s), signature {signature.get('status')}{(' by key ' + signature['keyId']) if signature.get('keyId') else ''}, compat {'yes' if item.get('compat') else 'no'}")
+        else:
+            ctx.warn(f"registry: {item.get('label') or item.get('url')} not fetched — {item.get('error') or item.get('refusal')}; the re-apply trigger retries hourly, or `floofy registry refresh` now")
+
+
 def _defaults(ctx: CliContext, store: SourceStore, args: argparse.Namespace) -> int:
     rows = ctx.default_registry_sources()
     if not rows:
@@ -200,9 +321,9 @@ def _defaults(ctx: CliContext, store: SourceStore, args: argparse.Namespace) -> 
             raise CliError(f"{row.get('url')}: {exc}") from exc
         added.append(source)
     store.save()
-    ctx.audit.record("registry-add", result="ok", detail="edition defaults: " + ", ".join(f"{s.url} ({s.label})" for s in added), files=[str(ctx.home.registries)])
+    ctx.audit.record("registry-add", result="ok", detail="edition defaults (reset to the shipped settings): " + ", ".join(f"{s.url} ({s.label})" for s in added), files=[str(ctx.home.registries)])
     for source in added:
-        ctx.say(f"registry source recorded: {source.url} (label {source.label}, trust={source.trust}, keyId={source.key_id or '-'})")
+        ctx.say(f"registry source recorded: {source.url} (label {source.label}, trust={source.trust}, keyId={source.key_id or '-'}) — the edition's default; floofy init records it and the re-apply trigger keeps it fetched")
     ctx.set_result(sources=[s.to_dict() for s in added])
     if not args.no_host_registry:
         ctx.set_result(hostRegistry=[_apply_host_row(ctx, s) for s in added if s.host_registry])
@@ -215,20 +336,21 @@ def _defaults(ctx: CliContext, store: SourceStore, args: argparse.Namespace) -> 
 
 def _list(ctx: CliContext, store: SourceStore) -> int:
     rows = []
+    default_rows = ctx.default_registry_sources()
     for source in store.sources:
         meta_path = ctx.home.cache_sources / source.key / "meta.json"
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             meta = None
-        rows.append({**source.to_dict(), "cache": meta})
+        rows.append({**source.to_dict(), "cache": meta, "editionDefault": is_default_source(source, default_rows)})
     ctx.set_result(sources=rows, cache=IndexCache.load(ctx.home).to_dict())
     if not rows:
         ctx.say("no registry sources (floofy registry add <url>)")
     for row in rows:
         cache = row["cache"] or {}
         state = "never fetched" if not cache else ("usable" if cache.get("usable") else f"refused: {cache.get('refusal') or cache.get('error')}")
-        ctx.say(f"{row['label']}: {row['url']} trust={row['trust']} allowUnsigned={row['allowUnsigned']} keyId={row['keyId'] or '-'} — {state}" + (f" ({cache.get('mods')} mod(s), signature {cache.get('signature', {}).get('status')}, fetched {cache.get('fetchedAt')})" if cache.get("mods") is not None else ""))
+        ctx.say(f"{row['label']}: {row['url']} trust={row['trust']} allowUnsigned={row['allowUnsigned']} keyId={row['keyId'] or '-'} — {state}" + (f" ({cache.get('mods')} mod(s), signature {cache.get('signature', {}).get('status')}, fetched {cache.get('fetchedAt')})" if cache.get("mods") is not None else "") + (" — the edition's default source (kept)" if row["editionDefault"] else ""))
         if row.get("hostRegistry"):
             ctx.say(f"  host App Store row: {row['hostRegistry'].get('name')} -> {row['hostRegistry'].get('repo')}@{row['hostRegistry'].get('branch')}")
         elif cache.get("appRegistry"):
@@ -279,7 +401,7 @@ def _refresh(ctx: CliContext, store: SourceStore, *, only: str | None) -> int:
     if only and store.find(only) is None:
         raise CliError(f"no registry source matches {only!r}")
     try:
-        outcome = refresh(ctx.home, store, only=only, opener_for=ctx.url_opener)
+        outcome = registry_sources.refresh(ctx.home, store, only=only, opener_for=ctx.url_opener)
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     ctx.set_result(**outcome.to_dict())

@@ -6,7 +6,7 @@
 // first `<script` of every payload's index.html, so it runs before anything
 // can paint and before the host's own inline bootstrap. Inline scripts are
 // admitted by the served CSP ('unsafe-inline' — spike 1.4). Generalised from
-// the O3R theme patcher's boot block:
+// the standalone theme patcher's boot block:
 //
 // 1. theme bootstrap — mirror the host's own formula for <html data-theme /
 //    data-mode / data-mode-pref> from localStorage (`mc-color-theme`,

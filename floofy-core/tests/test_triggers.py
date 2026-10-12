@@ -46,7 +46,7 @@ def test_systemd_units_fire_hourly_at_55_and_verify():
     units = systemd_units(COMMAND, environment={"FLOOFY_ACTOR": "trigger"})
     assert set(units) == {SYSTEMD_SERVICE, SYSTEMD_TIMER}
     assert f"OnCalendar=*-*-* *:{REAPPLY_MINUTE:02d}:00" in units[SYSTEMD_TIMER] and "Persistent=true" in units[SYSTEMD_TIMER]
-    assert "ExecStart=/usr/bin/python3.12 /opt/floofy.pyz --home /home/u/.kiro/crew apply --if-changed --quiet" in units[SYSTEMD_SERVICE]
+    assert "ExecStart=/usr/bin/python3.12 /opt/floofy.pyz --home /home/u/.kiro/crew --quiet apply --if-changed" in units[SYSTEMD_SERVICE]
     assert "Environment=FLOOFY_ACTOR=trigger" in units[SYSTEMD_SERVICE] and "Type=oneshot" in units[SYSTEMD_SERVICE]
     if shutil.which("systemd-analyze") is None:
         pytest.skip("systemd-analyze not available")
@@ -67,7 +67,7 @@ def test_launchd_plist_is_a_valid_calendar_agent(tmp_path: Path):
     document = plistlib.loads(launchd_plist(COMMAND, log_dir=tmp_path, environment={"FLOOFY_ACTOR": "trigger"}))
     assert document["Label"] == LAUNCHD_LABEL == "dev.floofycrew.reapply"
     assert document["StartCalendarInterval"] == {"Minute": REAPPLY_MINUTE} and document["RunAtLoad"] is False
-    assert document["ProgramArguments"] == [*COMMAND, "apply", "--if-changed", "--quiet"]
+    assert document["ProgramArguments"] == [*COMMAND, "--quiet", "apply", "--if-changed"]
     assert document["EnvironmentVariables"] == {"FLOOFY_ACTOR": "trigger"} and document["StandardOutPath"].endswith(f"{LAUNCHD_LABEL}.log")
 
 
@@ -136,7 +136,7 @@ def test_path_wrapper_reapplies_then_execs_the_real_launcher(tmp_path: Path):
     assert wrapper.stat().st_mode & stat.S_IXUSR
     out = subprocess.run([str(wrapper), "gateway", "--test-mode"], capture_output=True, text=True, check=False)
     assert out.returncode == 0 and out.stdout.strip() == "REAL gateway --test-mode"
-    assert log.read_text(encoding="utf-8").strip() == "--home /x apply --if-changed --quiet"
+    assert log.read_text(encoding="utf-8").strip() == "--home /x --quiet apply --if-changed"
     status = trigger.status()
     assert status.installed is True and status.kind == "path-wrapper"
     assert not trigger.install().changed

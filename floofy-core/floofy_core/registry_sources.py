@@ -72,6 +72,7 @@ __all__ = [
     "TRUST_LEVELS",
     "VERIFIER",
     "VerifyResult",
+    "is_default_source",
     "is_usable",
     "rebuild_merged",
     "refresh",
@@ -267,6 +268,32 @@ class SourceStore:
         if source is not None:
             self.sources.remove(source)
         return source
+
+    def ensure_defaults(self, rows: list[dict[str, Any]]) -> list[Source]:
+        """Record the edition's default source rows that are missing (matched by URL); returns the ones added.
+
+        A row already present is left exactly as the user has it — trust level,
+        ``allowUnsigned``, name, pinned key — so the unattended callers (``floofy
+        init``, the re-apply trigger) never undo a trust decision; ``floofy
+        registry defaults`` is the explicit reset that re-adds every row.
+        """
+        added: list[Source] = []
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("url"), str) or self.find(row["url"]) is not None:
+                continue
+            source, _loosened = self.add(Source.from_default(row))
+            added.append(source)
+        return added
+
+
+def is_default_source(source: Source, rows: list[dict[str, Any]]) -> bool:
+    """Whether ``source`` is one of the edition's default sources (``rows`` from ``default_sources()``), matched by URL.
+
+    The edition's default source is FloofyCrew's own registry: recorded at
+    ``floofy init``, kept fetched by the re-apply trigger and never removable
+    (Requirement 8.12) — its trust settings stay the user's to change.
+    """
+    return any(isinstance(row, dict) and row.get("url") == source.url for row in rows)
 
 
 # --- verification hook --------------------------------------------------------------------------------

@@ -73,8 +73,7 @@ seam handlers run. `floofy update` does not move an unlisted mod — re-run
 ## Installing from the registry
 
 ```bash
-floofy registry defaults        # your edition's registry, verified against the pinned key
-floofy search theme
+floofy search theme             # your edition's registry was recorded and fetched by `floofy init`
 floofy install rimuru-branding  # the newest version known to work on your host version
 ```
 

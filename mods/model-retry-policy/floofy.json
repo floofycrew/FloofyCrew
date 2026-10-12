@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "id": "model-retry-policy",
+  "name": "Model Retry Policy",
+  "version": "0.1.3",
+  "description": "Chooses what KiroCrew does when the model or its API fails transiently (throttling, overload, 5xx, dropped stream) instead of the fixed three retries: a retry count of your own, retry forever at a fixed interval, retry forever with exponential backoff, or a fallback profile that moves to other models after N retries (and optionally never gives up on the last). Applies to dashboard chats (including errors that land mid-turn, after text or a tool call has streamed), cron/Slack turns and sub-agents; works alongside Agent Backend Router. Unofficial.",
+  "authors": [
+    "Oscar Tseng"
+  ],
+  "license": "MIT",
+  "tags": [
+    "retry",
+    "backoff",
+    "fallback",
+    "throttling",
+    "models"
+  ],
+  "kirocrew": {
+    "version": ">=0.7.0 <0.9.0",
+    "editions": [
+      "internal",
+      "external"
+    ],
+    "strict": false
+  },
+  "dependsOn": {
+    "floofycrew": "^1.0"
+  },
+  "recommends": {
+    "agent-backend-router": ">=0.1.0"
+  },
+  "network": {
+    "hosts": [],
+    "credentials": false
+  },
+  "parts": [
+    {
+      "kind": "python-hook",
+      "side": "gateway",
+      "path": "hook/",
+      "module": "hook",
+      "early": false
+    },
+    {
+      "kind": "ui",
+      "side": "spa",
+      "path": "ui/",
+      "entry": "ui/page.mjs",
+      "title": "Model Retry Policy",
+      "icon": "ui/icon.svg"
+    }
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+    },
+    {
+      "path": "README.md",
+      "sha256": "c6546bdc3ce5288433477ad2613ffa0b9cb081c0b87ab0823dec5e320e2f49da"
+    },
+    {
+      "path": "hook/__init__.py",
+      "sha256": "8ae313d354677e0752cf7fabd132fd028d55a90e0a05a4486fd0cf3c5a35f36d"
+    },
+    {
+      "path": "hook/policy.py",
+      "sha256": "f1641d70e2920459f01c6dd3a4aada5f2c6a4a9f2b06465889b5910debc50079"
+    },
+    {
+      "path": "tests/hook_test.py",
+      "sha256": "af74c8e0c7d16558b91559bcf4577da7b660373f3238501428e567a139c78ad5"
+    },
+    {
+      "path": "tests/page_merge_test.py",
+      "sha256": "03ed1c1d3ca08e5dfc5a8874862d81c8db6c8fd8bed0b6de5e2970a364fe1a35"
+    },
+    {
+      "path": "tests/page_probe.py",
+      "sha256": "3349aa7adbf2be51a316eb2b52f0c26cb79a6c6fd2251c9182f00172cade2aea"
+    },
+    {
+      "path": "tests/policy_test.py",
+      "sha256": "5457872b719e225824f3c1211cd6c8c5ebafcee26cc9fddca529b14ae1f8ab22"
+    },
+    {
+      "path": "tests/smoke_test.py",
+      "sha256": "c1faeadfa338932d5bc491152b906c1118201d9d82db82872f51fb3bc73eedef"
+    },
+    {
+      "path": "ui/icon.svg",
+      "sha256": "cab17b55ebbdbf3536e17aa2bf210e24c2232f13240d755ca44b7f9398b4c3aa"
+    },
+    {
+      "path": "ui/page.mjs",
+      "sha256": "5beab8e31ad864250932306a10a9442a50574fef06d2b8a7e9b10793c7c262a2"
+    }
+  ]
+}

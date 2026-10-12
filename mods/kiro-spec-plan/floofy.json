@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "id": "kiro-spec-plan",
+  "name": "Kiro Spec & Plan",
+  "version": "0.1.0",
+  "description": "Adds Kiro's built-in modes to the agent list \u2014 Spec, Quick Spec, Bug Fix and Plan \u2014 the same structured workflows as Kiro IDE, run by the kiro-cli v3 engine (KAS). Needs agent.acp_backend = kas.",
+  "authors": [
+    "Oscar Tseng"
+  ],
+  "license": "MIT",
+  "tags": [
+    "agent",
+    "kiro",
+    "spec",
+    "plan",
+    "workflow"
+  ],
+  "kirocrew": {
+    "version": ">=0.7.0 <0.9.0",
+    "editions": [
+      "internal",
+      "external"
+    ],
+    "strict": false
+  },
+  "dependsOn": {
+    "floofycrew": "^1.0"
+  },
+  "network": {
+    "hosts": [],
+    "credentials": false
+  },
+  "parts": [
+    {
+      "kind": "agent",
+      "side": "gateway",
+      "path": "agents/spec.json"
+    },
+    {
+      "kind": "agent",
+      "side": "gateway",
+      "path": "agents/quick-spec.json"
+    },
+    {
+      "kind": "agent",
+      "side": "gateway",
+      "path": "agents/bug-fix.json"
+    },
+    {
+      "kind": "agent",
+      "side": "gateway",
+      "path": "agents/plan.json"
+    },
+    {
+      "kind": "python-hook",
+      "side": "gateway",
+      "path": "hook/",
+      "module": "hook",
+      "early": false
+    },
+    {
+      "kind": "spa",
+      "side": "spa",
+      "path": "spa/main.js",
+      "activation": "runtime"
+    }
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+    },
+    {
+      "path": "README.md",
+      "sha256": "e58f5032e2cfbb6db9a8589a654f11f6b7ed7e9f5cb0146d05dd797ce7fc2a13"
+    },
+    {
+      "path": "agents/bug-fix.json",
+      "sha256": "a6687ea4aacc6597068d3fe8e5d0ebffe3eef90dcf34b5b848293482c00f0a28"
+    },
+    {
+      "path": "agents/plan.json",
+      "sha256": "871b39856b6ddad0d2eb762b902c9741f2f233f774852e7fb98fe53c5489dcab"
+    },
+    {
+      "path": "agents/quick-spec.json",
+      "sha256": "d3ecd5e418161c73ccd3f9d745229120b8fb273df4c9e7f14e884899755ee79e"
+    },
+    {
+      "path": "agents/spec.json",
+      "sha256": "615539c82dc22ed0a237e6e94acf19de56fc74cf8731c456449d2a2cab79db9d"
+    },
+    {
+      "path": "hook/__init__.py",
+      "sha256": "21ca2519fab8418b03f013bc0b76420a589c4ffa61f32a3b1e82d97061f40d78"
+    },
+    {
+      "path": "spa/main.js",
+      "sha256": "6078cc9eda23f3dc6f56945f9f769d55f6c5434dfc06821b828d9965f958ed8f"
+    },
+    {
+      "path": "tests/hook_test.py",
+      "sha256": "f9a2f696ccb83984bda43f21da678eaf4ff619ef3e681925b6f1d771c4a86bca"
+    },
+    {
+      "path": "tests/smoke_test.py",
+      "sha256": "0af2adc8bc063e2d00b3d21caca9bb22a99e4384aef1bacb845748182cebdc60"
+    },
+    {
+      "path": "tests/spa.test.mjs",
+      "sha256": "bf682b4ee8cd3efa486cc4dbd841ad81ce927bdc45693042f6acdabfdd82c2c5"
+    }
+  ]
+}

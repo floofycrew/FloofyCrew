@@ -11,6 +11,8 @@ import hashlib
 import io
 import json
 import shutil
+import subprocess
+import sys
 import tarfile
 import threading
 import zipfile
@@ -24,8 +26,8 @@ from floofy_core.cli.console import Console
 from floofy_core.cli.main import execute, run
 from floofy_core.consent import write_consent
 from floofy_core.datahome import DataHome
-from floofy_core.modstore import read_enabled, read_source
-from floofy_core.scaffold import KINDS, scaffold
+from floofy_core.modstore import installed_mods, read_enabled, read_source
+from floofy_core.scaffold import KINDS, refresh_files, scaffold
 from floofy_core.validator import validate_mod
 
 from floofy_testing import EXAMPLES_DIR, FakeGateway, fake_payload
@@ -382,6 +384,36 @@ def test_new_scaffolds_a_valid_mod_for_every_kind(tmp_path: Path, kind: str):
     assert {f["path"] for f in manifest["files"]} >= {"README.md", "LICENSE", "tests/smoke_test.py"}
 
 
+def _grow_caches(root: Path) -> None:
+    """What a working tree grows after one test run: bytecode next to the code and a pytest cache."""
+    for cache in (root / "hook" / "__pycache__", root / "tests" / "__pycache__", root / ".pytest_cache" / "v" / "cache"):
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "x.cpython-312.pyc").write_bytes(b"\x00stale")
+    (root / "hook" / "extra.py").write_text("y = 2\n", encoding="utf-8")
+
+
+def test_refresh_files_skips_what_is_never_shipped(tmp_path: Path):
+    root = scaffold("python-hook", tmp_path, author="tests")
+    _grow_caches(root)
+    listed = {f["path"] for f in refresh_files(root)}
+    assert "hook/extra.py" in listed, "a real new file is picked up"
+    assert not any("__pycache__" in p or ".pytest_cache" in p for p in listed), listed
+    report = validate_mod(root)
+    assert report.ok, report.format()
+
+
+def test_scaffolded_smoke_test_refresh_skips_bytecode(tmp_path: Path):
+    """The generated ``tests/smoke_test.py --refresh`` is the hasher mod authors actually run."""
+    root = scaffold("python-hook", tmp_path, author="tests")
+    _grow_caches(root)
+    run = subprocess.run([sys.executable, str(root / "tests" / "smoke_test.py"), "--refresh"], capture_output=True, text=True, check=False)
+    assert run.returncode == 0, run.stderr
+    manifest = json.loads((root / "floofy.json").read_text(encoding="utf-8"))
+    listed = {f["path"] for f in manifest["files"]}
+    assert "hook/extra.py" in listed and not any("__pycache__" in p or ".pytest_cache" in p for p in listed), listed
+    assert validate_mod(root).ok
+
+
 def test_new_command_and_validate_command(env, tmp_path: Path):
     made = env.run("new", "spa", "--dir", str(tmp_path / "out"), "--id", "shiny-spa", "--author", "tests")
     assert made.exit == 0 and (tmp_path / "out" / "shiny-spa" / "floofy.json").is_file()
@@ -449,3 +481,67 @@ def test_early_list_follows_install_enable_disable_uninstall(env):
     assert env.run("enable", "earlybird").exit == 0 and env.paths.early.exists()
     assert env.run("--yes", "uninstall", "earlybird").exit == 0
     assert not env.paths.early.exists()
+
+
+
+# --- install-time dependencies (Requirement 1.4) ----------------------------------------------------------
+
+
+def _zip_of(mod: Path, prefix: str) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for path in mod.rglob("*"):
+            if path.is_file():
+                archive.write(path, f"{prefix}/{path.relative_to(mod).as_posix()}")
+    return buffer.getvalue()
+
+
+def test_install_brings_required_dependencies_from_the_registry_first(env, tmp_path: Path):
+    """A mod whose dependsOn names a registry-listed mod: the plan is disclosed, the dependency lands first, the summary says so."""
+    base = env.hook_mod("basey")
+    _Serve.payload = _zip_of(base, "basey")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Serve)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/basey-1.0.0.zip"
+        index = {"schema": 1, "source": "test-source", "generatedAt": "2026-09-19T00:00:00Z", "mods": [{"id": "basey", "name": "Basey", "description": "the base", "authors": ["tests"], "tags": [], "versions": [{"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "editions": ["internal", "external"], "compat": {"0.7.0.5": "tested"}, "files": [{"url": url, "sha256": sha(_Serve.payload)}]}]}]}
+        env.paths.index_cache.write_text(json.dumps(index), encoding="utf-8")
+        top = write_mod(env.work / "toppy", "toppy", parts=[{"kind": "agent", "side": "gateway", "path": "agents/a.json"}], files={"agents/a.json": json.dumps({"name": "a"})}, extra={"dependsOn": {"basey": {"range": ">=1.0.0 <2.0.0", "reason": "shares its store"}, "floofycrew": ">=0.0.0"}})
+        result = env.run("--yes", "install", str(top))
+        assert result.exit == 0, result.stderr
+        planned = result.json["disclosure"]["dependencies"]
+        assert planned == [{"id": "basey", "range": ">=1.0.0 <2.0.0", "reason": "shares its store", "status": "install", "version": "1.0.0", "tier": "listed", "installed": None}], planned
+        assert "ALSO INSTALLS (dependencies, from the registry): basey 1.0.0 [listed]" in result.stdout
+        assert "dependency: installing basey 1.0.0 first" in result.stdout and "also installed for toppy: basey 1.0.0 (dependencies)" in result.stdout
+        brought = result.json["dependencies"]
+        assert brought[0]["id"] == "basey" and brought[0]["status"] == "installed" and brought[0]["enabled"] is True
+        assert (env.paths.mods / "basey" / "floofy.json").is_file() and (env.paths.mods / "toppy" / "floofy.json").is_file()
+        assert read_source(env.paths.mods / "basey")["registryKey"] == "basey", "the dependency came from the registry record"
+        rows = [r for r in read_audit(env.paths.audit) if r["op"] == "install" and r["result"] == "ok"]
+        assert [r["mod"] for r in rows] == ["basey", "toppy"], "the dependency's audit row precedes the requester's"
+        # the dependency's own disclosure names who asked for it
+        assert "DEPENDENCY of toppy (needs >=1.0.0 <2.0.0; shares its store)" in result.stdout
+        # second install of the same mod: the dependency is present and in range → nothing to bring
+        again = env.run("--yes", "install", str(top))
+        assert again.json["disclosure"]["dependencies"][0]["status"] == "present" and again.json["dependencies"][0]["status"] == "present"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_missing_dependency_is_disclosed_and_the_mod_still_installs_inactive(env):
+    """No registry record for the dependency: the disclosure says so, the mod installs, and the resolver keeps it inactive (Dependency)."""
+    top = write_mod(env.work / "lonely", "lonely", parts=[{"kind": "agent", "side": "gateway", "path": "agents/a.json"}], files={"agents/a.json": json.dumps({"name": "a"})}, extra={"dependsOn": {"ghost": ">=1.0.0", "floofycrew": ">=0.0.0"}})
+    result = env.run("--yes", "install", str(top))
+    assert result.exit == 0, result.stderr
+    planned = result.json["disclosure"]["dependencies"][0]
+    assert planned["id"] == "ghost" and planned["status"] == "unavailable"
+    assert "DEPENDENCY NOT AVAILABLE: ghost >=1.0.0" in result.stdout and "stays inactive (Dependency)" in result.stderr
+    assert (env.paths.mods / "lonely" / "floofy.json").is_file(), "the mod itself still lands — the same state as before install-time dependencies existed"
+    assert result.json["dependencies"] == [{"id": "ghost", "range": ">=1.0.0", "reason": None, "status": "unavailable", "detail": planned["detail"], "installed": None}]
+    # the resolver's verdict on the installed set (the Loader publishes it as `Dependency`; covered in test_resolver.py)
+    from floofy_core.resolver import HostFacts, ModRecord, Reason, resolve
+
+    installed = {m.id: m for m in installed_mods(env.paths)}
+    decision = resolve([ModRecord(m.id, m.version, m.manifest, enabled=True, files_ok=True, quarantined=False) for m in installed.values()], HostFacts("0.7.0", "internal", "beta", "1.0.0")).decisions["lonely"]
+    assert decision.active is False and decision.reason is Reason.Dependency and "ghost" in decision.detail

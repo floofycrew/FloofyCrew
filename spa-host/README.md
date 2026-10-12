@@ -75,7 +75,7 @@ function between its marker comments into ONE inline classic script
 `<script id="floofy-boot">…floofyBoot({defaults, themeBootstrap, mods:[…]})</script>`
 inserted before the **first** `<script` of every payload's `index.html`
 (`occurrence: first`) so it runs before anything can paint. Generalised from
-the O3R theme patcher's boot block:
+the standalone theme patcher's boot block:
 
 1. theme bootstrap — the host's own formula for `data-theme` / `data-mode` /
    `data-mode-pref` from `localStorage` (`mc-color-theme`, `mc-theme`), with the

@@ -129,6 +129,39 @@ def test_build_carries_the_release_notes_link_and_the_client_reads_it(registry: 
     assert entry.version("1.1.0").to_dict()["changelog"].startswith("https://")
 
 
+def test_build_indexes_only_a_url_icon(registry: ScratchRegistry):
+    """A manifest's `icon` is a relative path shipped with the mod (floofy.schema); the index wants a URL (index.schema).
+
+    kirocrew-ide 0.17.2 was the first recorded mod with a manifest icon and the build
+    copied the path straight into the index, which then failed its own schema.
+    """
+    manifest_path = registry.root / "mods" / "example-theme" / "1.1.0" / "floofy.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["icon"] = "ui/icon.svg"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    repo = RegistryRepo.load(registry.root)
+    result = build_index(repo)
+    assert result.ok, result.problems
+    assert validate_instance(result.index, load_schema("index")) == []
+    theme = next(m for m in result.index["mods"] if m["id"] == "example-theme")
+    assert "icon" not in theme, "a relative path is nothing a registry client can fetch"
+    curated_path = registry.root / "mods" / "example-theme" / "mod.json"
+    curated = json.loads(curated_path.read_text(encoding="utf-8"))
+    curated["icon"] = "https://assets.example/example-theme/icon.svg"
+    curated_path.write_text(json.dumps(curated, indent=2), encoding="utf-8")
+    result = build_index(RegistryRepo.load(registry.root))
+    assert result.ok, result.problems
+    theme = next(m for m in result.index["mods"] if m["id"] == "example-theme")
+    assert theme["icon"] == "https://assets.example/example-theme/icon.svg", "the curated record's URL wins"
+    manifest["icon"] = "https://cdn.example/example-theme.svg"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    curated.pop("icon")
+    curated_path.write_text(json.dumps(curated, indent=2), encoding="utf-8")
+    result = build_index(RegistryRepo.load(registry.root))
+    theme = next(m for m in result.index["mods"] if m["id"] == "example-theme")
+    assert result.ok and theme["icon"] == "https://cdn.example/example-theme.svg", "an https manifest icon is indexed"
+
+
 def test_build_reports_record_defects(registry: ScratchRegistry, tmp_path: Path):
     repo = RegistryRepo.load(registry.root)
     (registry.root / "mods" / "example-app" / "mod.json").unlink()

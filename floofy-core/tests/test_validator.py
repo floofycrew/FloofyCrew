@@ -87,6 +87,28 @@ def test_missing_listed_file_is_missing_files(example_mod) -> None:
     assert [(f.code, f.path) for f in validate_mod(root).errors] == [("MissingFiles", "/files/1")]
 
 
+def test_bytecode_listed_in_files_is_unshippable(example_mod) -> None:
+    """A hasher that walked a working tree can list ``__pycache__`` bytecode; git and installs
+    never carry it, so the listing is rejected outright — present on disk or not."""
+    root = example_mod("python-hook")
+    cache = root / "hook" / "__pycache__"
+    cache.mkdir()
+    (cache / "mod.cpython-312.pyc").write_bytes(b"\x00bytecode")
+    manifest = read_manifest(root)
+    manifest["files"].append({"path": "hook/__pycache__/mod.cpython-312.pyc", "sha256": "0" * 64})
+    manifest["files"].append({"path": "tests/.pytest_cache/v/cache/nodeids", "sha256": "0" * 64})
+    write_manifest(root, manifest)
+    rehash(root)
+    report = validate_mod(root)
+    pointer = f"/files/{len(manifest['files']) - 2}"
+    assert [(f.code, f.path) for f in report.errors] == [("UnshippableFile", pointer), ("UnshippableFile", f"/files/{len(manifest['files']) - 1}")]
+    assert "__pycache__/" in report.errors[0].message and ".pytest_cache/" in report.errors[1].message
+    assert report.warnings == [], "the bytecode on disk is not an unlisted file either"
+    manifest["files"] = manifest["files"][:-2]
+    write_manifest(root, manifest)
+    assert validate_mod(root).ok
+
+
 def test_unlisted_and_unverified_files(example_mod) -> None:
     root = example_mod("python-hook")
     (root / "hook" / "helper.py").write_text("x = 1\n", encoding="utf-8")

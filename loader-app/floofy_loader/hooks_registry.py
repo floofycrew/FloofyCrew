@@ -27,8 +27,13 @@ rest of the chain ending in the original, ``after(fn)`` runs
 mod callback runs inside ``try/except``: an exception is logged with attribution,
 reported through ``on_fault(mod_id, target, exc)`` (the runtime marks the mod
 ``Error``), **all of that mod's registrations are removed** (fail-open → original
-behaviour) and the call falls through to the original. Unwinding
-(``deactivate(mod_id)`` / ``shutdown()``) walks registrations in reverse order.
+behaviour) and the call falls through to the original. One exception to the
+exception (api 1.3.0): an error that came OUT OF ``call_next`` — the host's own
+failure, which a ``replace`` hook may catch, act on and re-raise — propagates to
+the caller unchanged and is not a fault; re-running the original there would
+repeat the host's side effects (a second process spawn) and hide the error.
+Unwinding (``deactivate(mod_id)`` / ``shutdown()``) walks registrations in
+reverse order.
 """
 from __future__ import annotations
 
@@ -51,6 +56,27 @@ KINDS = ("before", "after", "replace")
 
 class HookTargetError(LookupError):
     """The target does not resolve to a patchable attribute or a live route."""
+
+
+#: Attribute stamped on an exception the moment it leaves ``call_next``. A ``replace``
+#: hook that lets the host's own exception propagate (``await call_next(...)`` raising,
+#: or an explicit ``raise`` of what it caught) is NOT faulting — the host failed and the
+#: mod is reporting it — so the chain re-raises it to the caller instead of disabling the
+#: mod and re-running the original. The marker is set on the exception INSTANCE (one
+#: attribute, never a wrapper class) so ``except SomeHostError`` in host code still
+#: matches it unchanged.
+_FROM_CHAIN_ATTR = "__floofy_from_chain__"
+
+
+def _mark_from_chain(exc: BaseException) -> None:
+    try:
+        setattr(exc, _FROM_CHAIN_ATTR, True)
+    except Exception:  # noqa: BLE001 - a slotted exception type: fall back to the fault path
+        pass
+
+
+def _is_from_chain(exc: BaseException) -> bool:
+    return getattr(exc, _FROM_CHAIN_ATTR, False) is True
 
 
 @dataclass(frozen=True)
@@ -146,11 +172,22 @@ class _Slot:
         rest = replacers[:-1]
 
         def call_next(*a: Any, **kw: Any) -> Any:
-            return self._replaced_sync(rest, a, kw)
+            try:
+                return self._replaced_sync(rest, a, kw)
+            except Exception as exc:  # noqa: BLE001 - tag, then let the mod see it
+                _mark_from_chain(exc)
+                raise
 
         try:
             return registration.fn(call_next, *args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 - fall through to the rest of the chain
+        except Exception as exc:  # noqa: BLE001
+            if _is_from_chain(exc):
+                # The rest of the chain (ending in the original) raised and the mod let it
+                # through — that is the HOST's failure, not the mod's. Re-running the
+                # original here would double the host's side effects (a second spawn, a
+                # second request) and hide the error from the caller.
+                raise
+            # The mod's own code raised: fall through to the rest of the chain.
             self._fault(registration, exc)
             return self._replaced_sync([r for r in rest if r.mod_id != registration.mod_id], args, kwargs)
 
@@ -180,12 +217,18 @@ class _Slot:
         rest = replacers[:-1]
 
         async def call_next(*a: Any, **kw: Any) -> Any:
-            return await self._replaced_async(rest, a, kw)
+            try:
+                return await self._replaced_async(rest, a, kw)
+            except Exception as exc:  # noqa: BLE001 - tag, then let the mod see it
+                _mark_from_chain(exc)
+                raise
 
         try:
             outcome = registration.fn(call_next, *args, **kwargs)
             return await outcome if asyncio.iscoroutine(outcome) else outcome
         except Exception as exc:  # noqa: BLE001
+            if _is_from_chain(exc):
+                raise  # the host's own failure, surfaced through the mod — see _replaced_sync
             self._fault(registration, exc)
             return await self._replaced_async([r for r in rest if r.mod_id != registration.mod_id], args, kwargs)
 

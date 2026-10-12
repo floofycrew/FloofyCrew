@@ -259,23 +259,142 @@ def _confirm_install(ctx: CliContext, disclosure, *, pre_confirmed: list[str], a
     return True, confirmed, "", unlisted_how
 
 
-def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabled: bool = False, pre_confirmed: list[str], accept_flags: bool, keep_enabled: bool = False, accept_unlisted: bool = False) -> dict[str, Any]:
-    """Validate → disclose → confirm → place → seam handlers → flag → audit (→ reload). Shared by install/update/profile."""
+def _dependency_plan(ctx: CliContext, manifest: dict[str, Any], *, visiting: frozenset[str]) -> list[dict[str, Any]]:
+    """What an install must bring along (Requirement 1.4 at install time): every ``dependsOn`` entry not satisfied by an installed mod.
+
+    Each entry is ``{id, range, reason, status, version?, source?, detail?}``:
+    ``present`` (installed and in range — nothing to do), ``install`` (found in
+    the registry cache at a version in range; ``source`` is the resolved
+    ``ResolvedSource``, cleaned up by the caller), ``unavailable`` (not installed
+    and not in the registry cache, or nothing known to work on this host),
+    ``out-of-range`` (the registry's best version does not satisfy the range),
+    ``cycle`` (already being installed up the chain), ``invalid`` (bad range).
+    ``floofycrew`` is the framework, never a mod to install — the resolver grades it.
+    """
+    from ..resolver import FRAMEWORK_ID  # noqa: PLC0415
+    from ..semver import InvalidRange, Range  # noqa: PLC0415
+
+    plan: list[dict[str, Any]] = []
+    declared = manifest.get("dependsOn")
+    if not isinstance(declared, dict):
+        return plan
+    installed = {m.id: m for m in ctx.mods()}
+    for dep_id, spec in sorted((str(k), v) for k, v in declared.items()):
+        if dep_id == FRAMEWORK_ID:
+            continue
+        range_text = spec.get("range") if isinstance(spec, dict) else spec
+        reason = str(spec.get("reason")) if isinstance(spec, dict) and spec.get("reason") else None
+        entry: dict[str, Any] = {"id": dep_id, "range": str(range_text) if isinstance(range_text, str) else "*", "reason": reason}
+        try:
+            wanted = Range.parse(range_text) if isinstance(range_text, str) else Range.ANY
+        except InvalidRange as exc:
+            plan.append({**entry, "status": "invalid", "detail": str(exc)})
+            continue
+        present = installed.get(dep_id)
+        if present is not None:
+            try:
+                satisfied = wanted.contains(Version.coerce(present.version))
+            except InvalidVersion:
+                satisfied = False
+            if satisfied:
+                plan.append({**entry, "status": "present", "version": present.version})
+                continue
+        if dep_id in visiting:
+            plan.append({**entry, "status": "cycle", "detail": "already being installed further up this chain"})
+            continue
+        try:
+            dep_source = resolve_source(dep_id, home=ctx.home, opener_for=ctx.url_opener, **ctx.registry_target())
+        except InstallError as exc:
+            plan.append({**entry, "status": "unavailable", "detail": str(exc), "installed": present.version if present else None})
+            continue
+        picked = str(dep_source.version or manifest_of(dep_source.root).get("version") or "")
+        try:
+            in_range = bool(picked) and wanted.contains(Version.coerce(picked))
+        except InvalidVersion:
+            in_range = False
+        if not in_range:
+            dep_source.cleanup()
+            plan.append({**entry, "status": "out-of-range", "version": picked or None, "detail": f"the registry's best version for this host is {picked or '?'}, outside {wanted}", "installed": present.version if present else None})
+            continue
+        plan.append({**entry, "status": "install", "version": picked, "source": dep_source, "tier": dep_source.tier, "installed": present.version if present else None})
+    return plan
+
+
+def _plan_for_disclosure(plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The plan without the live source objects (what the disclosure carries and ``--json`` prints)."""
+    return [{k: v for k, v in entry.items() if k != "source"} for entry in plan]
+
+
+def _install_dependencies(ctx: CliContext, plan: list[dict[str, Any]], *, mod_id: str, now: bool, pre_confirmed: list[str], accept_flags: bool, visiting: frozenset[str]) -> list[dict[str, Any]]:
+    """Install every ``install`` entry of the plan (deps first, recursively); the other statuses are reported, never fatal.
+
+    A dependency that cannot be installed (unavailable, out of range, declined,
+    failed) leaves the requesting mod installed but inactive with the resolver's
+    ``Dependency`` reason — the same state as before this step existed — and the
+    summary says so, so nothing is silently different from what the user saw.
+    """
+    results: list[dict[str, Any]] = []
+    for entry in plan:
+        result = {k: v for k, v in entry.items() if k != "source"}
+        if entry["status"] != "install":
+            results.append(result)
+            continue
+        dep_source: ResolvedSource = entry["source"]
+        ctx.say(f"dependency: installing {entry['id']} {entry['version']} first — required by {mod_id} ({entry['range']}{'; ' + entry['reason'] if entry.get('reason') else ''})", tone="accent")
+        try:
+            sub = install_source(ctx, dep_source, now=now, pre_confirmed=pre_confirmed, accept_flags=accept_flags, dependency_of={"id": mod_id, "range": entry["range"], "reason": entry.get("reason")}, _visiting=visiting, defer_reload=True)
+        except InstallError as exc:
+            ctx.warn(f"dependency {entry['id']} was not installed ({exc}); {mod_id} stays inactive (Dependency) until it is")
+            results.append({**result, "status": "failed", "detail": str(exc)})
+            continue
+        placed = (sub.get("placed") or {}).get("how")
+        results.append({**result, "status": "staged" if placed == "staged" else "installed", "placed": placed, "enabled": sub.get("enabled"), "patchParts": any(p.get("kind") in ("patch", "spa") for p in (sub.get("disclosure") or {}).get("parts") or []), "dependencies": sub.get("dependencies") or []})
+    return results
+
+
+def _say_dependency_summary(ctx: CliContext, mod_id: str, results: list[dict[str, Any]]) -> None:
+    """The notification: one line per dependency this install brought along or could not (Requirement 1.4)."""
+    brought = [r for r in results if r.get("status") in ("installed", "staged")]
+    missing = [r for r in results if r.get("status") in ("unavailable", "out-of-range", "failed", "cycle", "invalid")]
+    if brought:
+        ctx.say(f"  also {'staged' if all(r['status'] == 'staged' for r in brought) else 'installed'} for {mod_id}: " + ", ".join(f"{r['id']} {r.get('version') or ''}".strip() for r in brought) + " (dependencies)", tone="accent")
+    for r in missing:
+        ctx.warn(f"  {mod_id} requires {r['id']} {r.get('range') or ''}: {r['status']} — {r.get('detail') or ''}; {mod_id} stays inactive (Dependency) until it is installed")
+
+
+def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabled: bool = False, pre_confirmed: list[str], accept_flags: bool, keep_enabled: bool = False, accept_unlisted: bool = False, dependency_of: dict[str, Any] | None = None, _visiting: frozenset[str] = frozenset(), defer_reload: bool = False) -> dict[str, Any]:
+    """Validate → plan dependencies → disclose → confirm → install dependencies → place → seam handlers → flag → audit (→ reload).
+
+    Shared by install/update/profile. ``dependency_of`` marks a recursive call made
+    for a ``dependsOn`` entry (``{id, range, reason}`` of the mod that needs it);
+    ``defer_reload`` leaves the gateway reload and the Patcher re-apply to the
+    outermost call, so one command reloads once.
+    """
     report = validate(source.root)
-    disclosure = disclose(source.root, report, ctx.governance(), source=source)
+    manifest = manifest_of(source.root) if report.ok else {}
+    mod_id = str(manifest.get("id") or source.root.name)
+    # Requirement 1.4 at install time: the plan is part of the disclosure, so the one confirmation covers what
+    # will ALSO be installed — the manager App answers a whole route call with one "yes"
+    plan = _dependency_plan(ctx, manifest, visiting=_visiting | {mod_id}) if report.ok else []
+    disclosure = disclose(source.root, report, ctx.governance(), source=source, dependencies=_plan_for_disclosure(plan), dependency_of=dependency_of)
     for line in disclosure.lines():
         ctx.say(line)
     outcome: dict[str, Any] = {"source": source.to_dict(), "disclosure": disclosure.to_dict(), "validation": report.to_dict()}
     # published before the questions, so a surface that has to stop and ask (the manager App's 409) can show the disclosure
     ctx.set_result(**outcome)
-    if not report.ok:
-        raise InstallError(f"{disclosure.mod_id}: `floofy validate` found {len(report.errors)} error(s); not installed")
-    go, confirmed, refusal, unlisted_how = _confirm_install(ctx, disclosure, pre_confirmed=pre_confirmed, accept_flags=accept_flags or ctx.assume_yes, accept_unlisted=accept_unlisted)
-    if not go:
-        ctx.audit.record("install", mod=disclosure.mod_id, version=disclosure.version, result="declined", detail=refusal, governanceFlags=[f["code"] for f in disclosure.flags], source=source.to_dict(), commit=source.commit, tier=source.tier)
-        raise InstallError(refusal)
-    manifest = manifest_of(source.root)
-    mod_id = str(manifest["id"])
+    try:
+        if not report.ok:
+            raise InstallError(f"{disclosure.mod_id}: `floofy validate` found {len(report.errors)} error(s); not installed")
+        go, confirmed, refusal, unlisted_how = _confirm_install(ctx, disclosure, pre_confirmed=pre_confirmed, accept_flags=accept_flags or ctx.assume_yes, accept_unlisted=accept_unlisted)
+        if not go:
+            ctx.audit.record("install", mod=disclosure.mod_id, version=disclosure.version, result="declined", detail=refusal, governanceFlags=[f["code"] for f in disclosure.flags], source=source.to_dict(), commit=source.commit, tier=source.tier)
+            raise InstallError(refusal)
+        # dependencies first (each with its own disclosure and confirmation on a terminal; the App's one "yes" covers the plan)
+        outcome["dependencies"] = _install_dependencies(ctx, plan, mod_id=mod_id, now=now, pre_confirmed=pre_confirmed, accept_flags=accept_flags, visiting=_visiting | {mod_id})
+    finally:
+        for entry in plan:
+            if entry.get("source") is not None:
+                entry["source"].cleanup()
     running = ctx.gateway_running()
     # Requirement 7.6 / 16.5: staged for the next gateway start while a gateway runs, unless "apply now" — on every
     # surface, the manager App inside the gateway included (its "apply now" reloads the Loader in-process)
@@ -286,6 +405,13 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabl
     outcome["parts"] = [o.to_dict() for o in outcomes]
     for part in outcomes:
         ctx.say(f"  part {part.index} {part.kind}: {part.status} — {part.detail}")
+    # A seam that refused is not a footnote: the mod is placed, but that part of it is missing
+    # (an `app` part refused = "App Not Found" in the sidebar). Say so where the user looks.
+    failed_parts = [p for p in outcomes if not p.ok]
+    if failed_parts:
+        outcome["partErrors"] = [{"index": p.index, "kind": p.kind, "detail": p.detail} for p in failed_parts]
+        for part in failed_parts:
+            ctx.warn(f"{mod_id}: the {part.kind} part (#{part.index}) was NOT installed — {part.detail}")
     previous = ctx.enabled().get(mod_id)
     # Requirement 11.7: the confirmation above IS the consent — a confirmed install lands enabled;
     # `--disabled` (the App's "install switched off") lands it off on request.
@@ -304,8 +430,8 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabl
         payload=current.id if current else None,
         files=[p["path"] for p in disclosure.parts],
         governanceFlags=sorted({f["code"] for f in disclosure.flags} | ({"GovernanceAltering"} if confirmed else set())),
-        result="ok",
-        detail=f"{placed} into {target}; enabled={enabled_now}; confirmed governance targets: {confirmed or '-'}; source {source.kind} {source.ref}" + (f" at commit {source.commit}" if source.commit else "") + (f"; unlisted source accepted ({unlisted_how})" if unlisted_how else ""),
+        result="ok" if not failed_parts else "partial",
+        detail=f"{placed} into {target}; enabled={enabled_now}; confirmed governance targets: {confirmed or '-'}; source {source.kind} {source.ref}" + (f" at commit {source.commit}" if source.commit else "") + (f"; unlisted source accepted ({unlisted_how})" if unlisted_how else "") + ("; parts refused: " + ", ".join(f"{p.kind}#{p.index} ({p.detail})" for p in failed_parts) if failed_parts else ""),
         source=source.to_dict(),
         commit=source.commit,
         tier=source.tier,
@@ -315,16 +441,22 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabl
         ctx.say(f"{mod_id} {disclosure.version}: staged in pending/ — restart the gateway to apply (or run with --now).")
     else:
         ctx.say(f"{mod_id} {disclosure.version}: {placed} (enabled={enabled_now}).")
-        if running or ctx.in_gateway:
-            outcome["reload"] = reload_gateway(ctx, why=f"install {mod_id}")
-            ctx.say(f"  gateway reload: {outcome['reload']}")
-        if not ctx.in_gateway and enabled_now and any(p["kind"] in ("patch", "spa") for p in disclosure.parts):
-            applied = reapply(ctx, confirmed_governance_targets=confirmed, quiet=True)
-            outcome["patches"] = applied.to_dict() if applied else None
-            if applied is not None:
-                ctx.say(f"  patches re-applied: {'ok' if applied.ok else 'errors'} on {len(applied.payloads)} payload(s)")
+        if defer_reload:
+            outcome["reload"] = "deferred to the requesting install"
+        else:
+            if running or ctx.in_gateway:
+                outcome["reload"] = reload_gateway(ctx, why=f"install {mod_id}")
+                ctx.say(f"  gateway reload: {outcome['reload']}")
+            # the outermost call re-applies for itself AND every dependency it installed in this run
+            code_parts = any(p["kind"] in ("patch", "spa") for p in disclosure.parts) or any(d.get("patchParts") for d in outcome.get("dependencies") or [])
+            if not ctx.in_gateway and enabled_now and code_parts:
+                applied = reapply(ctx, confirmed_governance_targets=confirmed, quiet=True)
+                outcome["patches"] = applied.to_dict() if applied else None
+                if applied is not None:
+                    ctx.say(f"  patches re-applied: {'ok' if applied.ok else 'errors'} on {len(applied.payloads)} payload(s)")
     if lands_disabled and not keep_enabled:
         ctx.say(f"  {mod_id} landed switched off (--disabled): `floofy enable {mod_id}` when you are ready.")
+    _say_dependency_summary(ctx, mod_id, outcome.get("dependencies") or [])
     return outcome
 
 

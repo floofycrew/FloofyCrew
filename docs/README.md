@@ -21,7 +21,6 @@ that way.
 | [consent-and-trust.md](consent-and-trust.md) | the one-time warning, why governance is a warning and not a gate, the audit log, the network rule, the registry trust controls, what FloofyCrew never does |
 | [installing-from-a-link.md](installing-from-a-link.md) | installing from a git reference vs. from the registry: the three source tiers (`unlisted` / `listed` / `tested`), what each verifies, the extra consent line, how a mod moves up a tier |
 | [updating.md](updating.md) | how mods survive host updates: the re-apply triggers, the per-version quarantine ("yeet"), rollback, `hold`, getting back to vanilla |
-| [migrating-from-the-standalone-patcher.md](migrating-from-the-standalone-patcher.md) | for users of the standalone branding patcher FloofyCrew grew out of |
 
 ## For mod authors
 

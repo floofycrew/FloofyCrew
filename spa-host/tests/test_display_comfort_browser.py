@@ -6,11 +6,12 @@ only ``display-comfort`` installed, one headless Chromium:
 1. **runtime + settings page round trip** — the runtime part holds the rules
    ``<style>``; the page's page-zoom input zooms the document live, persists to
    the mod's config and the localStorage cache; the chat-scale input sets the
-   custom property; a WARM reload has the zoom back at ``DOMContentLoaded``
-   (the boot hook, before React) — no flash of the default sizes;
-2. **cold client and disable** — an empty-storage client paints stock at
-   ``DOMContentLoaded`` (fail-open) and catches up to the authoritative config
-   once the host is ready; disabling the mod clears every lever.
+   custom property; a WARM reload has the zoom back at parse end (the boot
+   hook, before the deferred SPA bundle) — no flash of the default sizes;
+2. **cold client and disable** — an empty-storage client paints stock at parse
+   end on the visit's first document (fail-open) and catches up to the
+   authoritative config once the host is ready; disabling the mod clears every
+   lever.
 
 Skipped without a payload copy. The copy's ``index.html`` is patched on purpose
 and restored byte-identically at teardown (``ShellGuard``).
@@ -175,11 +176,26 @@ def test_2_cold_client_fail_open_config_catch_up_and_disable(harness: Harness):
         # …then the runtime part catches up to the authoritative config once the host is ready
         page.wait_for_function("() => document.documentElement.style.zoom === '0.8' && document.documentElement.style.getPropertyValue('--floofy-dc-chat-scale') === '1.3'", timeout=30000)
 
-        # disable through the Loader: every lever clears without a reload
+        # disable through the Loader (same handler as `floofy disable`): enabled.json
+        # flips and the Loader reapplies — the running page keeps its module until the
+        # next navigation (there is no live-unload seam), so the promise to check is
+        # that the NEXT paint is stock: no boot hook (despite the localStorage cache
+        # still holding sizes), no runtime style, no levers.
         client = harness.gw.client()
         answer = client.post(f"{API}/mods/display-comfort/disable", {})
         assert answer.status == 200, answer.body[:300]
-        page.wait_for_function("() => document.documentElement.style.zoom === '' && document.documentElement.style.getPropertyValue('--floofy-dc-chat-scale') === '' && !document.getElementById('floofy-display-comfort')", timeout=30000)
+        deadline = time.time() + 30
+        while True:  # the reapply after the flip is not synchronous with the POST
+            page.reload(wait_until="load", timeout=60000)
+            if page.evaluate("() => !document.getElementById('floofy-boot-css-display-comfort')"):
+                break
+            assert time.time() < deadline, "the served shell still carries the display-comfort boot ops"
+            time.sleep(1)
+        cache = page.evaluate("() => localStorage.getItem('floofy-display-comfort')")
+        assert cache is not None  # the cache survives; nothing reads it while disabled
+        assert page.evaluate("() => document.documentElement.style.zoom || ''") == ""
+        assert page.evaluate("() => document.documentElement.style.getPropertyValue('--floofy-dc-chat-scale')") == ""
+        assert page.evaluate("() => !document.getElementById('floofy-display-comfort')")
         # the settings survive the disable for the next enable
         assert json.loads(_config_path(harness).read_text(encoding="utf-8"))["pageZoom"] == 80
     finally:

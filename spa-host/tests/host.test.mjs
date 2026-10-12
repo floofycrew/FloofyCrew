@@ -130,11 +130,68 @@ test("the cold token path: 401 on /state is retried after /health answers, then 
   const never = makeFetch(state, { stateFailures: 99 });
   const console2 = makeConsole();
   const win = makeWindow();
-  const idle = createHost({ fetch: never.fetch, importer, window: win, document: null, console: console2, setTimeout: immediate, backoff: [1, 1] });
+  const idle = createHost({ fetch: never.fetch, importer, window: win, document: null, console: console2, setTimeout: immediate, backoff: [1, 1], idleRetries: 0 });
   assert.equal(await idle.ensureStarted(), null);
   assert.equal(win.floofy, undefined);
   assert.equal(win.__floofyHostStatus, "unavailable");
   assert.equal(console2.lines.filter((l) => l.level === "error").length, 0, "giving up is quiet");
+});
+
+test("a host that gave up resumes once a session exists: on demand, on focus, and on its idle timer", async () => {
+  const state = makeState([{ id: "m", parts: [spaPart("spa/m.js")] }]);
+  const { importer, imported } = makeImporter({ [`${SPA_PREFIX}m/m.js`]: { default: () => {} } });
+
+  // (1) On demand: the manager page calls ensureStarted() after the user signed in.
+  const late = makeFetch(state, { stateFailures: 3 });
+  const win = makeWindow();
+  const timers = [];
+  const host = createHost({ fetch: late.fetch, importer, window: win, document: null, console: makeConsole(), setTimeout: (fn, ms) => (timers.push({ fn, ms }), timers.length), backoff: [1, 1], idleRetryMs: 5, idleRetries: 3 });
+  // backoff [1,1] sleeps twice (each queued after the previous fired); drive the timers until it settles.
+  let settled = false;
+  const first = host.ensureStarted().then((v) => ((settled = true), v));
+  while (!settled) {
+    await new Promise((r) => setImmediate(r));
+    if (settled) break; // leaves the idle retry timer queued for inspection
+    timers.splice(0).forEach((t) => t.fn());
+  }
+  assert.equal(await first, null, "the cold path gave up (3 failures > 2 retries)");
+  assert.equal(win.__floofyHostStatus, "unavailable");
+  assert.equal(timers.length, 1, "an idle retry is scheduled");
+  assert.equal(timers[0].ms, 5);
+  const resumed = await host.ensureStarted();
+  assert.ok(resumed && win.floofy === resumed, "a later ensureStarted() resumes instead of returning the stale null");
+  assert.equal(win.__floofyHostStatus, "started");
+  assert.deepEqual(imported, [`${SPA_PREFIX}m/m.js`]);
+  assert.equal(late.calls.filter((c) => c.url.endsWith("/state")).length, 4, "3 failures + the one that succeeded");
+  timers.splice(0).forEach((t) => t.fn()); // the pending idle timer is a no-op now
+  assert.equal(late.calls.filter((c) => c.url.endsWith("/state")).length, 4, "no probe once the host runs");
+
+  // (2) On focus: nothing asked, the window regains focus after the sign-in.
+  const focusFetch = makeFetch(state, { stateFailures: 1 });
+  const win2 = makeWindow();
+  const timers2 = [];
+  const host2 = createHost({ fetch: focusFetch.fetch, importer: makeImporter({ [`${SPA_PREFIX}m/m.js`]: { default: () => {} } }).importer, window: win2, document: null, console: makeConsole(), setTimeout: (fn, ms) => (timers2.push({ fn, ms }), timers2.length), backoff: [], idleRetryMs: 5, idleRetries: 3 });
+  assert.equal(await host2.ensureStarted(), null);
+  assert.ok(win2.listeners.focus?.length === 1, "a focus nudge is installed once");
+  win2.dispatch("focus", {});
+  await new Promise((r) => setImmediate(r));
+  assert.ok(win2.floofy, "focus resumed the host");
+  win2.dispatch("focus", {});
+  assert.equal(focusFetch.calls.filter((c) => c.url.endsWith("/state")).length, 2, "a focus once the host runs is a no-op");
+
+  // (3) On the idle timer, bounded by idleRetries.
+  const never = makeFetch(state, { stateFailures: 99 });
+  const win3 = makeWindow();
+  const timers3 = [];
+  const host3 = createHost({ fetch: never.fetch, importer, window: win3, document: null, console: makeConsole(), setTimeout: (fn, ms) => (timers3.push({ fn, ms }), timers3.length), backoff: [], idleRetryMs: 5, idleRetries: 2 });
+  assert.equal(await host3.ensureStarted(), null);
+  for (let i = 0; i < 5; i += 1) {
+    const due = timers3.splice(0);
+    due.forEach((t) => t.fn());
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(never.calls.filter((c) => c.url.endsWith("/state")).length, 3, "1 cold probe + 2 idle retries, then it stops");
+  assert.equal(win3.floofy, undefined);
 });
 
 test("installRouteWatcher emits route.changed on pushState/replaceState/popstate, once per window", () => {

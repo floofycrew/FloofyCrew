@@ -45,26 +45,36 @@ The public repository never receives the source tree as-is:
 `scripts/export_public.py` is the only sanctioned way to produce a tree for the
 public remote. It copies an explicit include list (a path not named never
 leaves), drops the internal-only mods and their `mods/README.md` rows, scans
-**every** exported file with `scripts/check_no_internal_identifiers.py` against
-the justified allowlist `scripts/public-export-allow.txt`, and refuses to write
-into a clone whose remotes include an internal host. It never pushes — review
-and push the result yourself:
+**every** exported file with the source tree's `scripts/check_no_internal_identifiers.py`
+(its identifier list, `scripts/internal-identifiers.txt`, stays internal: the export drops it) against
+the justified allowlist `scripts/public-export-allow.txt`, refuses to write
+into a clone whose remotes include an internal host, and pins the maintainer's
+**public git identity** (`PUBLIC_GIT_NAME` / `PUBLIC_GIT_EMAIL` in the script)
+in the clone's own config, so the commit you make there is linked to the
+maintainer's GitHub account — never the internal address the source history is
+written under, never a `noreply` placeholder. It never pushes — review and push
+the result yourself:
 
 ```bash
 python scripts/export_public.py --check        # what CI runs: temp dir, scan, delete
 python scripts/export_public.py --out <public-clone> --force
 python packaging/internal/review_public_export.py --clone <public-clone>   # pre-push AI review
-# exit 0: push when ready — exit 1: judge each finding first
+# exit 0: push when ready — exit 1: judge each finding first — exit 2: refused (identity, remote, scan)
 ```
 
 `floofy-core/tests/test_public_export.py` pins the boundary (include and
-exclude sets, the scan, the refusals) in the test suite.
+exclude sets, the scan, the refusals, the identity) in the test suite.
 
 The third step is the **advisory second net** (internal-only tooling, never
 exported): a language model reads exactly the delta a `git push` would publish
 (the clone's uncommitted state) and flags what a substring denylist cannot —
 unknown hostnames, people, codenames, ticket-shaped ids, secret-shaped
-strings. The deterministic scan stays the blocking gate (the reviewer re-runs
-it first); a model pass is never proof, and findings are printed for a human
-to judge, never auto-fixed. The review record lands in the clone's
-`.git/floofycrew-ai-review.json` (never pushed).
+strings. Before the model is asked it re-runs the deterministic scans (the
+blocking gate: the identifier scan, and the credential-shape pass that refuses
+AWS key ids, private key blocks and API-token shapes — GitHub's push protection
+declines a push carrying one, a made-up test value included, so fixtures that
+need the shape assemble it at runtime) and checks the identity: the next
+commit's, and every commit a push would publish (`@{upstream}..HEAD`), must be
+the public one; the review refuses otherwise. A model pass is never proof, and
+findings are printed for a human to judge, never auto-fixed. The review record
+lands in the clone's `.git/floofycrew-ai-review.json` (never pushed).

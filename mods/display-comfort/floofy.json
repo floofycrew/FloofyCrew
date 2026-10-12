@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "id": "display-comfort",
+  "name": "Display comfort",
+  "version": "1.0.0",
+  "description": "Persistent chat text size and an arbitrary page zoom for the KiroCrew dashboard. A settings page with two sliders: chat text scale (50\u2013250 %, applied to every message bubble, optionally the composer too) and page zoom (25\u2013300 % in 1 % steps, any value \u2014 not just the browser's fixed stops). Both persist in the mod's config, apply live as you drag, and are restored before the first paint on the next load so nothing flashes at the default size. Answers the upstream quality-of-life requests for a chat font-size control and a free-form zoom value. Unofficial.",
+  "authors": [
+    "Oscar Tseng"
+  ],
+  "license": "MIT",
+  "tags": [
+    "quality-of-life",
+    "accessibility",
+    "font-size",
+    "zoom",
+    "ui",
+    "first-frame"
+  ],
+  "kirocrew": {
+    "version": ">=0.7.0 <0.9.0",
+    "editions": [
+      "internal",
+      "external"
+    ],
+    "strict": false
+  },
+  "dependsOn": {
+    "floofycrew": ">=1.3.0 <2.0.0"
+  },
+  "network": {
+    "hosts": [],
+    "credentials": false
+  },
+  "parts": [
+    {
+      "kind": "ui",
+      "side": "spa",
+      "path": "ui/",
+      "entry": "ui/page.mjs",
+      "title": "Display comfort",
+      "icon": "ui/icon.svg",
+      "description": "the settings page: chat text scale and page zoom sliders with live preview, a composer toggle, and reset \u2014 persisted through floofy.mod(id).config"
+    },
+    {
+      "kind": "spa",
+      "side": "spa",
+      "path": "spa/runtime.mjs",
+      "activation": "runtime",
+      "description": "applies the stored settings to the dashboard (CSS variable for the chat scale, zoom on the document for the page zoom), re-applies when the settings page saves, and undoes everything on disable"
+    },
+    {
+      "kind": "spa",
+      "side": "spa",
+      "path": "spa/boot.js",
+      "activation": "boot",
+      "boot": {
+        "css": "spa/boot.css"
+      },
+      "description": "first frame: re-asserts the cached settings from localStorage before anything paints, with the baked stylesheet carrying the chat-scale rules, so a reload never flashes the default sizes"
+    }
+  ],
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+    },
+    {
+      "path": "README.md",
+      "sha256": "3c41e89d5c3772561856d5ec74322143c01bfcfcb027d8373ed16512d99d7cbb"
+    },
+    {
+      "path": "spa/boot.css",
+      "sha256": "312590d3fcb783477d573e3b2800d6f89dc0dcd6000cbae0cf4dcf08d38c9500"
+    },
+    {
+      "path": "spa/boot.js",
+      "sha256": "4d5dcaa03487bd92fcea4216619af8664b24b8053df709486c8394930d394d05"
+    },
+    {
+      "path": "spa/runtime.mjs",
+      "sha256": "e97713fc552206243f30dd797837e168d24acf239959e4ea179150ea03c684df"
+    },
+    {
+      "path": "ui/icon.svg",
+      "sha256": "55ade54e78055e17a5a3b3745fd5b2c84172b0fd04b91673e862507c3228131b"
+    },
+    {
+      "path": "ui/page.mjs",
+      "sha256": "e71d0ae72f688559f849bed00fb9c5d2250ca7e3456d7c717a79c86d1e74489b"
+    }
+  ]
+}

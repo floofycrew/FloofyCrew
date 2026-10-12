@@ -34,7 +34,7 @@ from floofy_core.compat import CompatCache
 from floofy_core.schema import load_schema
 from floofy_core.schema.check import validate_instance
 
-from .repo import RegistryRepo, RepoError, VersionRecord
+from .repo import ModRecord, RegistryRepo, RepoError, VersionRecord
 
 __all__ = ["BuildResult", "build_index", "fold_compat", "write_index"]
 
@@ -132,6 +132,25 @@ def _changelog(release: dict[str, Any], manifest: dict[str, Any]) -> str | None:
     return None
 
 
+def _index_icon(mod: ModRecord) -> str | None:
+    """The mod's icon for the index entry (``index.schema`` wants a URL).
+
+    The curated record's ``icon`` is passed through as written — the schema check on
+    the built index names a bad one. The manifest's ``icon`` is a *relative path* to
+    a file shipped with the mod (``floofy.schema``, Requirement 1.2): the installed
+    mod's UI serves it, but a client browsing the registry has nothing to fetch it
+    from, so only an https URL there reaches the index and a path is left out.
+    """
+    curated = mod.curated.get("icon")
+    if isinstance(curated, str) and curated:
+        return curated
+    newest = mod.newest
+    candidate = newest.manifest.get("icon") if newest is not None else None
+    if isinstance(candidate, str) and candidate.startswith("https://") and not any(c.isspace() for c in candidate):
+        return candidate
+    return None
+
+
 def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, generated_at: str | None = None, floofycrew_version: str | None = None, resolve_links: bool = False) -> BuildResult:
     """Assemble the index document from every record; schema and record defects land in ``problems``.
 
@@ -190,10 +209,13 @@ def build_index(repo: RegistryRepo, *, compat: CompatCache | None = None, genera
             "repo": repo_url,
             "versions": [_version_entry(v, compat) for v in mod.versions],
         }
-        for optional in ("license", "links", "icon"):
+        for optional in ("license", "links"):
             value = mod.field(optional)
             if value:
                 entry[optional] = value
+        icon = _index_icon(mod)
+        if icon:
+            entry["icon"] = icon
         result.index["mods"].append(entry)
     for error in validate_instance(result.index, load_schema("index")):
         result.problems.append(f"index.json{error.path or '/'}: {error.message}")
