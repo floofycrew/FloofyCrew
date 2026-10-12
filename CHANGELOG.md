@@ -11,6 +11,36 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.6 — 2026-10-12
+
+A patch on 1.3.5 that ships ten days of work on the manager and its mods, and
+the first release to list KiroCrew 0.8.0.9 (internal, stable) among the hosts
+it supports — the Loader runs `ok` on it on two live desks, so `floofy
+self-update` on such a host now sees this release. The App's Mods page is laid
+out as a switch table, with the mod's name as the link to its page, and every
+action shows the wait it causes; the edition's own registry is recorded and
+fetched from the first start and cannot be removed; public-export commits carry
+the maintainer's GitHub identity. The mod-facing API is 1.3.0: a `replace` hook
+can let the host's own error through without faulting. Two new first-party mods
+— `agent-backend-doctor` (0.2.0; finds, un-caches and repairs the agent-backend
+harnesses, and keeps a Bedrock-backed Codex's AWS credentials usable inside the
+sandbox) and `agent-orchestrator` (0.2.4; parallel multi-agent orchestration
+over a typed message bus, hub-and-spoke by default) — join `agent-backend-router`
+0.3.0 and `model-retry-policy` 0.1.3; the router stays out of the public export
+until it stops naming the internal edition's package. Fixed: bytecode can no
+longer be hashed into `files[]`, an update neither fails on a live socket in
+`.floofy/` nor loses `mod.log` lines, and a manifest `icon` path no longer breaks
+the registry index.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.9 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 ### Changed
 
 - **The public export holds `agent-backend-router` back for now.** Its hook
