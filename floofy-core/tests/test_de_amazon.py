@@ -21,6 +21,7 @@ sys.path.insert(0, str(SCRIPT.parent))
 
 import check_no_internal_identifiers as checker  # noqa: E402
 
+pytestmark = pytest.mark.skipif(not checker.DENYLIST, reason="the internal identifier list (scripts/internal-identifiers.txt) is not part of the public tree")
 TOKEN = checker.DENYLIST[0]  # a hostname fragment
 OTHER_TOKEN = checker.DENYLIST[-1]  # an account name
 

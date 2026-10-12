@@ -45,7 +45,8 @@ The public repository never receives the source tree as-is:
 `scripts/export_public.py` is the only sanctioned way to produce a tree for the
 public remote. It copies an explicit include list (a path not named never
 leaves), drops the internal-only mods and their `mods/README.md` rows, scans
-**every** exported file with `scripts/check_no_internal_identifiers.py` against
+**every** exported file with the source tree's `scripts/check_no_internal_identifiers.py`
+(its identifier list, `scripts/internal-identifiers.txt`, stays internal: the export drops it) against
 the justified allowlist `scripts/public-export-allow.txt`, refuses to write
 into a clone whose remotes include an internal host, and pins the maintainer's
 **public git identity** (`PUBLIC_GIT_NAME` / `PUBLIC_GIT_EMAIL` in the script)

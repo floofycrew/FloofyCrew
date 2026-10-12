@@ -11,6 +11,12 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **The identifier denylist leaves the public tree.** `scripts/check_no_internal_identifiers.py`
+  reads its list from `scripts/internal-identifiers.txt`, which the export drops: the
+  public copy of the scanner no longer spells the names it keeps out (it reports the
+  missing list and exits 0; the authoritative scan runs in the source tree before every
+  export, and `scan_export` now refuses a vacuous pass). The export-side tests skip in a
+  tree without the list.
 - **Public export audit (before the first GitHub sync since 1.3.0).** The
   exporter now ships **only git-tracked files**: a dev-linked mod's `.floofy/`
   runtime state (log, journal, config — gitignored in the source tree) had been

@@ -7,6 +7,12 @@ person that only makes sense inside the internal edition has to live in the edit
 adapters. This script scans the public-clean directories for a case-insensitive
 denylist of such identifiers and fails the build on any hit.
 
+The denylist lives in ``scripts/internal-identifiers.txt`` (one entry per line),
+not in this file: the public export drops that file, so the public copy of this
+scanner does not itself spell the names it keeps out. Run in a tree without the
+file (a public export) the scanner says so and exits 0 — the authoritative scan
+runs in the source tree before every export.
+
 Usage:
     python scripts/check_no_internal_identifiers.py [--root DIR] [--allowlist FILE]
                                                     [--paths P [P ...]] [--list]
@@ -40,41 +46,26 @@ DEFAULT_SCAN_PATHS: tuple[str, ...] = (
     "docs",
 )
 
-#: Case-insensitive substrings that only make sense inside the internal edition.
-#: Kept as a flat tuple so the unit tests and the allowlist can name entries exactly.
-DENYLIST: tuple[str, ...] = (
-    # hostnames and URL fragments
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "code.***REMOVED***",
-    "w.***REMOVED***",
-    "issues.***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    # identity and credential tooling
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    # internal build and distribution systems
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    # internal package and repository names
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "gardner***REMOVED***",
-    "***REMOVED***",
-    # people and accounts
-    "***REMOVED***",
-)
+#: The denylist's home: one case-insensitive substring per line, ``#`` comments
+#: and blank lines ignored, kept as a flat tuple in file order so the unit tests
+#: and the allowlists can name entries exactly (the first entry is a hostname
+#: fragment, the last an account name). Internal-only: the public export drops it.
+TERMS_FILE = Path(__file__).resolve().parent / "internal-identifiers.txt"
+
+
+def load_denylist(path: Path = TERMS_FILE) -> tuple[str, ...]:
+    """The identifiers in ``path`` in file order; empty when the file is absent (a public tree)."""
+    if not path.is_file():
+        return ()
+    entries = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            entries.append(line)
+    return tuple(entries)
+
+
+DENYLIST: tuple[str, ...] = load_denylist()
 
 #: Directory names never descended into.
 SKIP_DIRS: frozenset[str] = frozenset(
@@ -211,6 +202,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="print the denylist and exit")
     args = parser.parse_args(argv)
 
+    if not DENYLIST:
+        print(f"OK: no identifier list at {TERMS_FILE.name} (a public export carries none); "
+              "nothing to scan against here — the authoritative scan runs in the source tree before export")
+        return 0
     if args.list:
         print("\n".join(DENYLIST))
         return 0

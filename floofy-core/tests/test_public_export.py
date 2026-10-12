@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import check_no_internal_identifiers as checker  # noqa: E402
 import export_public as exporter  # noqa: E402
 
+pytestmark = pytest.mark.skipif(not checker.DENYLIST, reason="the internal identifier list (scripts/internal-identifiers.txt) is not part of the public tree")
 HOSTNAME_TOKEN = checker.DENYLIST[0]  # a hostname fragment
 ADAPTER_DIR = "editions/" + "tool" + "box"  # split so this file stays scanner-clean
 
@@ -86,9 +87,24 @@ def test_internal_only_files_are_dropped_with_their_index_rows(export_tree: Path
     for rel in exporter.INTERNAL_ONLY_FILES:
         assert (REPO_ROOT / rel).is_file(), f"internal-only file is not in the tree: {rel}"
         assert not (export_tree / rel).exists(), f"internal-only file exported: {rel}"
-        index = (export_tree / Path(rel).parent / "README.md").read_text(encoding="utf-8")
-        assert Path(rel).name not in index, f"the exported index still links {rel}"
+        index_file = export_tree / Path(rel).parent / "README.md"
+        if index_file.exists():  # a doc's index row goes with it; scripts/ has no index
+            assert Path(rel).name not in index_file.read_text(encoding="utf-8"), f"the exported index still links {rel}"
     assert (export_tree / "docs" / "README.md").is_file()
+
+
+def test_the_identifier_list_stays_internal_and_the_exported_scanner_knows(export_tree: Path) -> None:
+    """The denylist is a list of the names kept out of the public tree, so it is
+    itself kept out: the exported scanner has no list, says so and exits 0 instead
+    of either guessing or spelling the names in a public file."""
+    assert (REPO_ROOT / "scripts" / "internal-identifiers.txt").is_file()
+    assert not (export_tree / "scripts" / "internal-identifiers.txt").exists(), "the identifier list reached the export"
+    exported_scanner = (export_tree / "scripts" / "check_no_internal_identifiers.py").read_text(encoding="utf-8")
+    for term in checker.DENYLIST:
+        assert term.lower() not in exported_scanner.lower(), f"the exported scanner spells {term!r}"
+    result = subprocess.run([sys.executable, str(export_tree / "scripts" / "check_no_internal_identifiers.py"), "--paths", "."],
+                            capture_output=True, text=True, cwd=str(export_tree))
+    assert result.returncode == 0 and "no identifier list" in result.stdout, result.stdout + result.stderr
 
 
 def test_internal_only_regions_are_stripped(export_tree: Path) -> None:

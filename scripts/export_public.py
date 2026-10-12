@@ -136,9 +136,14 @@ SKIP_NAMES: frozenset[str] = frozenset(
 
 #: Files inside a public-set directory that are for the internal audience only
 #: and have no public counterpart (the migration guide is for the standalone
-#: patcher that only ever existed internally). Their index rows carry the
-#: single-line marker so the stripper drops them too.
-INTERNAL_ONLY_FILES: tuple[str, ...] = ("docs/migrating-from-the-standalone-patcher.md",)
+#: patcher that only ever existed internally; the scanner's identifier list).
+#: A dropped doc's index row carries the single-line marker so the stripper
+#: removes it too.
+INTERNAL_ONLY_FILES: tuple[str, ...] = (
+    "docs/migrating-from-the-standalone-patcher.md",
+    # the scanner's denylist: a list of the names kept out of the public tree is itself such a list
+    "scripts/internal-identifiers.txt",
+)
 
 #: The identity every commit bound for the public remote carries. GitHub links a
 #: commit to an account through the author/committer e-mail, so this is the
@@ -279,17 +284,24 @@ def check_excluded_mods_absent(target: Path) -> None:
 
 
 def scan_export(target: Path) -> None:
-    """Run the identifier scan over the WHOLE exported tree; raise on any hit."""
+    """Run the identifier scan over the WHOLE exported tree; raise on any hit.
+
+    The SOURCE tree's scanner does the scanning: it sits next to the identifier
+    list, which the export deliberately lacks. The exported copy would find no
+    list and pass vacuously — so a vacuous pass is refused here too.
+    """
     allowlist = target / ALLOWLIST
     if not allowlist.exists():
         raise ExportError(f"the exported tree is missing {ALLOWLIST}")
     result = subprocess.run(
-        [sys.executable, str(target / "scripts" / "check_no_internal_identifiers.py"),
-         "--root", str(target), "--paths", ".", "--allowlist", str(allowlist)],
+        [sys.executable, str(SCANNER), "--root", str(target), "--paths", ".", "--allowlist", str(allowlist)],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
         raise ExportError("the exported tree is NOT clean:\n" + result.stdout + result.stderr)
+    if not result.stdout.startswith("OK: no internal identifiers"):
+        raise ExportError("the identifier scan did not run against a list (is scripts/internal-identifiers.txt present "
+                          "in the source tree?):\n" + result.stdout + result.stderr)
 
 
 def check_target_remotes(target: Path) -> None:
