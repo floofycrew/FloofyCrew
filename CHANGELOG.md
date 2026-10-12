@@ -11,6 +11,21 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **agent-backend-router 0.3.1: the host's own backend gets no exemption from the
+  model rule.** 0.3.0 always admitted the requested backend (`agent.acp_backend`)
+  on the theory that a harness handed a model it does not serve fails the
+  session. Seen live on a host whose default is Codex: a `claude-fable-5.1`
+  session landed on codex-acp in the round robin and it answered in a second —
+  on its own default GPT model, a silent substitution. The requested backend is
+  now admitted only while its served list is unknown or carries the model; when
+  the list is known and lacks it the session is routed to a backend that lists
+  the model, and it stays on the host's choice only when none does (reasons on
+  the decision record: "the requested backend does not list this model; the one
+  backend that does" / "no backend lists this model; keeping the host's choice").
+  The page's eligibility box flags the host's backend amber in that case; the
+  regression test replays the live list the box advertised.
+- `tools/gateway-temp-chat.py --turns N` sends the message N times on the same
+  slot and reports per-turn seconds (turn 1 is the cold start).
 - **The public export refuses credential-shaped literals.** GitHub's push
   protection declined the 1.3.6 export: the doctor's redaction test spelled a
   made-up AWS access key id next to a 40-character secret, and the remote treats
