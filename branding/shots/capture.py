@@ -9,6 +9,14 @@ public openvscode-server engine already downloaded on this desk, copied into the
 scratch home). Only demo/first-party mods are installed, and the IDE opens a
 throwaway folder this script creates.
 
+Every shot is taken in the dashboard's stock LIGHT palette (the host's
+``theme_mode`` and the renderer's ``mc-theme`` are both set to light before the
+first frame; a frame that still paints dark is flipped in-page and logged), with
+the manager's unofficial banner already dismissed the way a user dismisses it
+("Don't show this again" = ``localStorage`` ``floofycrew.banner.hidden``). The
+IDE's workbench is asked for the matching stock light theme and, when a build
+boots dark anyway, switched through its own Color Theme picker.
+
     uv run --with pillow python branding/shots/capture.py              # everything
     uv run --with pillow python branding/shots/capture.py --only floofycrew
     uv run --with pillow python branding/shots/capture.py --only ide
@@ -85,7 +93,7 @@ DEMO_WORKSPACE_FILES = {
         'if __name__ == "__main__":\n'
         '    print(greet("FloofyCrew"))\n'
     ),
-    "settings.json": json.dumps({"theme": "dark", "fontSize": 13, "tabSize": 4, "demo": True}, indent=2) + "\n",
+    "settings.json": json.dumps({"theme": "light", "fontSize": 13, "tabSize": 4, "demo": True}, indent=2) + "\n",
 }
 
 results: list[dict] = []
@@ -164,7 +172,7 @@ ENGINE_MACHINE_SETTINGS = {
 SCHEME_THEMES = {"dark": "Default Dark Modern", "light": "Default Light Modern"}
 
 
-def seed_engine_settings(fake_home: Path, scheme: str = "dark") -> Path:
+def seed_engine_settings(fake_home: Path, scheme: str = "light") -> Path:
     """Write the engine's Machine settings (chrome) and User settings (colour theme).
 
     ``workbench.colorTheme`` is an APPLICATION-scoped setting, so VS Code ignores
@@ -204,41 +212,37 @@ def install_ide(gw: ScratchGateway, ide_src: Path) -> str | None:
 
 # --- browser helpers --------------------------------------------------------------------------
 
-def new_page(browser, *, color_scheme: str = "dark", height: int | None = None):
+#: The App's "Don't show this again" preference (``BANNER_PREFERENCE_KEY`` in loader-app/ui/index.mjs).
+BANNER_PREFERENCE_KEY = "floofycrew.banner.hidden"
+
+
+def new_page(browser, *, color_scheme: str = "light", height: int | None = None):
     context = browser.new_context(
         viewport={"width": VIEWPORT["width"], "height": height or VIEWPORT["height"]},
         device_scale_factor=SCALE,
         color_scheme=color_scheme,
     )
     # the dashboard keeps its light/dark choice in localStorage (`mc-theme`); seed it so a
-    # fresh profile paints the mode we want from the first frame
-    context.add_init_script(f"try {{ localStorage.setItem('mc-theme', {json.dumps(color_scheme)}); }} catch (e) {{}}")
+    # fresh profile paints the mode we want from the first frame. The manager's unofficial
+    # banner is dismissed the way a user dismisses it: the same localStorage preference.
+    context.add_init_script(
+        "try { localStorage.setItem('mc-theme', %s); localStorage.setItem(%s, '1'); } catch (e) {}"
+        % (json.dumps(color_scheme), json.dumps(BANNER_PREFERENCE_KEY))
+    )
     return context, context.new_page()
 
 
 def open_manager(page, gw) -> None:
     page.goto(dashboard_url(gw, "/apps/floofycrew"), wait_until="load", timeout=120000)
     page.wait_for_selector('[data-testid="floofycrew-nav"]', timeout=120000)
-    page.wait_for_selector('[data-testid="floofycrew-banner"]', timeout=60000)
-
-
-def set_host_mode(gw, mode: str) -> bool:
-    """Set the dashboard's light/dark preference for every client of this scratch gateway.
-
-    Two writes, because two stores feed a fresh browser profile: the workspace
-    display config (``PUT /api/config/theme``) and the host-side backup of the
-    renderer's own ``localStorage`` keys (``PUT /api/ui-prefs``, key ``mc-theme``).
-    Without the second one the first dark client's backup is handed to every
-    later profile and the light pass paints dark.
-    """
-    client = gw.client()
-    ok = True
-    for path, body in (("/api/config/theme", {"mode": mode}), ("/api/ui-prefs", {"prefs": {"mc-theme": mode}})):
-        reply = client.request("PUT", path, body)
-        if reply.status != 200:
-            log(f"PUT {path} {mode} -> HTTP {reply.status}: {reply.body[:160].decode('utf-8', 'replace')}")
-            ok = False
-    return ok
+    page.wait_for_selector('[data-testid="floofycrew-footer"]', timeout=60000)
+    if page.locator('[data-testid="floofycrew-banner"]').count():
+        log("the unofficial banner is showing despite the seeded preference; dismissing it by its button")
+        page.click('[data-testid="floofycrew-banner-dismiss"]')
+        page.wait_for_selector('[data-testid="floofycrew-banner"]', state="detached", timeout=10000)
+    if not is_light(page):
+        log("the dashboard is still painting dark; flipping the palette in the page")
+        set_light(page)
 
 
 def is_light(page) -> bool:
@@ -282,17 +286,16 @@ def nav(page, key: str, marker: str) -> None:
 
 # --- the FloofyCrew manager App ---------------------------------------------------------------
 
-#: The Mods page is the one page worth showing whole: header, banner, tabs, the mod-pages
-#: list, the install form and the installed-mods switch table (1280x800 cuts it at the list).
-MODS_HEIGHT = 1800
+#: The Mods page is the README's hero: header, tabs, the mod-pages list and the install form at
+#: the standard viewport. (A full-page capture of it is 1800 px tall and renders as a strip.)
 
 
-def capture_manager_dark(browser, gw) -> None:
-    context, page = new_page(browser, height=MODS_HEIGHT)
+def capture_manager(browser, gw) -> None:
+    context, page = new_page(browser)
     try:
         open_manager(page, gw)
         page.wait_for_selector('[data-testid="floofycrew-mod-row-model-retry-policy"]', timeout=60000)
-        shot(page, "floofycrew-mods-dark")
+        shot(page, "floofycrew-mods")
     finally:
         context.close()
 
@@ -313,19 +316,6 @@ def capture_manager_dark(browser, gw) -> None:
         shot(page, "floofycrew-doctor")
 
         capture_mod_page(page)
-    finally:
-        context.close()
-
-
-def capture_manager_light(browser, gw) -> None:
-    context, page = new_page(browser, color_scheme="light", height=MODS_HEIGHT)
-    try:
-        open_manager(page, gw)
-        if not is_light(page):
-            log("the dashboard is still painting dark; flipping the palette in the page")
-            set_light(page)
-        page.wait_for_selector('[data-testid="floofycrew-mod-row-model-retry-policy"]', timeout=60000)
-        shot(page, "floofycrew-mods-light")
     finally:
         context.close()
 
@@ -428,21 +418,17 @@ def capture_install_confirm(browser, gw) -> None:
 
 # --- the KiroCrew IDE mod ----------------------------------------------------------------------
 
-def set_light_plain(page) -> None:
-    if not is_light(page):
-        set_light(page)
-
-
-def open_ide_app(page, gw, *, light: bool = False):
+def open_ide_app(page, gw):
     page.goto(dashboard_url(gw, "/apps/kirocrew-ide"), wait_until="load", timeout=120000)
     page.wait_for_selector('[data-testid="dashboard-shell"]', timeout=120000)
-    if light:
-        set_light_plain(page)
+    if not is_light(page):
+        log("the dashboard is still painting dark on the IDE page; flipping the palette in the page")
+        set_light(page)
     page.wait_for_selector('[data-testid="kirocrew-ide-status"], [data-testid="kirocrew-ide-dock"]', timeout=120000)
 
 
 def capture_ide_app(browser, gw) -> None:
-    """(9) the App's own page, before an engine runs: status, folder, Start."""
+    """The App's own page, before an engine runs: status, folder, Start."""
     context, page = new_page(browser)
     try:
         open_ide_app(page, gw)
@@ -453,8 +439,13 @@ def capture_ide_app(browser, gw) -> None:
         context.close()
 
 
-def start_ide(gw, workspace: Path, *, scheme: str = "dark") -> str | None:
-    """Ask the mod to start its engine on the throwaway folder; returns a reason when it would not."""
+def start_ide(gw, workspace: Path, *, scheme: str = "light") -> str | None:
+    """Ask the mod to start its engine on the throwaway folder; returns a reason when it would not.
+
+    The scheme is reported first, the way the App reports the dashboard's
+    resolved light/dark: the mod splices the matching stock theme into the served
+    workbench as a ``configurationDefaults`` default, so a fresh profile boots in it.
+    """
     client = gw.client()
     client.post(f"/api/apps/floofycrew/mods/{IDE_ID}/api/theme", {"scheme": scheme})
     reply = client.post(f"/api/apps/floofycrew/mods/{IDE_ID}/api/start", {"folder": str(workspace)}, timeout=300)
@@ -464,36 +455,62 @@ def start_ide(gw, workspace: Path, *, scheme: str = "dark") -> str | None:
     return None
 
 
-def restart_engine(gw, workspace: Path, fake_home: Path, scheme: str) -> str | None:
-    """Restart the engine on a FRESH profile in ``scheme``.
+def workbench_is_light(frame) -> bool:
+    """True when the workbench paints a light editor (its ``--vscode-editor-background`` is bright).
 
-    The workbench caches its colour theme in its own user-data directory and
-    keeps it across restarts, so switching the dashboard to light does not
-    repaint an already-booted workbench. Dropping the scratch profile and
-    re-seeding the theme is what makes the light pair actually light; it is the
-    same state a first start in light mode produces.
+    Read off ``.monaco-workbench`` — VS Code emits its theme as one CSS rule on
+    the workbench root, and custom properties do not inherit upward.
     """
-    gw.client().post(f"/api/apps/floofycrew/mods/{IDE_ID}/api/stop", {})
-    time.sleep(3)
-    profile = fake_home / ".openvscode-server" / "data"
-    shutil.rmtree(profile, ignore_errors=True)
-    seed_engine_settings(fake_home, scheme)
-    return start_ide(gw, workspace, scheme=scheme)
+    return bool(frame.locator(".monaco-workbench").first.evaluate(
+        """(el) => {
+          const value = getComputedStyle(el).getPropertyValue('--vscode-editor-background').trim() || getComputedStyle(el).backgroundColor;
+          const probe = document.createElement('div');
+          probe.style.color = value;
+          document.body.appendChild(probe);
+          const rgb = (getComputedStyle(probe).color.match(/\\d+/g) || [0, 0, 0]).map(Number);
+          probe.remove();
+          return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) > 128;
+        }"""
+    ))
 
 
-def capture_ide_workbench(browser, gw, name: str, *, light: bool) -> None:
-    # `scheme` is the DASHBOARD's light/dark. The workbench inside keeps VS Code's own dark
-    # theme in both: the mod offers its scheme only as a `configurationDefaults` default in the
-    # served document, and neither that, nor Machine settings, nor the engine's User settings,
-    # nor the workbench's own Color Theme palette repainted an already-booted window here
-    # (all four measured 2026-10-12 on openvscode-server 1.109.5).
-    scheme = "light" if light else "dark"
-    context, page = new_page(browser, color_scheme=scheme)
+def ensure_workbench_light(page, frame) -> None:
+    """A workbench that booted dark anyway is switched through its own Color Theme picker.
+
+    That is what a user does, and it is the one mechanism that repaints a booted
+    window: the mod's ``configurationDefaults`` and the engine's settings files
+    only decide the first frame of a FRESH profile. Logged either way.
+    """
+    if workbench_is_light(frame):
+        log("workbench booted light")
+        return
+    log("workbench booted dark; selecting the stock light theme through its Color Theme picker")
+    frame.locator(".monaco-editor .view-lines").first.click(timeout=10000)  # focus the open editor, not the chrome
+    page.keyboard.press("F1")
+    picker = frame.locator(".quick-input-widget input").first
+    picker.wait_for(timeout=15000)
+    picker.fill("Preferences: Color Theme")
+    page.wait_for_timeout(600)
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(800)
+    picker.fill(SCHEME_THEMES["light"])
+    page.wait_for_timeout(600)
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(1500)
+    if workbench_is_light(frame):
+        log("workbench repainted light")
+    else:
+        skipped.append(("kirocrew-ide (editor theme)", "the workbench stayed dark after the Color Theme picker; the shot shows a dark editor"))
+
+
+def capture_ide_workbench(browser, gw, name: str) -> None:
+    context, page = new_page(browser)
     try:
-        open_ide_app(page, gw, light=light)
+        open_ide_app(page, gw)
         frame = page.frame_locator('#kirocrew-ide-layer iframe[data-active="true"]')
         frame.locator(".monaco-workbench").first.wait_for(timeout=240000)
         open_demo_file(page, frame)
+        ensure_workbench_light(page, frame)
         shot(page, name, settle=3.0)
     except Exception as exc:  # noqa: BLE001
         detail = workbench_diagnostics(page)
@@ -627,11 +644,11 @@ def main(argv: list[str] | None = None) -> int:
         if ide_reason:
             skipped.append(("kirocrew-ide-*", ide_reason))
         else:
-            seed_engine_settings(fake_home)
+            seed_engine_settings(fake_home, "light")
     consent(gw)
     install_loader_app(gw, app_dir)
-    # a stock palette: no third-party theme pack is selected for these shots
-    write_host_config(gw, dashboard={"theme_mode": "dark", "onboarded": True, "import_onboarded": True, "privacy_acked": True, "language": "en"})
+    # the stock LIGHT palette: no third-party theme pack is selected for these shots
+    write_host_config(gw, dashboard={"theme_mode": "light", "onboarded": True, "import_onboarded": True, "privacy_acked": True, "language": "en"})
     if want_ide and not ide_reason:
         installed = gw.cli("app", "install", str(args.ide_src / "app"))
         if installed.returncode != 0:
@@ -668,28 +685,15 @@ def main(argv: list[str] | None = None) -> int:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             try:
-                # --- the dark pass (the dashboard's default) ---
                 if want_floofycrew:
-                    capture_manager_dark(browser, gw)
+                    capture_manager(browser, gw)
                 if want_ide and not ide_reason:
                     capture_ide_app(browser, gw)
                     ide_reason = start_ide(gw, workspace)
                     if ide_reason:
-                        skipped.append(("kirocrew-ide-dark / kirocrew-ide-light", ide_reason))
+                        skipped.append(("kirocrew-ide", ide_reason))
                     else:
-                        capture_ide_workbench(browser, gw, "kirocrew-ide-dark", light=False)
-
-                # --- the light pass: the dashboard's own display preference ---
-                set_host_mode(gw, "light")
-                if want_floofycrew:
-                    capture_manager_light(browser, gw)
-                if want_ide and not ide_reason:
-                    reason = restart_engine(gw, workspace, fake_home, "light")
-                    if reason:
-                        skipped.append(("kirocrew-ide-light", reason))
-                    else:
-                        capture_ide_workbench(browser, gw, "kirocrew-ide-light", light=True)
-                set_host_mode(gw, "dark")
+                        capture_ide_workbench(browser, gw, "kirocrew-ide")
 
                 # --- optional, and last: it drives a real install through to its question ---
                 if want_floofycrew and not args.no_install_confirm:

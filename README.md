@@ -22,7 +22,7 @@
     <a href="https://github.com/floofycrew/FloofyCrew/issues"><img alt="Issues" src="https://img.shields.io/github/issues/floofycrew/FloofyCrew?style=for-the-badge&color=2d2d34"></a>
   </p>
   <br>
-  <img src="branding/shots/floofycrew-mods-dark.png" alt="The FloofyCrew mod manager inside the KiroCrew dashboard" width="900">
+  <img src="branding/shots/floofycrew-mods.png" alt="The FloofyCrew mod manager inside the KiroCrew dashboard" width="900">
 </div>
 
 <br>

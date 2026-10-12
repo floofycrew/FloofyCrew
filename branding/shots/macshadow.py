@@ -6,8 +6,8 @@ margins, so the result drops into a README on either GitHub theme. The window's
 corners are rounded, a blurred black silhouette sits under it offset downwards,
 and nothing else is touched.
 
-    python branding/shots/macshadow.py .scratch/shots/raw/mods-dark.png \
-        --out branding/shots/floofycrew-mods-dark.png
+    python branding/shots/macshadow.py .scratch/shots/raw/floofycrew-mods.png \
+        --out branding/shots/floofycrew-mods.png
 
 Every knob is in PIXELS OF THE INPUT IMAGE. The captures are taken at
 ``device_scale_factor=2``, so the defaults here are the 2x numbers (radius 24,
