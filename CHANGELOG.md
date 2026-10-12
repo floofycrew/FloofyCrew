@@ -13,6 +13,15 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Changed
 
+- **The public export holds `agent-backend-router` back for now.** Its hook
+  imports the internal edition's companion package by name — the credential
+  broker's contract keys, the edition's Claude Code factory and client classes
+  — and the public-export scan rightly refuses that. Until the mod learns those
+  names from the host at runtime it stays internal-only: `scripts/export_public.py`
+  keeps it in `WITHHELD_MODS`, separate from the mods that are internal-only by
+  nature (`EXCLUDED_MODS`), so the public tree drops its directory and its
+  `mods/README.md` row while the rows that mention it stay. Shipping it publicly
+  is removing it from that tuple.
 - **Public-export commits are the maintainer's GitHub commits.**
   `scripts/export_public.py --out <clone>` now pins the maintainer's public git
   identity (`PUBLIC_GIT_NAME` / `PUBLIC_GIT_EMAIL`, spelled once in the script)
@@ -72,6 +81,11 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Mods
 
+- `agent-orchestrator` 0.2.4 — `demo/seam-check.sh` finds the host payload
+  through FloofyCrew's own host discovery (`floofy doctor` names the current
+  payload and its path, or pass a `kiro_crew` package directory) instead of a
+  hard-coded install location of one edition, so the script runs on either
+  edition and the mod passes the public-export scan. No hook change.
 - `agent-backend-doctor` 0.2.0 — keeps a Bedrock-backed Codex's AWS credentials
   usable inside KiroCrew's sandbox. Codex is a tool-gate-enforced harness whose
   sandbox hides `~/.aws`, and on the internal edition the credential broker that

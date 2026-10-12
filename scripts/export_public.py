@@ -11,7 +11,9 @@ produce a tree for the public remote:
    consulted, so the exporter needs no exclude list of them.
 2. **Drop internal-only mods** (`EXCLUDED_MODS`): mods that patch internal-only
    hosts or ship fan artwork stay out, and their rows are removed from
-   `mods/README.md`.
+   `mods/README.md`. `WITHHELD_MODS` are dropped the same way but for now only:
+   a mod whose code still spells an internal name waits there until it learns
+   the name from the host at runtime.
 3. **Scan the WHOLE exported tree** with `check_no_internal_identifiers.py`
    (`--paths .`), against `scripts/public-export-allow.txt` — a separate,
    justified allowlist whose every line must name an existing exported path.
@@ -88,7 +90,20 @@ PUBLIC_SET: tuple[str, ...] = (
 PUBLIC_SET_OPTIONAL: tuple[str, ...] = ("LICENSE", "NOTICE.md", "LICENSES")
 
 #: Mods that must not ship publicly: patches of internal-only hosts, fan artwork.
+#: The exported ``mods/README.md`` must not name them at all.
 EXCLUDED_MODS: tuple[str, ...] = ("mochi-pet-zoom-fix", "rimuru-branding")
+
+#: Mods held back from the public tree for now, not by nature: their code still
+#: spells an internal name the scan refuses (agent-backend-router imports the
+#: internal edition's companion package for the credential broker's contract keys
+#: and the edition's Claude Code factory and client classes). Dropped like
+#: EXCLUDED_MODS — directory and README row — but other rows may still refer to
+#: them; the mod ships publicly once it learns those names from the host at
+#: runtime, by removing it from this tuple.
+WITHHELD_MODS: tuple[str, ...] = ("agent-backend-router",)
+
+#: Every mod the export leaves out, for the copy and the README prune.
+DROPPED_MODS: tuple[str, ...] = EXCLUDED_MODS + WITHHELD_MODS
 
 #: Region markers for internal-AUDIENCE content in shared files (e.g. the
 #: internal edition's install block in README.md): everything between a line
@@ -154,7 +169,7 @@ def _untracked_mods() -> frozenset[str]:
 def _ignore(directory: str, names: list[str]) -> set[str]:
     ignored = {n for n in names if n in SKIP_NAMES}
     if Path(directory) == REPO_ROOT / "mods":
-        ignored.update(n for n in names if n in EXCLUDED_MODS)
+        ignored.update(n for n in names if n in DROPPED_MODS)
         ignored.update(n for n in names if n in _untracked_mods())
     return ignored
 
@@ -185,7 +200,7 @@ def prune_mods_readme(target: Path) -> int:
         return 0
     kept: list[str] = []
     dropped = 0
-    markers = tuple(f"[`{mod}/`]" for mod in EXCLUDED_MODS)
+    markers = tuple(f"[`{mod}/`]" for mod in DROPPED_MODS)
     for line in readme.read_text(encoding="utf-8").splitlines(keepends=True):
         if line.lstrip().startswith("|") and any(marker in line for marker in markers):
             dropped += 1
@@ -235,7 +250,7 @@ def strip_internal_only_regions(target: Path) -> int:
 
 
 def check_excluded_mods_absent(target: Path) -> None:
-    for mod in EXCLUDED_MODS:
+    for mod in DROPPED_MODS:
         if (target / "mods" / mod).exists():
             raise ExportError(f"excluded mod was copied: mods/{mod}")
     remaining = sorted(p.name for p in (target / "mods").iterdir() if p.is_dir())

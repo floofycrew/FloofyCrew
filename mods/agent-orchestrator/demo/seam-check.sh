@@ -1,13 +1,20 @@
 #!/bin/bash
 # seam-check.sh -- read-only: does the installed KiroCrew payload still expose the seams the
-# agent-orchestrator mod hooks? Run on the host that will run the mod:  bash seam-check.sh [version]
-# Prints one line per seam: FOUND / MISSING. Nothing is modified.
+# agent-orchestrator mod hooks? Run on the host that will run the mod:
+#   bash seam-check.sh [kiro_crew package dir]
+# Without an argument the current payload comes from floofy's own host discovery (`floofy
+# doctor` names it and its path), so the script works on either edition and never spells an
+# install location of its own. Prints one line per seam: FOUND / MISSING. Nothing is modified.
 set -u
-# info.json's CurrentVersion is a bare string on older ***REMOVED*** builds and an object {"Version": ...} on newer ones.
-VER="${1:-$(python3 -c 'import json,os;v=json.load(open(os.path.expanduser("~/.***REMOVED***/tools/kirocrew/info.json")))["CurrentVersion"];print(v["Version"] if isinstance(v,dict) else v)' 2>/dev/null)}"
-PKG="$HOME/.***REMOVED***/tools/kirocrew/$VER/lib/python3.12/site-packages/kiro_crew"
+PKG="${1:-}"
+if [ -z "$PKG" ]; then
+  ROOT="$(floofy doctor 2>/dev/null | awk '/^  payload .*; current\]/ {print $NF; exit}')"
+  [ -n "$ROOT" ] || { echo "floofy doctor names no current payload (is floofy on PATH and the host installed?)"; exit 2; }
+  PKG="$(find "$ROOT" -maxdepth 5 -type d -path '*/site-packages/kiro_crew' 2>/dev/null | sort | tail -1)"
+  [ -n "$PKG" ] || { echo "no kiro_crew package under the current payload $ROOT"; exit 2; }
+fi
 [ -d "$PKG" ] || { echo "no payload at $PKG"; exit 2; }
-echo "payload: $VER"
+echo "payload: $PKG"
 check() { # name, file, regex
   if grep -qE "$3" "$PKG/$2" 2>/dev/null; then echo "FOUND    $1"; else echo "MISSING  $1  ($2 !~ $3)"; fi
 }

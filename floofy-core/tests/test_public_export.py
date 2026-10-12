@@ -45,12 +45,24 @@ def test_the_public_set_is_copied_and_nothing_else(export_tree: Path) -> None:
 
 
 def test_excluded_mods_are_absent_and_readme_rows_dropped(export_tree: Path) -> None:
-    for mod in exporter.EXCLUDED_MODS:
+    for mod in exporter.DROPPED_MODS:
         assert not (export_tree / "mods" / mod).exists(), f"excluded mod exported: {mod}"
     readme = (export_tree / "mods" / "README.md").read_text(encoding="utf-8")
     for mod in exporter.EXCLUDED_MODS:
         assert mod not in readme, f"mods/README.md still names the excluded mod {mod}"
+    for mod in exporter.WITHHELD_MODS:  # its row goes; other rows may still refer to it
+        assert f"[`{mod}/`]" not in readme, f"mods/README.md still lists the withheld mod {mod}"
     assert "custom-themes" in readme and "settings-demo" in readme
+
+
+def test_withheld_mods_are_a_separate_set() -> None:
+    """A withheld mod is held back for now, not internal-only by nature: the two
+    tuples must not overlap, every member must exist in the source tree, and the
+    union is what the export drops."""
+    assert not set(exporter.EXCLUDED_MODS) & set(exporter.WITHHELD_MODS)
+    for mod in exporter.DROPPED_MODS:
+        assert (REPO_ROOT / "mods" / mod / "floofy.json").is_file(), f"dropped mod is not in the tree: {mod}"
+    assert set(exporter.DROPPED_MODS) == set(exporter.EXCLUDED_MODS) | set(exporter.WITHHELD_MODS)
 
 
 def test_internal_only_regions_are_stripped(export_tree: Path) -> None:

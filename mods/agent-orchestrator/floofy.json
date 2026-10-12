@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "agent-orchestrator",
   "name": "Agent Orchestrator",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Real parallel multi-agent orchestration for KiroCrew: an orchestrator session divides a goal into items, runs one worker session per item at the same time, and coordinates them live over a typed, bounded message bus (hub-and-spoke: every worker reports to the orchestrator, which relays; worker \u21c4 worker is an opt-in setting) with wake-ups, a wait-any primitive and per-worker status lines. Ships the `agent-orchestrator` and `agent-orchestrator-worker` agents (built on the host's session-control and work-ledger tools, which stay untouched) and a live hub-and-spoke graph page with an animated message bus. Unofficial.",
   "authors": [
     "Oscar Tseng"
@@ -84,7 +84,7 @@
     },
     {
       "path": "demo/seam-check.sh",
-      "sha256": "411ac381d641508f3d5a3afbdc9f158870cf110cefadb5a5f22b4eb06e096deb"
+      "sha256": "846974bf674c3302653788df68576efa33194807def79185cc8d7a183afa1ffe"
     },
     {
       "path": "hook/__init__.py",
