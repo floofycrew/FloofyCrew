@@ -23,7 +23,7 @@ To be listed here a mod must — and the build gate checks each item it can:
    `id` and `name` are checked after homoglyph normalisation against the host's
    and vendor's names, and against [`schema/reserved-names.json`](schema/reserved-names.json)
    — a `leadingToken` name matches exactly or as the leading dash-token
-   (`taskei-sync` reads as that product's own mod; `migrate-to-taskei` does not),
+   (`kiro-sync` reads as that product's own mod; `migrate-to-kiro` does not),
    an `exactOnly` name matches only itself. Only the product's owners may list
    such a name; curators record a legitimate exception in `masquerade-allow.txt`.
 4. **Declare its network**: every remote host the mod contacts is in

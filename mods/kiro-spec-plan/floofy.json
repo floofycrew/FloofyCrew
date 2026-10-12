@@ -68,7 +68,7 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "69439fad8186a4e1709a372f9db6275d216aa8c3baf7652d7d78ce02f68c101e"
+      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
     },
     {
       "path": "README.md",
@@ -108,7 +108,7 @@
     },
     {
       "path": "tests/spa.test.mjs",
-      "sha256": "c5aee4906d8095673b55bafe7024d7eba867f76ab33c8a9b9d2854d173f5cba3"
+      "sha256": "bf682b4ee8cd3efa486cc4dbd841ad81ce927bdc45693042f6acdabfdd82c2c5"
     }
   ]
 }

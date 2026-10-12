@@ -54,7 +54,7 @@
     },
     {
       "path": "LICENSE",
-      "sha256": "80e39cc2df99c96f5f61a44e4e1b54ffa85c45d1c2d12bff7313cc638e164454"
+      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
     },
     {
       "path": "hook/__init__.py",

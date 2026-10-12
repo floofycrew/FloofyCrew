@@ -51,7 +51,7 @@ function install(doc) {
 }
 
 test("decorate badges exactly the four mode agents, once, and deactivate removes everything", async () => {
-  install(makeDocument(["spec", "o3r_default", "plan", "specialist"]));
+  install(makeDocument(["spec", "desk-default", "plan", "specialist"]));
   const mod = await import(path.join(here, "..", "spa", "main.js") + "?a");
   mod.activate({ config: { read: () => ({ kas: true }) } });
   const badges = document.querySelectorAll('[data-kiro-spec-plan="badge"]');

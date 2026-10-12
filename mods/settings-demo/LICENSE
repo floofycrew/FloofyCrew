@@ -19,13 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Scope: this licence covers the mod's own files (the manifest, spa/boot.js, the
-generated CSS, the patch descriptor, theme/theme.json, theme/variables.json,
-theme/branding/wordmark.svg). theme/branding/logo.png and theme/branding/favicon.png
-are third-party character artwork included for personal fan use — not original
-work, NOT under this licence and not to be redistributed beyond the
-Amazon-internal repository; replace them with original artwork before publishing
-this mod to a public registry (see README.md "Attribution and licence").

@@ -20,7 +20,7 @@ def base_slots():
         {"key": "w1", "title": "worker-1: billing", "agent": "agent-orchestrator-worker", "running": True, "created_by": ORCH,
          "todo": {"completed": 2, "total": 5, "current": "port invoice.rs"}},
         {"key": "w2", "title": "worker-2: queue", "agent": "agent-orchestrator-worker", "running": True, "created_by": ORCH},
-        {"key": "lonely", "title": "chat", "agent": "o3r_default", "running": False, "created_by": ""},
+        {"key": "lonely", "title": "chat", "agent": "desk-default", "running": False, "created_by": ""},
         {"key": "cron-child", "title": "cron thing", "agent": "x", "running": False, "created_by": "cron:abc"},
     ]
 

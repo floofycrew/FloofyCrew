@@ -8,7 +8,11 @@ produce a tree for the public remote:
 
 1. **Copy the public set** — an explicit include list (`PUBLIC_SET`). Anything
    not named is out by construction: internal-only directories are never
-   consulted, so the exporter needs no exclude list of them.
+   consulted, so the exporter needs no exclude list of them. Inside the set,
+   only files **git tracks** are copied: an unreleased mod, in-flight scratch
+   work or a dev-linked mod's `.floofy/` runtime state never ship, and the few
+   tracked files written for the internal audience alone (`INTERNAL_ONLY_FILES`)
+   are dropped with their index rows.
 2. **Drop internal-only mods** (`EXCLUDED_MODS`): mods that patch internal-only
    hosts or ship fan artwork stay out, and their rows are removed from
    `mods/README.md`. `WITHHELD_MODS` are dropped the same way but for now only:
@@ -43,13 +47,14 @@ Standard library only, so it runs on any Python 3.12 without a virtualenv.
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCANNER = REPO_ROOT / "scripts" / "check_no_internal_identifiers.py"
@@ -122,11 +127,18 @@ INTERNAL_ONLY_END = ":".join(("floofy", "internal-only", "end"))
 #: own syntax (a markdown table row carries it as an inline HTML comment).
 INTERNAL_ONLY_LINE = ":".join(("floofy", "internal-only", "line"))
 
-#: Directory names never copied (caches, build output, environments).
+#: Directory names never copied (caches, build output, environments, and the
+#: ``.floofy/`` runtime state a dev-linked mod keeps beside its sources).
 SKIP_NAMES: frozenset[str] = frozenset(
     {".git", "__pycache__", "node_modules", ".venv", ".scratch", "dist", "build",
-     ".pytest_cache", ".hypothesis", ".floofy-run", ".builder-mcp", ".cache"}
+     ".pytest_cache", ".hypothesis", ".floofy-run", ".builder-mcp", ".cache", ".floofy"}
 )
+
+#: Files inside a public-set directory that are for the internal audience only
+#: and have no public counterpart (the migration guide is for the standalone
+#: patcher that only ever existed internally). Their index rows carry the
+#: single-line marker so the stripper drops them too.
+INTERNAL_ONLY_FILES: tuple[str, ...] = ("docs/migrating-from-the-standalone-patcher.md",)
 
 #: The identity every commit bound for the public remote carries. GitHub links a
 #: commit to an account through the author/committer e-mail, so this is the
@@ -152,25 +164,33 @@ class ExportError(RuntimeError):
     """A failed precondition or a dirty scan; the message says which."""
 
 
-def _untracked_mods() -> frozenset[str]:
-    """Mod directories with no git-tracked file: someone's work-in-progress.
+@functools.cache
+def _tracked() -> tuple[frozenset[str], frozenset[str]]:
+    """``(files, directories)`` git tracks, as repository-relative POSIX paths.
 
-    An unreleased mod must not ship publicly, and an agent's in-flight scratch
-    work must not leak — only mods that are part of a commit are exportable.
+    The export ships what is committed, nothing else: an unreleased mod, an
+    agent's in-flight scratch work, or the ``.floofy/`` runtime state a
+    dev-linked mod writes beside its sources are all untracked, so they never
+    reach the public tree even when they sit inside a public-set directory.
     """
-    result = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-files", "mods"], capture_output=True, text=True)
-    tracked = {line.split("/", 2)[1] for line in result.stdout.splitlines() if line.count("/") >= 1}
-    mods_dir = REPO_ROOT / "mods"
-    if not mods_dir.is_dir() or result.returncode != 0:
-        return frozenset()
-    return frozenset(p.name for p in mods_dir.iterdir() if p.is_dir() and p.name not in tracked)
+    result = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-files", "-z"], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise ExportError("git ls-files failed; the export needs the repository's index to tell tracked files apart")
+    files = frozenset(p for p in result.stdout.split("\0") if p)
+    directories = frozenset(parent.as_posix() for p in files for parent in PurePosixPath(p).parents if parent.as_posix() != ".")
+    return files, directories
 
 
 def _ignore(directory: str, names: list[str]) -> set[str]:
     ignored = {n for n in names if n in SKIP_NAMES}
+    tracked_files, tracked_dirs = _tracked()
+    relative_dir = Path(directory).resolve().relative_to(REPO_ROOT)
+    for name in names:
+        rel = (relative_dir / name).as_posix()
+        if rel in INTERNAL_ONLY_FILES or (rel not in tracked_files and rel not in tracked_dirs):
+            ignored.add(name)
     if Path(directory) == REPO_ROOT / "mods":
         ignored.update(n for n in names if n in DROPPED_MODS)
-        ignored.update(n for n in names if n in _untracked_mods())
     return ignored
 
 

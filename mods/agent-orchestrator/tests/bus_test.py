@@ -38,7 +38,7 @@ def slots(*, extra=None, gone=()):
         {"key": "orch", "title": "goal: port to rust", "agent": "agent-orchestrator", "running": True, "created_by": ""},
         {"key": "w1", "title": "worker-1: billing", "agent": "agent-orchestrator-worker", "running": True, "created_by": ORCH},
         {"key": "w2", "title": "worker-2: queue", "agent": "agent-orchestrator-worker", "running": False, "created_by": ORCH},
-        {"key": "other", "title": "unrelated chat", "agent": "o3r_default", "running": False, "created_by": ""},
+        {"key": "other", "title": "unrelated chat", "agent": "desk-default", "running": False, "created_by": ""},
     ]
     base = [s for s in base if s["key"] not in gone]
     return base + list(extra or [])

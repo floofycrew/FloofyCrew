@@ -108,11 +108,11 @@
     },
     {
       "path": "tests/bus_test.py",
-      "sha256": "e296f96cb75014f604a33ad3485086b3015ce7fa5ae0f544fc0a83c9d4df13bf"
+      "sha256": "839323ee023cac6fb315e89d1a70de413612ac6119500018c9c7468c0934ea2f"
     },
     {
       "path": "tests/graph_test.py",
-      "sha256": "c6cd3a75712da745dff06849363d3f29777f28948dd1ebdf7372c730f8feb8f2"
+      "sha256": "17df061542d491ffee3911947c163ab45ab49fed8a41b387a22f7aec73c6b0b2"
     },
     {
       "path": "tests/hook_test.py",

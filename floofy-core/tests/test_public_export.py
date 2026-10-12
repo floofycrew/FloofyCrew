@@ -65,6 +65,32 @@ def test_withheld_mods_are_a_separate_set() -> None:
     assert set(exporter.DROPPED_MODS) == set(exporter.EXCLUDED_MODS) | set(exporter.WITHHELD_MODS)
 
 
+def test_every_exported_file_is_git_tracked(export_tree: Path) -> None:
+    """The export ships what is committed and nothing else. The audit before the
+    first 1.3.6 sync found a dev-linked mod's ``.floofy/`` runtime state (its log,
+    journal and config, gitignored in the source tree) copied into the public tree
+    because the exporter walked the working tree; now an untracked path never
+    reaches the export, wherever it sits inside a public-set directory."""
+    tracked = set(subprocess.run(["git", "-C", str(REPO_ROOT), "ls-files", "-z"], capture_output=True,
+                                 text=True, check=True).stdout.split("\0"))
+    untracked = sorted(p.relative_to(export_tree).as_posix() for p in export_tree.rglob("*")
+                       if p.is_file() and p.relative_to(export_tree).as_posix() not in tracked)
+    assert untracked == [], f"untracked files reached the export: {untracked[:10]}"
+    assert not list(export_tree.rglob(".floofy")), "a mod's .floofy/ runtime state reached the export"
+
+
+def test_internal_only_files_are_dropped_with_their_index_rows(export_tree: Path) -> None:
+    """A tracked file written for the internal audience alone (the migration guide
+    for the standalone patcher that only ever existed internally) is left out, and
+    the docs index row that pointed at it goes with it."""
+    for rel in exporter.INTERNAL_ONLY_FILES:
+        assert (REPO_ROOT / rel).is_file(), f"internal-only file is not in the tree: {rel}"
+        assert not (export_tree / rel).exists(), f"internal-only file exported: {rel}"
+        index = (export_tree / Path(rel).parent / "README.md").read_text(encoding="utf-8")
+        assert Path(rel).name not in index, f"the exported index still links {rel}"
+    assert (export_tree / "docs" / "README.md").is_file()
+
+
 def test_internal_only_regions_are_stripped(export_tree: Path) -> None:
     """The README's internal-edition install block and marked table rows are for
     the internal audience only; the export must carry neither them nor any marker."""

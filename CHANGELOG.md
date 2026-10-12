@@ -11,6 +11,29 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **Public export audit (before the first GitHub sync since 1.3.0).** The
+  exporter now ships **only git-tracked files**: a dev-linked mod's `.floofy/`
+  runtime state (log, journal, config — gitignored in the source tree) had been
+  copied into the export because the exporter walked the working tree. A new
+  `INTERNAL_ONLY_FILES` list drops the standalone-patcher migration guide (that
+  patcher only ever existed internally) together with its docs-index row; the
+  internal registry package's rendering test moved to the internal adapter's
+  own test directory, where its fixture can exist. Two tests pin
+  the rules (every exported file is tracked; internal-only files and rows are
+  gone).
+- **The de-Amazon checker scans `LICENSE` files again.** The licensing carve-out
+  had exempted every `LICENSE*` file, which hid an account alias in the copyright
+  line of three mod licences (`agent-backend-doctor`, `kiro-spec-plan`,
+  `model-retry-policy`; also the withheld `agent-backend-router`). Only
+  `NOTICE`/`COPYING` files and `licenses/` directories — upstream attribution
+  reproduced verbatim — stay exempt. The four copied-in "fan artwork" scope
+  paragraphs in `custom-themes`, `settings-demo`, `os-notify-bridge` and
+  `display-comfort` (they belonged to `rimuru-branding` and named the internal
+  repository) are removed; a stale predecessor name in boot-script comments, two
+  test fixtures and a registry-template example are neutral now. Every touched
+  mod's `files[]` hashes are refreshed in place (same versions; the registry
+  treats a same-version commit as a refresh).
+
 ## 1.3.6 — 2026-10-12
 
 A patch on 1.3.5 that ships ten days of work on the manager and its mods, and
