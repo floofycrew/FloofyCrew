@@ -13,7 +13,7 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Changed
 
-* **Public-export commits are the maintainer's GitHub commits.**
+- **Public-export commits are the maintainer's GitHub commits.**
   `scripts/export_public.py --out <clone>` now pins the maintainer's public git
   identity (`PUBLIC_GIT_NAME` / `PUBLIC_GIT_EMAIL`, spelled once in the script)
   in the public clone's own config, so the commit made there is linked to the
@@ -23,7 +23,7 @@ KiroCrew; it never ships a rebuilt host.
   commit, or any commit a push would publish (`@{upstream}..HEAD`), carries
   another identity, before the model is asked; the exporter's refusals now exit
   2 from the review CLI instead of a traceback.
-* **The edition's registry is there from the first start, and it stays.**
+- **The edition's registry is there from the first start, and it stays.**
   FloofyCrew's own registry for the running edition (`floofycrew-internal` on
   the internal edition, `floofycrew` on the public one, each verified against
   the key the edition pins) used to wait for a *Record the edition's default
@@ -43,7 +43,7 @@ KiroCrew; it never ships a rebuilt host.
   to add the host App Store row. `registry list` flags the row
   (`editionDefault`); the App's manual *Record…* button is gone.
   Requirement 8.12.
-* **The Mods page, laid out as asked.** *Mod pages* is one compact line per mod
+- **The Mods page, laid out as asked.** *Mod pages* is one compact line per mod
   with its own page — icon + mod name | mod id — and the **name is the link**
   that opens the page (dimmed and unlinked, with the reason beside it, while the
   mod is not active); the "Open …" buttons and the short-lived gear icon are
@@ -56,7 +56,7 @@ KiroCrew; it never ships a rebuilt host.
   The per-row Settings panel of 1.3.4 is retired; an enabled mod that is not
   running shows its typed reason beside its name, so the switch alone never
   hides a fault.
-* **Every wait is visible.** Installing, updating, uninstalling, enabling,
+- **Every wait is visible.** Installing, updating, uninstalling, enabling,
   reloading and restoring take seconds — the Loader runs the floofy CLI, which
   clones a repository or reads a registry before it can even *ask* the
   confirmation question. The button that was clicked now spins with a busy label
@@ -72,7 +72,7 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Mods
 
-* `agent-backend-doctor` 0.2.0 — keeps a Bedrock-backed Codex's AWS credentials
+- `agent-backend-doctor` 0.2.0 — keeps a Bedrock-backed Codex's AWS credentials
   usable inside KiroCrew's sandbox. Codex is a tool-gate-enforced harness whose
   sandbox hides `~/.aws`, and on the internal edition the credential broker that
   wraps every non-Claude spawn hands the child `AWS_CONFIG_FILE` /
@@ -93,7 +93,7 @@ KiroCrew; it never ships a rebuilt host.
   inside the child's own mask; only the exit status and Account / Arn kept) and
   `/toggle`; a page panel; public `codex_launch_record` / `repair_codex_awsenv`
   / `classify_codex_failure` for other mods.
-* `agent-backend-router` 0.3.0 — structured routing diagnostics per session
+- `agent-backend-router` 0.3.0 — structured routing diagnostics per session
   (selected backend, model / provider, AWS profile, whether the doctor's isolated
   config was applied, preflight verdict, retry count, redacted failure class,
   launch state) in the page's *Session launches* table, the exports and one JSON
@@ -117,7 +117,7 @@ KiroCrew; it never ships a rebuilt host.
   host's advertised-model cache, so the router now reads `available_models()`
   off every session it starts on such a backend and keeps the list itself.
   The page folds the pairs into one row per model.
-* `model-retry-policy` 0.1.3 — the policy now reaches the errors that actually
+- `model-retry-policy` 0.1.3 — the policy now reaches the errors that actually
   end long turns. KiroCrew's retry ladder (the three retries this mod replaces)
   only runs while a turn has produced no output; an error that lands after text
   or a tool call has streamed goes down a separate dashboard path that
@@ -137,7 +137,7 @@ KiroCrew; it never ships a rebuilt host.
   deactivate restores the host method. The page shows the mid-turn budget in
   force, a recoveries counter and the events; sub-agents keep the host's own
   one-shot (a hand-maintained copy in `subagent.py`, not yet hooked).
-* `model-retry-policy` 0.1.2 — ships a `files[]` that every install can verify:
+- `model-retry-policy` 0.1.2 — ships a `files[]` that every install can verify:
   0.1.1's manifest listed six `__pycache__/*.pyc` entries that its smoke test's
   `--refresh` had hashed from the working tree, which git never commits and no
   install carries, so the registry's `validate-submission` (and any install from
@@ -149,7 +149,36 @@ KiroCrew; it never ships a rebuilt host.
   an explicit boolean `false` as off (a malformed value already on disk heals
   itself), and a headless page probe replays the pick / toggle / count /
   profile / reload sequence against a stateful fake api.
-* `agent-backend-router` 0.2.0 — routes across model namespaces: Claude Code
+- `agent-orchestrator` 0.2.3 — a run goes when its chats go. A run whose chats
+  had been deleted stayed on the graph page for ever as *archived (sessions
+  gone)* and runs piled up: the record on disk was only swept when closed and
+  older than `run_retention_days`, and a never-closed run (an orchestrator that
+  stopped without `bus_run close`) never aged. The page now follows the host's
+  two notions. Deleting a chat for good (the host's session delete, or the bulk
+  clear) removes the run's record through after hooks — at once when no worker
+  tab is open, else when the last worker chat goes. Closing tabs only moves
+  chats to history, so such a run is drawn as *archived (chats gone)* with a
+  Remove button (`POST runs/remove`, refused with `run_live` while any tab of
+  the run is open). An hourly sweep on the slots push ages out closed runs and
+  idle never-closed runs, never a live one, and drops records whose transcript
+  the host no longer has; the first sweep after activation is forced, so a run
+  deleted while the mod was inactive goes at the first slots push instead of
+  the hourly tick (0.2.3). `follow_session_delete` (default on) switches the
+  delete hooks off.
+- `agent-backend-doctor` 0.1.0 (new) — finds and un-caches KiroCrew's
+  agent-backend harnesses (Claude Code, Codex, OpenCode, pi). A `python-hook`
+  sits after the host's Node-adapter resolver and the plain-binary ladders and
+  fills a miss from the npm global prefixes the host does not search
+  (`~/.local/node`, `~/.npm-global`, a `~/.npmrc` prefix, `$NPM_CONFIG_PREFIX`)
+  with the host's own completeness rule; on activation and on demand it resets
+  the gateway's cached *not found*, so a backend installed after the gateway
+  started works without a restart. A `ui` page shows one row per backend (host
+  verdict, adapter path and rung, CLI, cache state, advertised models) with an
+  opt-in `CODEX_PATH` switch and an opt-in symlink repair into `~/.local/bin`.
+  Proven on KiroCrew 0.8.0.6, where `claude-agent-acp` and `codex-acp` sat
+  under `~/.local/node` after the host had searched 27 directories and missed
+  them.
+- `agent-backend-router` 0.2.0 — routes across model namespaces: Claude Code
   and Codex join the pool when installed, and a session goes to one of them
   only when that backend's own served-model list carries the very same model
   (same base name and, where the id spells it, the same context window), in
@@ -163,7 +192,7 @@ KiroCrew; it never ships a rebuilt host.
   list, lets you declare served ids for a backend whose list is still cold,
   and answers "which backends may serve model X?" for any id. New config keys
   `cross_namespace` (default on) and `served_overrides`.
-* `agent-orchestrator` 0.2.0 (new) — real parallel multi-agent orchestration
+- `agent-orchestrator` 0.2.0 (new) — real parallel multi-agent orchestration
   with a centralized orchestrator: an orchestrator session divides a goal into
   items, runs one `agent-orchestrator-worker` session per item at the same time
   and coordinates them live over a typed, bounded message bus (a stdlib stdio
@@ -209,7 +238,7 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Fixed
 
-* **Bytecode can no longer be hashed into `files[]`.** Both `files[]`
+- **Bytecode can no longer be hashed into `files[]`.** Both `files[]`
   refreshers — `floofy_core.scaffold.refresh_files` and the `tests/smoke_test.py
   --refresh` that `floofy new` scaffolds — walked every non-dot file, so a mod
   refreshed after its tests had run listed `__pycache__/*.pyc`; git ignores
@@ -221,7 +250,7 @@ KiroCrew; it never ships a rebuilt host.
   them as `UnshippableFile` instead of passing a manifest that would fail on
   the first install.
 
-* **A `replace` hook can let the host's own error through without faulting
+- **A `replace` hook can let the host's own error through without faulting
   (api 1.3.0).** A mod that wrapped `AcpProvider.start` to retry a failed spawn
   once could not exist: when `call_next` raised, the Loader treated the
   exception as the mod's, disabled the mod with reason `Error` and ran the
@@ -232,7 +261,7 @@ KiroCrew; it never ships a rebuilt host.
   code faults the mod. `floofy.api_version` is `1.3.0`; a mod that relies on
   this should feature-detect it ([docs/python-api.md](docs/python-api.md)).
 
-* **An update no longer fails on a live socket in `.floofy/`.** `floofy
+- **An update no longer fails on a live socket in `.floofy/`.** `floofy
   install` keeps a mod's runtime state across an update by copying `.floofy/`
   aside; a python-hook that holds a unix socket there (the agent-orchestrator
   bus) made that copy raise `[Errno 6] No such device or address` and the whole
@@ -241,7 +270,7 @@ KiroCrew; it never ships a rebuilt host.
   files and directories still survive. Until a release carries this, update
   such a mod with `floofy disable <id>` first.
 
-* **`mod.log` keeps receiving lines after an update.** The same copy-aside of
+- **`mod.log` keeps receiving lines after an update.** The same copy-aside of
   `.floofy/` gives `mod.log` a new inode, while the Loader's process-wide mod
   logger still held the old one open — so every line a python-hook logged
   after `floofy install` of an update (its "active" line included) vanished
@@ -249,7 +278,7 @@ KiroCrew; it never ships a rebuilt host.
   Loader now reopens the handler when the file on disk is not the one it
   holds, the way `WatchedFileHandler` does.
 
-* **A mod's manifest `icon` no longer breaks the registry index.** A manifest
+- **A mod's manifest `icon` no longer breaks the registry index.** A manifest
   `icon` is a relative path to a file shipped with the mod (`floofy.schema`);
   `registry_tools build` copied it into the index entry, whose schema wants a
   URL, so recording the first mod with one (kirocrew-ide 0.17.2) made
