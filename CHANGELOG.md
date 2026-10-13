@@ -11,6 +11,11 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **agent-backend-doctor 0.2.1: `backend_ready(backend)`.** A blocking,
+  read-only readiness verdict for a NEW session on a backend: host probe, the
+  doctor's discovery on a host miss, the spawn-path cache (`needs_forget`) and,
+  for Codex with the launch environment on, the read-only preflight (plan-level
+  verdicts block; an unbuilt pair does not).
 - **agent-backend-router 0.3.1: the host's own backend gets no exemption from the
   model rule.** 0.3.0 always admitted the requested backend (`agent.acp_backend`)
   on the theory that a harness handed a model it does not serve fails the

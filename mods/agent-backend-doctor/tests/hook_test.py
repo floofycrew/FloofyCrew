@@ -444,3 +444,56 @@ def test_probe_refuses_to_run_unmasked_when_the_sandbox_cannot_be_built(world, m
     out = world.H.probe_awsenv(sandboxed=True)
     assert out["ok"] is False and out["sandboxed"] is False and "refusing to probe unmasked" in out["error"]
     assert out["preflight"] == "ok"
+
+
+# --- backend_ready: the readiness read another mod takes before moving a session ----------------------------------------------
+
+
+def test_backend_ready_reads_the_host_probe_and_the_cache(world):
+    world.H.activate(world.ctx)
+    kiro = world.H.backend_ready("")
+    assert kiro["ready"] is True and kiro["installed"] == "installed" and kiro["found_by"] == "host" and kiro["needs_forget"] is False
+    assert kiro["awsenv"] is None, "kiro has no AWS launch environment"
+    claude = world.H.backend_ready("claude")
+    assert claude["ready"] is False and claude["installed"] == "missing" and claude["found_by"] == ""
+    assert "not installed" in claude["detail"] and "no complete install" in claude["detail"]
+
+
+def test_backend_ready_counts_an_adapter_the_doctor_found_and_flags_a_cached_negative(world):
+    world.H.activate(world.ctx)
+    _codex_tree(world.home)
+    world.client._codex_acp_argv_cache = (None, "/usr/bin")  # the gateway remembers a miss from before the install
+    out = world.H.backend_ready("codex")
+    assert out["installed"] == "installed" and out["found_by"] == "doctor"
+    assert out["cache"] == "negative" and out["needs_forget"] is True
+    assert out["ready"] is True and out["awsenv"] == "not_applied", "the pair is built by the launch hook; an unbuilt pair is not a readiness problem"
+    assert "found by the doctor" in out["detail"] and "cached 'not found' must be cleared" in out["detail"]
+    assert world.client._codex_acp_argv_cache == (None, "/usr/bin"), "a readiness read never repairs; the caller runs forget() on the loop"
+    assert not (world.host_home / "codex-aws").exists(), "and never writes the isolated config"
+
+
+def test_backend_ready_refuses_a_codex_whose_preflight_fails(world):
+    world.H.activate(world.ctx)
+    _codex_tree(world.home)
+    (world.home / ".codex" / "config.toml").write_text(CODEX_TOML.replace("codex-work", "keys"))
+    out = world.H.backend_ready("codex")
+    assert out["installed"] == "installed" and out["ready"] is False and out["awsenv"] == "static_only"
+    assert "preflight says 'static_only'" in out["detail"]
+    world.H._awsenv_toggle(FakeRequest({"enabled": False}))
+    out = world.H.backend_ready("codex")
+    assert out["ready"] is True and out["awsenv"] is None, "with the launch environment off the preflight is not consulted"
+
+
+def test_backend_ready_treats_an_undecided_probe_as_present(world, monkeypatch):
+    world.H.activate(world.ctx)
+    import kiro_crew.agent_sdk as sdk  # noqa: PLC0415
+
+    class Undecided:
+        installed = "unknown"
+        missing_components = ()
+        install_command = ""
+        restart_required = False
+
+    monkeypatch.setattr(sdk, "probe_backend", lambda b: Undecided())
+    out = world.H.backend_ready("kas")
+    assert out["ready"] is True and out["installed"] == "unknown" and "could not decide" in out["detail"]

@@ -115,7 +115,15 @@ re-point a client's `_extra_env` (the agent-backend-router's one repair before
 its one retry); `classify_codex_failure(message, transient=, reached_model=)` —
 the redacted failure category (`credentials` / `credential_process` /
 `endpoint_auth` / `throttle` / `timeout` / `model` / `server` / `stream_cleanup` /
-`http` / `transient` / `error`) and whether it is repairable.
+`http` / `transient` / `error`) and whether it is repairable;
+`backend_ready(backend)` (0.2.1) — would a NEW session on that backend start
+right now: the host's install probe, this mod's discovery when the host says
+missing, the spawn path's cache (`needs_forget`: a cached "not found" the
+caller clears with `forget()` on the event loop before starting), and for
+Codex with the launch environment on, the read-only preflight verdict
+(`static_only` / `profile_missing` / … block; an unbuilt pair does not, the
+launch hook builds it). Blocking, reads only, never raises — the Model Retry
+Policy's backend failover asks it before moving a throttled chat.
 
 ## What it never does
 
