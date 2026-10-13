@@ -2,8 +2,8 @@
   "schema": 1,
   "id": "model-retry-policy",
   "name": "Model Retry Policy",
-  "version": "0.1.3",
-  "description": "Chooses what KiroCrew does when the model or its API fails transiently (throttling, overload, 5xx, dropped stream) instead of the fixed three retries: a retry count of your own, retry forever at a fixed interval, retry forever with exponential backoff, or a fallback profile that moves to other models after N retries (and optionally never gives up on the last). Applies to dashboard chats (including errors that land mid-turn, after text or a tool call has streamed), cron/Slack turns and sub-agents; works alongside Agent Backend Router. Unofficial.",
+  "version": "0.2.0",
+  "description": "Chooses what KiroCrew does when the model or its API fails transiently (throttling, overload, 5xx, dropped stream) instead of the fixed three retries: a retry count of your own, retry forever at a fixed interval, retry forever with exponential backoff, or a fallback profile that moves to other models after N retries (and optionally never gives up on the last). Applies to dashboard chats (including errors that land mid-turn, after text or a tool call has streamed), cron/Slack turns and sub-agents. Opt-in backend failover: when a dashboard chat's same-model retries are spent, the chat is moved to another agent backend that serves the SAME model (kiro-cli, KAS, Claude Code, Codex \u2014 as Agent Backend Router's served lists allow and Agent Backend Doctor confirms the backend is usable), the conversation replayed by KiroCrew's own provider-switch replay; the model never changes. Unofficial.",
   "authors": [
     "Oscar Tseng"
   ],
@@ -13,7 +13,8 @@
     "backoff",
     "fallback",
     "throttling",
-    "models"
+    "models",
+    "backend-failover"
   ],
   "kirocrew": {
     "version": ">=0.7.0 <0.9.0",
@@ -24,10 +25,17 @@
     "strict": false
   },
   "dependsOn": {
-    "floofycrew": "^1.0"
+    "floofycrew": "^1.0",
+    "agent-backend-doctor": {
+      "range": ">=0.2.1 <1.0.0",
+      "reason": "answers whether a failover target is usable right now (installed, its cached 'not found' cleared, a Bedrock-backed Codex's credential chain intact) before a throttled chat is moved there"
+    }
   },
   "recommends": {
-    "agent-backend-router": ">=0.1.0"
+    "agent-backend-router": {
+      "range": ">=0.3.2",
+      "reason": "the backend failover needs the router's served-list rule and route requests; without it the mechanism stays off and the page says so"
+    }
   },
   "network": {
     "hosts": [],
@@ -57,19 +65,19 @@
     },
     {
       "path": "README.md",
-      "sha256": "c6546bdc3ce5288433477ad2613ffa0b9cb081c0b87ab0823dec5e320e2f49da"
+      "sha256": "42406f20d69b91c4d95a48d8796d4235957bcd459802cb8b09f19426e534e4ee"
     },
     {
       "path": "hook/__init__.py",
-      "sha256": "8ae313d354677e0752cf7fabd132fd028d55a90e0a05a4486fd0cf3c5a35f36d"
+      "sha256": "1a07a817ed43d1c4b96c2fe622cf423989c672e24b794f8d12d98eac8cedcb5d"
     },
     {
       "path": "hook/policy.py",
-      "sha256": "f1641d70e2920459f01c6dd3a4aada5f2c6a4a9f2b06465889b5910debc50079"
+      "sha256": "a9af25646c958a171ffbaaa61976bb767f84581bc475ebaa0e31b8f9c59a4b14"
     },
     {
       "path": "tests/hook_test.py",
-      "sha256": "af74c8e0c7d16558b91559bcf4577da7b660373f3238501428e567a139c78ad5"
+      "sha256": "25bd2b053f057165de938ffb9fe55dd6e7bf484dc82c7b3a32294e79c2755ee1"
     },
     {
       "path": "tests/page_merge_test.py",
@@ -77,11 +85,11 @@
     },
     {
       "path": "tests/page_probe.py",
-      "sha256": "3349aa7adbf2be51a316eb2b52f0c26cb79a6c6fd2251c9182f00172cade2aea"
+      "sha256": "e7dc5b3571459c57b4b5340ca8077bda3fd0da7ceaf9f6d5dd34352945af9cd2"
     },
     {
       "path": "tests/policy_test.py",
-      "sha256": "5457872b719e225824f3c1211cd6c8c5ebafcee26cc9fddca529b14ae1f8ab22"
+      "sha256": "f66b83c7344d882954293b4039a7fb03e333a0fd2528a111b09958d9dd605969"
     },
     {
       "path": "tests/smoke_test.py",
@@ -93,7 +101,7 @@
     },
     {
       "path": "ui/page.mjs",
-      "sha256": "5beab8e31ad864250932306a10a9442a50574fef06d2b8a7e9b10793c7c262a2"
+      "sha256": "b2e67f768a4a7752b195d3d8411f07503cfb3557d72fc611c04cbac5275b9460"
     }
   ]
 }

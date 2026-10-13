@@ -254,3 +254,35 @@ def test_journal_survives_a_corrupt_file(tmp_path):
 def test_merged_config_accepts_garbage(bad):
     c = P.merged_config(bad)
     assert P.is_host_behaviour(c)
+
+
+# --- backend failover -------------------------------------------------------------------------------------------
+
+
+def test_backend_failover_defaults_off_and_sanitises():
+    c = P.merged_config({})
+    assert c["backend_failover"] == {"enabled": False, "max_per_turn": 2, "cooldown_s": 120.0, "exclude": []}
+    assert P.backend_failover(c) is None and P.describe(c)["failover"] is None
+    c = P.merged_config({"backend_failover": {"enabled": True, "max_per_turn": 99, "cooldown_s": -5, "exclude": ["", "Claude", "co dex", 7, "x" * 40]}})
+    bf = P.backend_failover(c)
+    assert bf == {"enabled": True, "max_per_turn": P.FAILOVER_MAX_PER_TURN, "cooldown_s": 0.0, "exclude": ["kiro", "claude"]}
+    assert P.is_host_behaviour(c) is False, "an enabled failover is an override even with the host's retries and curve"
+    assert P.preset_of(c) == "host", "but it is not one of the four mechanisms: the mechanism cards still read KiroCrew default"
+    d = P.describe(c)
+    assert d["failover"] == f"up to {P.FAILOVER_MAX_PER_TURN} backend move(s) per turn, skip a backend throttled within 0 s, never kiro, claude"
+    assert d["failover_blocked_by_infinite_retries"] is False
+    c = P.merged_config({"backend_failover": {"enabled": "yes"}})
+    assert P.backend_failover(c) is None, "only an explicit boolean switches it on"
+    c = P.merged_config({"enabled": False, "backend_failover": {"enabled": True}})
+    assert P.backend_failover(c) is None, "the policy's master switch wins"
+    c = P.merged_config({"retries": {"mode": "infinite"}, "backend_failover": {"enabled": True}})
+    assert P.describe(c)["failover_blocked_by_infinite_retries"] is True, "infinite retries never spend the budget, so the failover never fires"
+
+
+def test_journal_counts_failovers_and_round_trips_the_backend_field(tmp_path):
+    path = str(tmp_path / "journal.json")
+    j = P.Journal(path)
+    j.record(P.Event(ts=1.0, surface="dashboard", kind="failover", attempt=1, model="claude-opus-4.8", previous="kiro", backend="kas", detail="move 1/2 this turn"))
+    j.flush(force=True)
+    again = P.Journal(path)
+    assert again.counters.failovers == 1 and again.recent()[-1].backend == "kas" and again.recent()[-1].previous == "kiro"

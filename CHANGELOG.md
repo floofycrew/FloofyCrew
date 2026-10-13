@@ -11,6 +11,29 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **model-retry-policy 0.2.0: backend failover.** Opt-in. When a dashboard
+  chat's same-model retries are spent, the chat is moved to another agent
+  backend that serves the SAME model (kiro-cli ↔ KAS ↔ Claude Code ↔ Codex)
+  before any model chain is walked — the model never changes. A session's
+  backend is its harness process, so the move is the host's own three steps for
+  a provider change, arranged from two seams: the existing `replace` on the
+  dashboard's `_fallback_swap_for_turn` asks `agent-backend-router` which
+  backends list the model (`failover_candidates`), skips one that itself
+  throttled within `cooldown_s` or that `agent-backend-doctor` says is not
+  usable right now (`backend_ready`), files a route request for the session's
+  next cold start (`request_route`), marks the key pending and lets the host
+  re-queue the message; a new `replace` on `SessionManager.get_or_create` resets
+  the key's live session when that message is dequeued and the allocation
+  cold-starts on the requested backend, where the host's provider-switch replay
+  rebuilds the conversation from its own log. At most `max_per_turn` moves per
+  user turn, an `exclude` list, pinned agents never moved, dashboard chats
+  only, a pending move cancelled when the ladder gives up. The chat notice says
+  what happened; the page gains a Backend failover section (toggle, limits,
+  exclusions, support picture, a preview of where the default model would go,
+  the pending / last move) and a `failover` route; the journal counts
+  `failover` events. New hard dependency `agent-backend-doctor >=0.2.1`, the
+  router is `recommends >=0.3.2` (without it the mechanism stays off and the
+  page says so).
 - **agent-backend-router 0.3.2: a route-request API for other mods.**
   `failover_candidates` / `request_route` / `cancel_route_request` /
   `route_request`; a request is honoured at construction inside the usual fence

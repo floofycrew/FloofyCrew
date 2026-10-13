@@ -14,16 +14,25 @@ candidate), then the error. This mod lets you choose instead:
 | **Retry forever, backoff** | exponential backoff between retries (base × factor^n, capped) — never gives up |
 | **Fallback profile** | retry the primary N times, then move to the next model in the profile for its own number of attempts, and so on; when the chain is exhausted either show the error or keep retrying the last model forever |
 
+Independent of those, and off by default:
+
+| Mechanism | What it does |
+|---|---|
+| **Backend failover** | when a dashboard chat's same-model retries are spent, move the chat to **another agent backend that serves the same model** (kiro-cli ↔ KAS ↔ Claude Code ↔ Codex) before any model chain is walked; the model never changes, the conversation is replayed on the new backend |
+
 It applies to every surface that retries: dashboard chats, cron and Slack turns
 (`stream_and_collect`), and sub-agents. The page shows the sequence of attempts
 your settings produce before you save them, and a live log of the retries,
-model switches and exhaustions that actually happened.
+model switches, backend moves and exhaustions that actually happened.
 
 Designed to run alongside **Agent Backend Router**: that mod picks which agent
 backend a *session* runs on; this one governs what a *turn* does when its
-model fails. Their hooks touch different host seams. Note that each retry is a
-new turn attempt, so the router's telemetry counts every failed attempt as an
-error sample (its own fallback strategy trips on those).
+model fails — and, for the backend failover, asks the router where a throttled
+session may go and files the request for its next start. Their hooks touch
+different host seams. Note that each retry is a new turn attempt, so the
+router's telemetry counts every failed attempt as an error sample (its own
+fallback strategy trips on those). The failover also depends on **Agent Backend
+Doctor**, which answers whether a target backend is usable right now.
 
 ## How it hooks in
 
@@ -71,6 +80,65 @@ counter, and the sub-agent runner's own one-shot post-output recovery (a
 hand-maintained copy of the dashboard rule in `subagent.py`; sub-agents are
 covered for pre-output errors only).
 
+## Backend failover
+
+KiroCrew fixes a session's agent backend when the session is created: the
+backend *is* the harness process (kiro-cli's v2 loop, the KAS relay, Claude
+Code's adapter, codex-acp), and nothing in the gateway can hand a live
+process's conversation to another one. What the host does have is a
+cross-backend continuity path it uses for its own model and agent switches:
+reset the session (process gone, conversation entry kept), cold-start a new
+one, and — because the provider label changed — replay the conversation from
+KiroCrew's own `conversation_log` as the first prompt
+(`build_session_replay`; ~20K tokens at most, scaled to the model window,
+tool results omitted).
+
+The failover arranges exactly those three steps when a throttle exhausts the
+same-model budget, from two seams:
+
+1. **`_fallback_swap_for_turn`** — the host's model-swap seam, where this mod
+   already sits. When the failover is on and the session is not yet on a
+   fallback model, the hook asks the router for the backends that could take
+   the session over *on the same model* (`failover_candidates`: the configured
+   pool in order after the current backend, each one passed through the
+   router's served-list identity rule and its agent pins), skips any that
+   itself throttled within `cooldown_s` or that the doctor says is not usable
+   right now (`backend_ready`: not installed, or a Codex whose AWS preflight
+   would fail; a cached "not found" is cleared on the way), files a route
+   request with the router for the session's next cold start
+   (`request_route`), marks the session key *pending*, and answers the ladder
+   with the model itself — so the host re-queues the same message, exactly as
+   it does after its own model swap, and the counter is rewound to give the new
+   backend the whole same-model budget.
+2. **`SessionManager.get_or_create`** — the allocation the dashboard performs
+   when the re-queued message is dequeued. For a pending key the hook first
+   runs the host's own `reset` (skipped, and the move dropped, if a turn is
+   still in flight on the key), then lets the allocation cold-start. The router
+   honours the request at construction (inside its usual fence), the host sees
+   a new provider label with a stored session id, clears the id and arms the
+   replay. Every other key passes straight through.
+
+The throttle notice in the chat says what happened ("… is throttled on kiro —
+moving this chat to kas with the same model …"). Limits: at most
+`max_per_turn` moves per user turn (the default 2 walks a three-backend pool
+before handing over to whatever model chain is configured); a backend named in
+`exclude` is never a target; a pinned agent (Spec, Plan, …) is never moved;
+only dashboard chats (the unattended ladders have no session to reset); a
+session already on a fallback model is left to the model chain. The move costs
+one cold start (measured 8–13 s typically, with outliers to 50 s) plus the
+replay prompt, re-billed on every move, and the harness's own tool results and
+compaction state are not carried. With "retry forever" the same-model budget is
+never spent, so the failover never fires — the page says so.
+
+Needs: **Agent Backend Router ≥ 0.3.2** (its public `failover_candidates` /
+`request_route`; without it the mechanism stays off and the page reports
+"not active") and **Agent Backend Doctor ≥ 0.2.1** (a hard dependency: its
+`backend_ready` is what keeps a throttled chat from being moved onto a backend
+that will not start). A pending move that is never dequeued (Stop during the
+backoff, a nested turn) is cancelled with its route request; the mod's
+`failover` route and page section show pending moves, the last outcome, and
+a preview of where the host's default model would go.
+
 ## Configuration
 
 Edited from the page; stored in the mod's `config.json`:
@@ -83,7 +151,8 @@ Edited from the page; stored in the mod's `config.json`:
   "fallback": {"enabled": false, "profile": "<id>",
                "profiles": {"<id>": {"name": "Night shift", "primary_retries": 3,
                                      "steps": [{"model": "claude-sonnet-5", "retries": 2}, {"model": "auto", "retries": 2}],
-                                     "exhausted": "stop | retry-last"}}}
+                                     "exhausted": "stop | retry-last"}}},
+  "backend_failover": {"enabled": false, "max_per_turn": 2, "cooldown_s": 120, "exclude": ["codex"]}
 }
 ```
 
