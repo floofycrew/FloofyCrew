@@ -11,6 +11,12 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **agent-backend-router 0.3.2: a route-request API for other mods.**
+  `failover_candidates` / `request_route` / `cancel_route_request` /
+  `route_request`; a request is honoured at construction inside the usual fence
+  (pool, served-list eligibility, pins — a request that fails it is logged and
+  the strategy decides), recorded with strategy `requested`, never moves the
+  round-robin counter, and expires. `status.route_requests` lists pending ones.
 - **agent-backend-doctor 0.2.1: `backend_ready(backend)`.** A blocking,
   read-only readiness verdict for a NEW session on a backend: host probe, the
   doctor's discovery on a host miss, the spawn-path cache (`needs_forget`) and,
