@@ -99,6 +99,17 @@ KiroCrew; it never ships a rebuilt host.
   test fixtures and a registry-template example are neutral now. Every touched
   mod's `files[]` hashes are refreshed in place (same versions; the registry
   treats a same-version commit as a refresh).
+- **Forge scheduler: a dead hop to the build desk is a skip, never a failure.**
+  The scheduler host's `forge_tick` and `forge_notify` script crons used to
+  raise when ssh to the desk failed (an expired ***REMOVED*** certificate, a desk mid
+  reboot). KiroCrew pauses a job after five consecutive failures and never
+  resumes it, so one certificate gap on 2026-10-04 switched off the four hourly
+  lanes and the notifier within six hours and they stayed off for fifteen days,
+  unnoticed behind the deduplicated alert. Both crons now return a `skipped`
+  result carrying the same diagnosis (the DM dedupe and the "recovered" line are
+  unchanged) and the next fire tries again. Reinstall with
+  `forge/scheduler/register-crons.sh --mode install` or copy the two scripts
+  into `~/.kiro/crew/crons/`.
 
 ## 1.3.6 — 2026-10-12
 
