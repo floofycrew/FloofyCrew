@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { createBus } from "../src/events.mjs";
 import { foldReport } from "../src/reporter.mjs";
-import { addChunks, bundleStems, chunksFromDocument, createSurfaces, matchBundle, resolveDom, routeApplies } from "../src/surfaces.mjs";
+import { addChunks, bundleStems, chunksFromDocument, compareHostVersions, createSurfaces, hostVersionKey, matchBundle, resolveDom, routeApplies, surfaceApplicability } from "../src/surfaces.mjs";
 
 const REGISTRY = JSON.parse(readFileSync(new URL("../src/surfaces.json", import.meta.url), "utf8"));
 
@@ -28,6 +28,10 @@ test("the shipped registry is well-formed: unique names, fromBuild, dom and/or b
   assert.equal(new Set(names).size, names.length);
   for (const surface of REGISTRY.surfaces) {
     assert.match(surface.fromBuild, /^\d+\.\d+\.\d+/, surface.name);
+    if (surface.toBuild !== undefined) {
+      assert.ok(hostVersionKey(surface.toBuild), `${surface.name}: toBuild is a host version`);
+      assert.equal(compareHostVersions(surface.fromBuild, surface.toBuild), -1, `${surface.name}: written against a build before its toBuild`);
+    }
     assert.ok(surface.dom || surface.bundle, `${surface.name} has neither dom nor bundle`);
     if (surface.bundle) {
       const stems = bundleStems(surface.bundle);
@@ -61,6 +65,67 @@ test("matchBundle: contains/regex, some vs once", () => {
   assert.equal(matchBundle({ contains: "nope" }, text).status, "missed");
   assert.equal(matchBundle({ regex: "dashboard-\\w+", count: "once" }, text).status, "matched");
   assert.equal(matchBundle({}, text).status, "missed");
+});
+
+test("host versions order like floofy_core.semver.HostVersion: dev < a < b < rc < tagged < final, then the build number", () => {
+  const ascending = ["0.7.0.dev3", "0.7.0a1", "0.7.0b2", "0.7.0rc5", "0.7.0rc9", "0.7.0-insider.3", "0.7.0", "0.7.0.5", "0.7.0.8", "0.8.0.dev20260924061032", "0.8.0.dev20260928053132", "0.8.0rc1", "0.8.0", "0.8.0.6", "0.9.0.dev20260929061324", "0.9.0.dev20260930061058", "0.9.0.4", "0.10.0.2"];
+  for (let i = 1; i < ascending.length; i += 1) {
+    assert.equal(compareHostVersions(ascending[i - 1], ascending[i]), -1, `${ascending[i - 1]} < ${ascending[i]}`);
+    assert.equal(compareHostVersions(ascending[i], ascending[i - 1]), 1);
+  }
+  assert.equal(compareHostVersions("0.7.0.5", "0.7.0.5"), 0);
+  assert.equal(compareHostVersions("0.7.0.5+local", "0.7.0.5"), 0, "build metadata is ignored");
+  assert.equal(compareHostVersions("0.7.0-insider.2", "0.7.0-insider.10"), -1, "numeric tag identifiers compare numerically");
+  assert.equal(compareHostVersions("0.7.0", "banana"), null);
+  assert.equal(hostVersionKey(null), null);
+  assert.equal(hostVersionKey("1.2"), null);
+});
+
+test("surfaceApplicability: toBuild is exclusive on the full host version; unknown versions never exclude", () => {
+  const row = { name: "theme.reset-site", fromBuild: "0.7.0.5", toBuild: "0.8.0.dev20260928053132" };
+  for (const inside of ["0.6.0", "0.7.0rc5", "0.7.0.5", "0.7.0.8", "0.8.0.dev20260924061032"]) assert.equal(surfaceApplicability(row, inside), null, inside);
+  assert.match(surfaceApplicability(row, "0.8.0.dev20260928053132"), /not below toBuild 0\.8\.0\.dev20260928053132/);
+  assert.match(surfaceApplicability(row, "0.8.0"), /host 0\.8\.0 is not below/);
+  assert.match(surfaceApplicability(row, "0.9.0.dev20260929061324"), /host 0\.9\.0\.dev20260929061324 is not below/, "the next minor's nightlies carry the fixed useTheme too (public-nightly 0.9.0.dev20260929061324, round 1)");
+  assert.match(surfaceApplicability(row, "0.9.0.dev20260930061058"), /host 0\.9\.0\.dev20260930061058 is not below/, "public-nightly 0.9.0.dev20260930061058 (round 1): same gate, next nightly");
+  assert.match(surfaceApplicability(row, "0.8.0.6"), /host 0\.8\.0\.6 is not below/, "internal-beta 0.8.0.6 (round 1): the internal edition's four-component build number orders after the 0.8.0 pre-releases");
+  assert.match(surfaceApplicability(row, "0.10.0.2"), /host 0\.10\.0\.2 is not below/, "internal-beta 0.10.0.2 (round 1): a two-digit minor orders numerically, not lexically, past the gate");
+  assert.equal(surfaceApplicability(row, null), null, "no host version known: evaluate the row");
+  assert.equal(surfaceApplicability({ name: "x", toBuild: "soon" }, "0.8.0"), null, "an unparsable gate never excludes");
+  assert.equal(surfaceApplicability({ name: "ungated", fromBuild: "0.7.0.5" }, "9.9.9"), null, "fromBuild is a record, not a gate");
+});
+
+test("check(): a row past its toBuild is not-applicable for dom and bundle alike, and never a miss", async () => {
+  const doc = fakeDocument({ "#root": [{ id: "root" }] }, ["/assets/useTheme-BBBBBBBB.js"]);
+  const chunkTexts = { "/assets/useTheme-BBBBBBBB.js": "let W=Ue(i),G=z&&W!==null&&!f.has(W);" };
+  const fetchImpl = async (url) => ({ ok: url in chunkTexts, text: async () => chunkTexts[url] });
+  const definitions = [
+    { name: "shell.root", fromBuild: "0.6.0", dom: { selector: "#root", count: "once" } },
+    { name: "theme.reset-site", fromBuild: "0.7.0.5", toBuild: "0.8.0.dev20260928053132", bundle: { chunk: ["useTheme", "terminal"], regex: "\\.has\\(\\w\\)\\|\\|\\w\\(\\w\\)\\}\\},\\[", count: "once" } },
+    { name: "gated-dom", fromBuild: "0.7.0.5", toBuild: "0.8.0", dom: { selector: "#root" } },
+  ];
+  const make = (version) => createSurfaces({ document: doc, window: { location: { pathname: "/" } }, bus: createBus({ log: () => {} }), fetch: fetchImpl, definitions, hostVersion: () => version });
+
+  const newer = make("0.8.0.dev20260928053132");
+  const rows = await newer.check();
+  const byKey = Object.fromEntries(rows.map((r) => [`${r.name}#${r.kind}`, r]));
+  assert.equal(byKey["shell.root#dom"].status, "matched");
+  assert.equal(byKey["theme.reset-site#bundle"].status, "not-applicable");
+  assert.match(byKey["theme.reset-site#bundle"].reason, /not below toBuild/);
+  assert.equal(byKey["gated-dom#dom"].status, "matched", "0.8.0.dev… is below toBuild 0.8.0");
+  assert.equal(newer.resolve("theme.reset-site").status, "not-applicable");
+  const report = foldReport(rows, { matched: [], missed: [] }, { hostVersion: "0.8.0.dev20260928053132" });
+  assert.deepEqual(report.missed, []);
+  assert.deepEqual(report.notApplicable.map((m) => m.name), ["theme.reset-site#bundle"]);
+  assert.deepEqual(report.spaFingerprints, { matched: 2, total: 2, missed: [] });
+
+  const older = make("0.8.0.dev20260924061032");
+  const olderRows = Object.fromEntries((await older.check()).map((r) => [`${r.name}#${r.kind}`, r]));
+  assert.equal(olderRows["theme.reset-site#bundle"].status, "missed", "inside the gate the fingerprint is evaluated — and this chunk lacks the site");
+  assert.equal(olderRows["gated-dom#dom"].status, "matched");
+
+  const unknown = make(null);
+  assert.equal((await unknown.check()).find((r) => r.name === "theme.reset-site").status, "missed", "no host version: rows are evaluated, never silently skipped");
 });
 
 test("routeApplies and resolveDom: route scoping, counts, text filter, invalid selectors", () => {

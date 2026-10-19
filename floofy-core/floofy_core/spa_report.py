@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+from .semver import HostVersion, InvalidVersion
+
 __all__ = [
     "CHUNK_RE",
     "HOST_MODULE_URL",
@@ -45,6 +47,7 @@ __all__ = [
     "load_registry",
     "match_bundle",
     "run_browser_report",
+    "surface_applicability",
 ]
 
 #: Same-origin URL of the SPA host module (served by the unauthenticated app-UI route).
@@ -193,12 +196,33 @@ def bundle_stems(fingerprint: dict[str, Any]) -> list[str]:
     return [str(stem) for stem in stems if isinstance(stem, str) and stem]
 
 
+def surface_applicability(surface: dict[str, Any], host_version: str | None) -> str | None:
+    """``None`` when the surface row applies to ``host_version``, else the reason it does not.
+
+    ``toBuild`` is the first full host version the surface no longer exists on
+    (exclusive, Vencord-style — the gate the patch descriptors carry; ``fromBuild``
+    stays the record of the build a row was written against). An unknown host
+    version or an unparsable gate never excludes a row. Mirrors
+    ``surfaceApplicability`` in ``spa-host/src/surfaces.mjs``.
+    """
+    to_build = surface.get("toBuild")
+    if not isinstance(to_build, str) or not to_build or not host_version:
+        return None
+    try:
+        version, gate = HostVersion.parse(host_version), HostVersion.parse(to_build)
+    except InvalidVersion:
+        return None
+    return None if version < gate else f"host {host_version} is not below toBuild {to_build}"
+
+
 def check_bundle_fingerprints(dist_dir: Path, registry: dict[str, Any] | None = None, *, host_version: str | None = None) -> SpaReport:
     """Evaluate every ``bundle`` fingerprint of the registry against ``dist_dir`` on disk (no browser).
 
     A fingerprint's ``chunk`` may list several stems (a hook the bundler folds into a
     differently named shared chunk on another build): the stems are tried in order and
     the first referenced chunk whose text matches wins; a miss reports the last stem found.
+    A row whose ``toBuild`` gate excludes ``host_version`` is recorded under
+    ``not_applicable`` (the site no longer exists on that host), never as a miss.
     """
     document = registry or load_registry()
     surfaces = [s for s in document["surfaces"] if isinstance(s, dict) and isinstance(s.get("bundle"), dict)]
@@ -208,6 +232,10 @@ def check_bundle_fingerprints(dist_dir: Path, registry: dict[str, Any] | None = 
     texts: dict[str, str | None] = {}
     for surface in surfaces:
         name = f"{surface['name']}#bundle"
+        outside = surface_applicability(surface, host_version)
+        if outside is not None:
+            report.not_applicable.append({"name": name, "kind": "bundle", "reason": outside})
+            continue
         stems = bundle_stems(surface["bundle"])
         outcome: dict[str, Any] | None = None
         for stem in stems:

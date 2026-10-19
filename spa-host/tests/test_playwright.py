@@ -365,7 +365,7 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
         assert "theme/gateway" in row and "modifies payload files" not in row, row
         themes_row = page.inner_text('[data-testid="floofycrew-mod-row-custom-themes"]')
-        assert "1.0.1" in themes_row and "modifies payload files" in themes_row, f"the payload warning stays visible on the collapsed parts summary: {themes_row!r}"
+        assert "1.0.2" in themes_row and "modifies payload files" in themes_row, f"the payload warning stays visible on the collapsed parts summary: {themes_row!r}"
         assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
         assert page.inner_text('[data-testid="floofycrew-tier-rimuru-branding"]') == "tier: unlisted", "copied in without a registry record: the source tier badge says so (Requirement 8.11)"
         assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')

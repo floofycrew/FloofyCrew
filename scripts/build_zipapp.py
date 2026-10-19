@@ -50,8 +50,16 @@ NOTICE_FILES: tuple[str, ...] = ("LICENSE", "NOTICE.md", "LICENSES/Apache-2.0.tx
 
 
 def notice_members(prefix: str = "") -> list[tuple[str, bytes]]:
-    """``(archive name, bytes)`` for the license and notice files, sorted by name."""
+    """``(archive name, bytes)`` for the license and notice files, sorted by name.
+
+    A missing file is a build error naming it: the files live at the repository
+    root, so a partial checkout (``forge/deploy-to-desk.sh`` must include them)
+    must fail here, not with a bare ``FileNotFoundError`` from a builder.
+    """
     root = Path(__file__).resolve().parent.parent
+    missing = [name for name in NOTICE_FILES if not (root / name).is_file()]
+    if missing:
+        raise SystemExit(f"legal notice file(s) missing from the checkout at {root}: {', '.join(missing)} — every artifact ships them (NOTICE_FILES); a deployed checkout must carry them too (forge/deploy-to-desk.sh)")
     return sorted((f"{prefix}{name}", (root / name).read_bytes()) for name in NOTICE_FILES)
 
 

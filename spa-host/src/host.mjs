@@ -304,7 +304,7 @@ export function createHost(env = {}) {
       return null;
     }
     win.__floofyHostStatus = "started";
-    const surfaces = createSurfaces({ document: doc, window: win, bus, definitions: env.surfaceDefinitions, fetch: fetchImpl });
+    const surfaces = createSurfaces({ document: doc, window: win, bus, definitions: env.surfaceDefinitions, fetch: fetchImpl, hostVersion: () => (latestState ?? state)?.host?.version ?? null });
     const patches = createPatches({ document: doc, fetch: fetchImpl, state });
     const reporter = createReporter({ surfaces, patches, state: () => latestState, document: doc, window: win, fetch: fetchImpl });
     const floofy = buildFloofy(state, surfaces, patches, reporter);

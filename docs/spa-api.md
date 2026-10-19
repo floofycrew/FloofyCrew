@@ -102,8 +102,10 @@ later error whose stack names the mod's URL, is shown with the message and a
 
 Host UI surfaces are located by **content fingerprints**, never by chunk hash
 or line number. The shipped registry (`ui/surfaces.json`) has one row per
-surface with a `fromBuild` (the host build it was written against) and two
-fingerprint kinds:
+surface with a `fromBuild` (the host build it was written against), an optional
+`toBuild` (the first host version the surface no longer exists on — exclusive,
+as on patch descriptors; from there the row is "not applicable", not a miss) and
+two fingerprint kinds:
 
 - `dom` — a CSS selector over attributes the host renders literally and that
   survive minification (`data-testid`, ids, ARIA roles and labels, utility class

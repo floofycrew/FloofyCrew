@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "description": "FloofyCrew surface registry: stable names for host UI surfaces located by content fingerprints (Requirement 4.4). `dom` is a CSS selector over attributes the host renders literally (data-testid, ids, ARIA roles, literal class names); `bundle` is a literal or regex expected in the module text of the hashed chunk named by its stem (never by hash); `chunk` may list several stems, tried in order (a hook the bundler folds into a differently named shared chunk on another build — `useTheme` on 0.7.0.x is inside `terminal` on public 0.6.0). `fromBuild` is the host build each row was written against; the reporter and the Forge record where a row stops matching.",
+  "description": "FloofyCrew surface registry: stable names for host UI surfaces located by content fingerprints (Requirement 4.4). `dom` is a CSS selector over attributes the host renders literally (data-testid, ids, ARIA roles, literal class names); `bundle` is a literal or regex expected in the module text of the hashed chunk named by its stem (never by hash); `chunk` may list several stems, tried in order (a hook the bundler folds into a differently named shared chunk on another build — `useTheme` on 0.7.0.x is inside `terminal` on public 0.6.0). `fromBuild` is the host build each row was written against; the reporter and the Forge record where a row stops matching. `toBuild` (optional) is the gate: the first full host version the surface no longer exists on (exclusive, as on patch descriptors) — there the row is `not-applicable`, not a miss.",
   "writtenAgainst": "0.7.0.5",
   "surfaces": [
     {
@@ -32,10 +32,10 @@
     },
     {
       "name": "logo",
-      "description": "The brand logo image inside the sidebar collapse button (pack branding lands here).",
+      "description": "The brand logo image inside the sidebar collapse button (pack branding lands here). The literal is the collapse button's ternary box class; since public 0.8.0.dev20260928053132 a mobile navigation rail renders the same logo component with a plain `?.logoClass??` fallback, so the bare literal occurs twice.",
       "fromBuild": "0.7.0.5",
       "dom": { "selector": "nav[role=\"navigation\"] button[aria-expanded] img[aria-hidden=\"true\"]" },
-      "bundle": { "chunk": "App", "contains": "?.logoClass??", "count": "once" }
+      "bundle": { "chunk": "App", "contains": "?.logoClass??(", "count": "once" }
     },
     {
       "name": "favicon",
@@ -59,8 +59,9 @@
     },
     {
       "name": "theme.reset-site",
-      "description": "The useTheme effect that resets a missing custom pack to the default theme (the site the reset-guard patch anchors on).",
+      "description": "The useTheme effect that resets a missing custom pack to the default theme (the site the reset-guard patch anchors on). Gone since public 0.8.0.dev20260928053132: useTheme loads packs through a query hook and only falls back visually to the default theme when a pack's detail is missing, without writing the workspace config — the guard has nothing to neutralise there.",
       "fromBuild": "0.7.0.5",
+      "toBuild": "0.8.0.dev20260928053132",
       "bundle": { "chunk": ["useTheme", "terminal"], "regex": "\\.has\\([A-Za-z_$][\\w$]*\\)\\|\\|[A-Za-z_$][\\w$]*\\([A-Za-z_$][\\w$]*\\)\\}\\},\\[", "count": "once" }
     },
     {
