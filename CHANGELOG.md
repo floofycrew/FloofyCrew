@@ -11,6 +11,27 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.7 — 2026-10-19
+
+The quarantine heals itself. A mod a KiroCrew update parked ("yeeted") used to
+come back only on a host rollback or by hand, even after the Forge had repaired
+it and the registry graded the fix `tested` on the new host; now the hourly
+trigger and the host-change handler reinstall it from the registry the moment a
+version is graded safe here, and registry grading lets a verdict measured on this
+exact host outrank a manifest range written before that host existed. The Forge
+scheduler no longer auto-pauses on an expired certificate, and its GitHub
+publishing runs on the desk's own `gh auth login`. The edition's default registry
+source is recorded at `floofy init` and cannot be removed.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.9 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
 - **model-retry-policy 0.2.0: backend failover.** Opt-in. When a dashboard
   chat's same-model retries are spent, the chat is moved to another agent
   backend that serves the SAME model (kiro-cli ↔ KAS ↔ Claude Code ↔ Codex)
