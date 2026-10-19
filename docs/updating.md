@@ -73,6 +73,28 @@ is restored first — files back, seam parts reinstalled, flags restored — bef
 the ordinary re-apply. By hand: `floofy yeet --list`, `floofy yeet --restore
 <hostver>`, `floofy yeet <id> --reason "…"` to park a mod yourself.
 
+## Healing: the quarantine empties itself when the mod is fixed
+
+A parked mod does not wait for a rollback. Every hour, right after the trigger
+refreshes the registry caches, and again inside the host-change handler after
+yeeting, FloofyCrew asks the registry the question `floofy update` asks for an
+installed mod: is there a version of this mod graded `tested` or `expected` on
+the **current** host? When the Forge has repaired the mod and published the
+row, the answer is yes, and that version is installed from the registry through
+the ordinary install path — enabled as it was parked, seam parts reinstalled,
+patches re-applied — and the parked copy is removed. The `yeet-heal` audit row
+names what came back.
+
+What stays parked, with the reason in `floofy yeet --heal --plan`: a mod the
+registry does not know (a git or path install — `floofy yeet --restore` is your
+way back), one with no verdict for this host yet (the Forge has not caught up),
+and one whose repaired version needs an answer the unattended path must not
+give. The only consent carried forward is the yes you gave for the code kinds the
+parked copy already had (the host parked it without asking, so the same kinds
+coming back ask nothing again); a kind the new version grew, a
+governance-altering target, a network/unlisted-file flag or an unlisted source
+stop the heal and `floofy install <id>` is the way to say yes yourself.
+
 ## Every payload, not just the current one
 
 The running gateway may serve an older payload for hours after a new one was

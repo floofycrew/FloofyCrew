@@ -101,7 +101,7 @@ KiroCrew; it never ships a rebuilt host.
   treats a same-version commit as a refresh).
 - **Forge scheduler: a dead hop to the build desk is a skip, never a failure.**
   The scheduler host's `forge_tick` and `forge_notify` script crons used to
-  raise when ssh to the desk failed (an expired ***REMOVED*** certificate, a desk mid
+  raise when ssh to the desk failed (an expired ssh certificate, a desk mid
   reboot). KiroCrew pauses a job after five consecutive failures and never
   resumes it, so one certificate gap on 2026-10-04 switched off the four hourly
   lanes and the notifier within six hours and they stayed off for fifteen days,
@@ -117,6 +117,25 @@ KiroCrew; it never ships a rebuilt host.
   (`requires agent-backend-doctor >=0.2.1 <1.0.0, installed is
   agent-backend-doctor@0.2.0`). Surfaced when model-retry-policy 0.2.0's new
   hard dependency held it inactive on a host whose doctor was still 0.2.0.
+- **The quarantine heals itself (Requirement 6.7).** A mod the host update
+  parked ("yeeted") used to come back only on a host rollback or by hand, even
+  after the Forge had repaired it and the registry graded the fix `tested` on
+  the new host — on the testing desk `custom-themes` sat parked for seventeen
+  days with a `tested` row in its own compat cache. Now the hourly trigger's
+  freshness pass (right after the registry refresh) and the host-change handler
+  (right after yeeting) ask the registry for a version graded `tested`/`expected`
+  on the current host and reinstall it through the ordinary install path:
+  enabled as parked, seam parts back, patches re-applied, parked copy removed,
+  a `yeet-heal` audit row. The only consent carried forward is the yes already
+  given for the code kinds the parked copy had; a grown kind, a governance
+  target, a flag or an unlisted source stop the heal with the reason recorded,
+  as do a mod the registry does not know and one with no verdict here yet.
+  `floofy yeet --heal [--plan] [--now]` is the explicit form.
+- **Forge: GitHub publishing through `gh auth login`.** The release stage's
+  GitHub credential is now `GH_TOKEN`, else the `gh` CLI's own login
+  (`gh auth token`), else the `~/forge/secrets/github-token` file; the blocker a
+  missing credential records clears on `gh auth status`, so the owner item is
+  `gh auth login` once on the desk rather than minting and placing a token.
 
 ## 1.3.6 — 2026-10-12
 

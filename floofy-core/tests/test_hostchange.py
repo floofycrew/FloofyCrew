@@ -20,7 +20,7 @@ from floofy_core.audit import read_audit
 from floofy_core.cli.main import run
 from floofy_core.consent import write_consent
 from floofy_core.datahome import DataHome
-from floofy_core.modstore import read_enabled
+from floofy_core.modstore import read_enabled, write_enabled
 
 from floofy_testing import REPO_ROOT, fake_payload
 from test_cli_mods import write_mod
@@ -219,3 +219,131 @@ def test_trailing_quiet_is_accepted_after_the_subcommand(world):
     result = world.run("--json", "apply", "--if-changed", "--no-verify", "--quiet")
     assert result.exit == 0, result.stderr
     assert result.json["change"]["firstRun"] is True
+
+
+# --- the heal (Requirement 6.7) ----------------------------------------------------------------------------------
+
+
+def _serve_registry(index_mods: list[dict], payload: bytes):
+    """A loopback HTTP server handing out ``payload`` for every GET, and the index that points at it."""
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from test_cli_mods import _Serve
+
+    _Serve.payload = payload
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Serve)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}/mod.zip"
+
+
+def test_heal_restores_a_yeeted_mod_once_the_registry_grades_a_repaired_version(world):
+    """The whole loop: a host update yeets `fragile`; the Forge later grades `fragile 1.1.0` tested on the new
+    host and the registry carries it; the next hourly pass (and `yeet --heal`) reinstalls it from the registry,
+    enabled as it was parked, and the quarantine entry is gone. `steady` (never parked) is untouched, and a
+    parked mod the registry does not know stays parked with a reason."""
+    from test_cli_mods import _zip_of, sha
+
+    world.run("apply", "--if-changed", "--no-verify")
+    # the Forge's fix: fragile 1.1.0 anchors on the <title>, which the new shell still has
+    fixed = write_mod(world.work / "fragile-1.1.0", "fragile", parts=[{"kind": "patch", "side": "spa", "path": "patches/p.json"}], files={"patches/p.json": json.dumps(_descriptor("<title>KiroCrew</title>", "floofy-fragile"))}, extra={"version": "1.1.0"})
+    archive = _zip_of(fixed, "fragile")
+    server, url = _serve_registry([], archive)
+    try:
+        new_root = world.land_new_version()
+        shutil.rmtree(world.old_root)
+        updated = world.run("--json", "apply", "--if-changed", "--no-verify", roots_=[new_root])
+        assert updated.exit == 0, updated.stderr
+        assert "fragile" in {y["id"] for y in updated.json["yeeted"]}
+        assert updated.json["healed"]["restored"] == [] and {w["id"] for w in updated.json["healed"]["manual"]} >= {"fragile"}, "no registry entry yet: parked, reason recorded"
+        parked_dir = world.paths.quarantine_dir("0.7.0.5") / "fragile"
+        parked_flags = world.paths.quarantine_dir("0.7.0.5") / "enabled.json"
+        assert parked_dir.is_dir() and read_enabled(parked_flags)["fragile"] is True
+        # the flag travels with the parked copy; make it `off` there to prove the heal brings it back as parked
+        write_enabled(parked_flags, {**read_enabled(parked_flags), "fragile": False})
+
+        # the Forge publishes: fragile 1.1.0 is tested on 0.7.0.6 (index verdict; the matrix row says the same)
+        index = {"schema": 1, "source": "test", "generatedAt": "2026-10-19T00:00:00Z", "mods": [{"id": "fragile", "name": "Fragile", "description": "d", "authors": ["t"], "tags": [], "versions": [
+            {"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "editions": ["internal"], "compat": {"0.7.0.6": "broken"}, "files": [{"url": url, "sha256": sha(archive)}]},
+            {"version": "1.1.0", "kirocrew": ">=0.7.0 <0.9.0", "editions": ["internal"], "compat": {"0.7.0.6": "tested"}, "files": [{"url": url, "sha256": sha(archive)}]},
+        ]}]}
+        world.paths.cache.mkdir(exist_ok=True)
+        world.paths.index_cache.write_text(json.dumps(index), encoding="utf-8")
+        world.paths.compat_cache.write_text(json.dumps({"schema": 1, "rows": [{"edition": "internal", "channel": "beta", "hostVersion": "0.7.0.6", "framework": {"loader": "ok"}, "mods": {"fragile@1.0.0": {"verdict": "broken"}, "fragile@1.1.0": {"verdict": "tested"}}}]}), encoding="utf-8")
+
+        planned = world.run("--json", "yeet", "--heal", "--plan", roots_=[new_root])
+        assert planned.exit == 0, planned.stderr
+        by_id = {r["id"]: r for r in planned.json["plan"]}
+        assert by_id["fragile"]["action"] == "restore" and by_id["fragile"]["candidate"] == "1.1.0" and by_id["fragile"]["verdict"] == "tested"
+        assert set(by_id) == {"fragile"}, "only the fingerprint miss was parked in this world"
+        assert parked_dir.is_dir(), "--plan changes nothing"
+        # a parked mod the registry does not know stays parked with a reason: park `steady` by hand
+        world.run("yeet", "steady", "--reason", "testing", roots_=[new_root])
+
+        # the hourly pass: nothing changed on the host, so apply --if-changed is a no-op, but freshness heals
+        healed = world.run("--json", "yeet", "--heal", roots_=[new_root])
+        assert healed.exit == 0, healed.stderr
+        restored = {r["id"]: r for r in healed.json["restored"]}
+        assert set(restored) == {"fragile"} and restored["fragile"]["candidate"] == "1.1.0" and restored["fragile"]["enabled"] is False
+        assert [m["id"] for m in healed.json["manual"]] == ["steady"] and "not in the registry cache" in healed.json["manual"][0]["why"] and healed.json["failed"] == []
+        assert not parked_dir.exists() and "fragile" not in read_enabled(world.paths.quarantine_dir("0.7.0.5") / "enabled.json")
+        assert (world.paths.mods / "fragile" / "floofy.json").is_file()
+        assert json.loads((world.paths.mods / "fragile" / "floofy.json").read_text())["version"] == "1.1.0"
+        assert read_enabled(world.paths.enabled)["fragile"] is False, "comes back with the flag it was parked with"
+        ops = [row["op"] for row in read_audit(world.paths.audit)]
+        assert "yeet-heal" in ops and ops.count("install") >= 5
+        # once more: the quarantine still holds steady, fragile is not touched again
+        again = world.run("--json", "yeet", "--heal", roots_=[new_root])
+        assert again.json["restored"] == [] and [m["id"] for m in again.json["manual"]] == ["steady"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_heal_waits_when_nothing_is_graded_for_this_host_and_never_answers_a_typed_question(world, monkeypatch: pytest.MonkeyPatch):
+    """An entry without a verdict here stays parked (`wait`); a candidate whose disclosure needs a typed answer is
+    reported as failed, never auto-confirmed (the unattended path has no `--yes` and no typed phrases)."""
+    from test_cli_mods import _zip_of, sha
+
+    world.run("apply", "--if-changed", "--no-verify")
+    new_root = world.land_new_version()
+    shutil.rmtree(world.old_root)
+    world.run("--json", "apply", "--if-changed", "--no-verify", roots_=[new_root])
+    assert (world.paths.quarantine_dir("0.7.0.5") / "fragile").is_dir()
+    # a repaired fragile that also writes a host governance file: GovernanceAltering → typed path needed
+    govy = write_mod(world.work / "fragile-gov", "fragile", parts=[{"kind": "agent", "side": "gateway", "path": "agents/a.json"}], files={"agents/a.json": "{}", "security_policy.json": "{}"}, extra={"version": "1.2.0"})
+    archive = _zip_of(govy, "fragile")
+    server, url = _serve_registry([], archive)
+    try:
+        versions = [{"version": "1.2.0", "kirocrew": ">=0.7.0 <0.9.0", "editions": ["internal"], "compat": {}, "files": [{"url": url, "sha256": sha(archive)}]}]
+        index = {"schema": 1, "source": "test", "generatedAt": "2026-10-19T00:00:00Z", "mods": [{"id": "fragile", "name": "Fragile", "description": "d", "authors": ["t"], "tags": [], "versions": versions}]}
+        world.paths.cache.mkdir(exist_ok=True)
+        world.paths.index_cache.write_text(json.dumps(index), encoding="utf-8")
+        waiting = world.run("--json", "yeet", "--heal", roots_=[new_root])
+        assert {w["id"] for w in waiting.json["waiting"]} == {"fragile"} and waiting.json["restored"] == []
+        assert "graded for host 0.7.0.6" in waiting.json["waiting"][0]["why"]
+
+        versions[0]["compat"]["0.7.0.6"] = "tested"
+        world.paths.index_cache.write_text(json.dumps(index), encoding="utf-8")
+        refused = world.run("--json", "yeet", "--heal", roots_=[new_root])
+        assert refused.exit == 1 and refused.json["restored"] == []
+        assert refused.json["failed"][0]["id"] == "fragile" and "declined" in refused.json["failed"][0]["error"], refused.json["failed"][0]["error"]
+        assert (world.paths.quarantine_dir("0.7.0.5") / "fragile").is_dir(), "stays parked"
+        assert "fragile" not in read_enabled(world.paths.enabled), "no stray flag left behind by the refused attempt"
+        assert not (world.paths.mods / "fragile").exists()
+
+        # a repaired version that GREW a code kind (the parked fragile was patch-only; 1.3.0 adds a python-hook):
+        # the earlier yes covered `patch`, not `python-hook`, so the heal must ask — and unattended it cannot
+        grown = write_mod(world.work / "fragile-grown", "fragile", parts=[{"kind": "patch", "side": "spa", "path": "patches/p.json"}, {"kind": "python-hook", "side": "gateway", "path": "hook/", "module": "hook"}], files={"patches/p.json": json.dumps(_descriptor("<title>KiroCrew</title>", "floofy-fragile")), "hook/__init__.py": "def activate(ctx):\n    pass\n"}, extra={"version": "1.3.0"})
+        from test_cli_mods import _Serve
+
+        _Serve.payload = _zip_of(grown, "fragile")
+        versions[:] = [{"version": "1.3.0", "kirocrew": ">=0.7.0 <0.9.0", "editions": ["internal"], "compat": {"0.7.0.6": "tested"}, "files": [{"url": url, "sha256": sha(_Serve.payload)}]}]
+        world.paths.index_cache.write_text(json.dumps(index), encoding="utf-8")
+        grown_refused = world.run("--json", "yeet", "--heal", roots_=[new_root])
+        assert grown_refused.exit == 1 and grown_refused.json["failed"][0]["id"] == "fragile"
+        assert "python-hook parts need an explicit yes" in grown_refused.json["failed"][0]["error"], grown_refused.json["failed"][0]["error"]
+        assert (world.paths.quarantine_dir("0.7.0.5") / "fragile").is_dir() and not (world.paths.mods / "fragile").exists()
+    finally:
+        server.shutdown()
+        server.server_close()

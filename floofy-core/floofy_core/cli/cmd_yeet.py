@@ -4,7 +4,9 @@
   parts uninstalled, flags preserved) — the manual form of what the
   host-version-change handler does; ``yeet --list`` shows the quarantine;
   ``yeet --restore <ver> [ids…]`` brings a parked set back (what a rollback does
-  automatically when the current host version names a quarantine directory).
+  automatically when the current host version names a quarantine directory);
+  ``yeet --heal [--plan]`` brings back what the registry grades safe on this host
+  (Requirement 6.7; what the hourly trigger and the host-change handler do).
 * ``hold [--duration 7d] [--release]`` exposes the **host's own** update pause
   as an explicit, logged user action: the edition adapter's ``update_hold()`` runs the
   distribution's pause command (or explains that the edition has none and how to
@@ -28,6 +30,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     y.add_argument("ids", nargs="*", help="mod ids to park (or to restore with --restore)")
     y.add_argument("--restore", metavar="HOSTVER", default=None, help="restore the set parked under quarantine/<HOSTVER>/")
     y.add_argument("--list", action="store_true", help="show the quarantine")
+    y.add_argument("--heal", action="store_true", help="bring back every parked mod the registry grades safe on this host (what the hourly trigger does)")
+    y.add_argument("--plan", action="store_true", help="with --heal: show what would come back and what stays parked, change nothing")
+    y.add_argument("--now", action="store_true", help="with --heal: apply while the gateway runs instead of staging")
     y.add_argument("--reason", default="manual yeet", help="why (recorded)")
     y.set_defaults(handler=yeet_cmd)
 
@@ -38,6 +43,8 @@ def register(sub: argparse._SubParsersAction) -> None:
 
 
 def yeet_cmd(ctx: CliContext, args: argparse.Namespace) -> int:
+    if args.heal:
+        return _heal(ctx, args)
     if args.list or (not args.ids and not args.restore):
         listing = list_quarantine(ctx.home)
         ctx.set_result(quarantine=listing)
@@ -66,6 +73,40 @@ def yeet_cmd(ctx: CliContext, args: argparse.Namespace) -> int:
     current = ctx.current_payload()
     host_version = current.host_version.text if current else "unknown"
     parked: list[dict[str, Any]] = []
+    return _park(ctx, args, parked, host_version)
+
+
+def _heal(ctx: CliContext, args: argparse.Namespace) -> int:
+    """``yeet --heal [--plan] [--now]`` (Requirement 6.7): the registry decides what comes back."""
+    from ..quarantine_heal import heal, plan  # noqa: PLC0415
+
+    if args.plan:
+        rows = plan(ctx)
+        ctx.set_result(plan=rows)
+        if not rows:
+            ctx.say("quarantine is empty")
+        for row in rows:
+            what = {"restore": f"restore as {row.get('candidate')} ({row.get('verdict')} on this host)", "wait": f"stays parked: {row.get('why')}", "manual": f"needs you: {row.get('why')}"}[row["action"]]
+            ctx.say(f"{row['id']} {row['version']} (parked on {row['hostVersion']}): {what}")
+        return 0
+    ctx.require_consent("heal the quarantine")
+    outcome = heal(ctx, now=args.now)
+    ctx.set_result(**outcome)
+    if outcome.get("error"):
+        raise CliError(f"quarantine heal failed: {outcome['error']}")
+    for row in outcome["waiting"]:
+        ctx.say(f"{row['id']} {row['version']} stays parked: {row['why']}")
+    for row in outcome["manual"]:
+        ctx.say(f"{row['id']} {row['version']} needs you: {row['why']}")
+    if not any(outcome[k] for k in ("restored", "waiting", "manual", "failed")):
+        ctx.say("quarantine is empty")
+    if outcome["restored"] and not ctx.in_gateway:
+        applied = reapply(ctx, quiet=True)
+        outcome["patches"] = applied.to_dict() if applied else None
+    return 0 if not outcome["failed"] else 1
+
+
+def _park(ctx: CliContext, args: argparse.Namespace, parked: list[dict[str, Any]], host_version: str) -> int:
     for mod_id in args.ids:
         mod = ctx.mod(mod_id)
         parked.append(yeet(ctx, mod, host_version, reasons=[args.reason]))

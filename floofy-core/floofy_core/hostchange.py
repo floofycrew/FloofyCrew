@@ -20,6 +20,11 @@ costs one discovery. When the payload set or the current host version changed,
     version when known, else the new one), their seam parts are uninstalled,
     their ``enabled.json`` flag is preserved in ``quarantine/<hostver>/enabled.json``
     and dropped from the live file, reason ``Quarantined``;
+(d') **heal** (Requirement 6.7, :mod:`floofy_core.quarantine_heal`): a parked
+    mod whose repaired version the registry cache grades ``tested``/``expected``
+    on the new version is reinstalled from the registry at once — the hourly
+    freshness pass does the same every tick, so a Forge repair published later
+    reaches the quarantine within the hour;
 (e) the outcome is written to ``hostchange-<hostver>.json`` for the UI, and
     ``host-state.json`` is updated.
 
@@ -357,11 +362,23 @@ def handle_host_change(ctx: Any, *, change: dict[str, Any], confirmed_governance
     if yeeted and any(k in ("patch", "spa") for y in yeeted for k in _kinds_of(home, y)):
         second = reapply(ctx, verify=False, confirmed_governance_targets=confirmed_governance_targets, quiet=True)
         outcome["applyAfterYeet"] = second.to_dict() if second is not None else None
+
+    # (d') heal (Requirement 6.7): a parked mod — just now, or on an earlier version — whose repaired version the
+    # registry cache already grades safe on THIS version comes back at once instead of waiting for the hourly pass
+    if list_quarantine(home) and not ctx.in_gateway:
+        from .quarantine_heal import heal  # noqa: PLC0415
+
+        healed = heal(ctx, defer_reload=True)
+        outcome["healed"] = healed
+        if healed.get("restored"):
+            ctx.say(f"quarantine heal: restored {', '.join(r['id'] + ' ' + r['candidate'] for r in healed['restored'])} from the registry")
+            third = reapply(ctx, verify=False, confirmed_governance_targets=confirmed_governance_targets, quiet=True)
+            outcome["applyAfterHeal"] = third.to_dict() if third is not None else None
     outcome["ok"] = bool(apply_report is None or apply_report.get("ok", True))
 
     # (e) record
     home.hostchange(new_version).write_text(json.dumps(outcome, indent=2, default=str) + "\n", encoding="utf-8")
-    ctx.audit.record("host-change", payload=current.id, version=new_version, result="ok" if outcome["ok"] else "errors", detail=f"previous {previous_version}; yeeted {[y['id'] for y in yeeted]}", files=[str(home.hostchange(new_version))])
+    ctx.audit.record("host-change", payload=current.id, version=new_version, result="ok" if outcome["ok"] else "errors", detail=f"previous {previous_version}; yeeted {[y['id'] for y in yeeted]}; healed {[r['id'] for r in (outcome.get('healed') or {}).get('restored', [])]}", files=[str(home.hostchange(new_version))])
     return outcome
 
 
