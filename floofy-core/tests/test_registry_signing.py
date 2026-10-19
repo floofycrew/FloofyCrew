@@ -474,3 +474,23 @@ def test_download_checks_sha256_and_size_and_discards_the_file(tmp_path: Path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_a_verdict_measured_on_this_host_outranks_a_non_strict_range_that_predates_it():
+    """The desk on 2026-10-19: every first-party manifest said `kirocrew >=0.7.0 <0.9.0`, the host was 0.9.0.4
+    and the Forge had graded `m@1.0.1` tested on exactly 0.9.0.4 — yet nothing could be installed, updated or
+    healed because the range check ran before the verdict. A measurement on this host beats the author's
+    forecast (the Loader's own Requirement 1.3 rule); a strict range, another edition, or no verdict keep
+    the exclusion."""
+    host = {"base_version": "0.9.0", "edition": "internal", "host_version": "0.9.0.4", "channel": "stable"}
+    cache = _index([{"version": "1.0.0"}, {"version": "1.0.1"}, {"version": "1.0.2", "strict": True}, {"version": "1.0.3", "editions": ["external"]}])
+    answer = cache.best_version("m", **host)
+    assert answer.version is None and "1.0.1 (declares kirocrew >=0.7.0 <0.9.0)" in answer.why, "no verdict: the range is the only evidence"
+    row = _compat([{"edition": "internal", "channel": "stable", "hostVersion": "0.9.0.4", "mods": {"m@1.0.1": "tested", "m@1.0.2": "tested", "m@1.0.3": "tested"}}])
+    best = cache.best_version("m", compat=row, **host)
+    assert (best.version.version, best.verdict) == ("1.0.1", "tested"), "tested on this host wins over the stale range"
+    excluded = cache.best_version("m", compat=_compat([{"edition": "internal", "channel": "stable", "hostVersion": "0.9.0.4", "mods": {"m@1.0.2": "tested", "m@1.0.3": "tested"}}]), **host)
+    assert excluded.version is None and "1.0.2 (declares kirocrew >=0.7.0 <0.9.0, strict)" in excluded.why and "1.0.3 (declares kirocrew >=0.7.0 <0.9.0, editions external)" in excluded.why, "strict and edition are not overridden by a verdict"
+    inline = _index([{"version": "1.0.1", "compat": {"0.9.0.4": "expected"}}])
+    assert inline.best_version("m", **host).verdict == "expected", "the index's inline cell counts as a measurement too"
+    assert inline.best_version("m", **{**host, "host_version": "0.9.0.5"}).version is None, "another build of the host is not this host"

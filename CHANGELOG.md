@@ -131,6 +131,16 @@ KiroCrew; it never ships a rebuilt host.
   target, a flag or an unlisted source stop the heal with the reason recorded,
   as do a mod the registry does not know and one with no verdict here yet.
   `floofy yeet --heal [--plan] [--now]` is the explicit form.
+- **A verdict measured on this host outranks a stale `kirocrew` range.** Every
+  first-party manifest still said `>=0.7.0 <0.9.0` when the hosts reached
+  0.9.0.4 and 0.10.0.2, and `best_version` excluded a version on its range
+  before looking at its verdict — so a row the Forge had graded `tested` on
+  exactly this host could not install, update or heal anything. The range is
+  the author's forecast and the matrix row a measurement; the Loader already
+  treats a non-strict range as a warning (Requirement 1.3), and registry
+  grading now follows: a `tested`/`expected` verdict for this exact host
+  version admits a non-strict out-of-range version. A `strict` range, another
+  edition, `broken` and `yanked` keep excluding.
 - **Forge: GitHub publishing through `gh auth login`.** The release stage's
   GitHub credential is now `GH_TOKEN`, else the `gh` CLI's own login
   (`gh auth token`), else the `~/forge/secrets/github-token` file; the blocker a
