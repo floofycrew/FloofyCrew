@@ -110,6 +110,13 @@ KiroCrew; it never ships a rebuilt host.
   unchanged) and the next fire tries again. Reinstall with
   `forge/scheduler/register-crons.sh --mode install` or copy the two scripts
   into `~/.kiro/crew/crons/`.
+- **Manager: an inactive mod page says what it is waiting for.** The Mod pages
+  row of a held mod showed only the Loader's reason word (`Dependency`), which
+  does not tell the user what to do. `pagesOf()` now carries the Loader's
+  decision detail and the row shows it beside the badge and in the tooltip
+  (`requires agent-backend-doctor >=0.2.1 <1.0.0, installed is
+  agent-backend-doctor@0.2.0`). Surfaced when model-retry-policy 0.2.0's new
+  hard dependency held it inactive on a host whose doctor was still 0.2.0.
 
 ## 1.3.6 — 2026-10-12
 
