@@ -20,6 +20,33 @@ KiroCrew; it never ships a rebuilt host.
   covered by `node --test`). The governance lists on the Mods and Doctor pages use
   the same words.
 
+### Fixed
+
+- **KiroCrew 0.8.0 and later: two surface fingerprints moved** (the Forge's
+  repair of internal 0.8.0.6, 0.9.0.4 and 0.10.0.2 and public 0.8.0rc1 / 0.9.0,
+  landed from its reviewed branch). `logo#bundle` now anchors on
+  `?.logoClass??(`, the sidebar collapse button's class ternary, because the
+  mobile navigation rail added in 0.8.0 renders the same component a second
+  time. `theme.reset-site#bundle` is gone from those hosts: `useTheme` loads
+  packs through a query hook and the persisting reset the `custom-themes`
+  reset guard neutralised is fixed upstream. Surface rows and the row gain an
+  optional `toBuild` gate (exclusive on the full host version, as on patch
+  descriptors), honoured by both evaluators as `not-applicable`, never a miss;
+  `custom-themes` 1.0.2 gates `theme-reset-guard.json` the same way, so the
+  Patcher reports `NotApplicable` there instead of `FingerprintMiss`.
+- **The Forge's Loader check could not build the app from the deployed tree**:
+  `forge/deploy-to-desk.sh` left out `LICENSE`, `NOTICE.md` and `LICENSES/`,
+  which every built artifact vendors since 1.3.1's licensing work, so the check
+  died with a bare `FileNotFoundError`. The deploy script ships them (pinned to
+  `build_zipapp.NOTICE_FILES` by test) and a partial checkout fails naming the
+  missing file.
+
+### Supports
+
+Measured by the Forge on 2026-10-20 against this tree: internal stable 0.9.0.4
+and internal beta 0.10.0.2 are `loader: ok` (16/16 anchors, 20/20 fingerprints,
+all eleven first-party mods `tested`); both join the list at the next release.
+
 ## 1.3.7 — 2026-10-19
 
 The quarantine heals itself. A mod a KiroCrew update parked ("yeeted") used to
@@ -692,43 +719,6 @@ hourly re-apply trigger, broken since it shipped, now runs. Also new: the
   `--quiet` before the subcommand, and every subcommand also accepts a
   trailing `--quiet`/`-q`, which heals the units already written on user
   machines without regenerating them.
-- **Public nightly 0.8.0.dev20260928053132, insider 0.8.0rc1, nightlies
-  0.9.0.dev20260929061324 / 0.9.0.dev20260930061058, internal beta 0.8.0.6 and
-  internal beta 0.10.0.2** (Forge repair, round 1 on each lane — the same three
-  causes on every one; the rc1, 0.9.0 and internal 0.8.0.6 / 0.10.0.2 `useTheme`
-  chunks keep the 0928 nightly's query-hook shape, the 0930 nightly and the
-  internal builds only reorder the one remaining reset; 0.10.0.2 also proves the
-  two-digit minor orders numerically past the gate). Two surface fingerprints
-  moved and the check stage's Loader build died on the desk:
-  - `logo#bundle`: the host added a mobile navigation rail that renders the
-    brand-logo component with a plain `?.logoClass??` fallback, so the bare
-    literal occurs twice. The row now anchors on `?.logoClass??(` — the sidebar
-    collapse button's ternary box class, exactly once on every dist from public
-    0.6.0 and internal 0.7.0.5 to the 0.9.0 nightly and internal 0.8.0.6.
-  - `theme.reset-site#bundle`: `useTheme` was rewritten to load packs through a
-    query hook and only falls back *visually* to the default theme when a pack's
-    detail is missing — the persisting reset the `custom-themes` reset guard
-    neutralised is fixed upstream, and its site no longer exists. Surface rows
-    gain an optional `toBuild` gate (exclusive on the full host version, the
-    patch descriptors' field) honoured by both evaluators — `surfaces.mjs`
-    `check()` and `floofy_core.spa_report.check_bundle_fingerprints` — as
-    `not-applicable`, never a miss; the SPA host grew a host-version comparator
-    mirroring `floofy_core.semver.HostVersion`. The row and
-    `custom-themes`' `theme-reset-guard.json` both stop at
-    `toBuild: 0.8.0.dev20260928053132` (**`custom-themes` 1.0.2**): on that host
-    and every later one (0.8.0rc1, the 0.9.0 nightlies, and the internal
-    edition's four-component 0.8.0.6, which orders after every 0.8.0
-    pre-release while 0.7.0.x stays inside the gate) the Patcher skips the
-    guard with `NotApplicable` instead of `FingerprintMiss`. The one reset the
-    new `useTheme` keeps fires only for a pack absent from the installed list —
-    a legitimate reset — and is deliberately not re-anchored as the guard's site.
-  - `forge/deploy-to-desk.sh` never rsynced `LICENSE`, `NOTICE.md` and
-    `LICENSES/` to the deployed checkout, which `scripts/build_loader_app.py`
-    has vendored into the Loader tree since 1.3.1's licensing work — the
-    offline check's loader step died with `FileNotFoundError: …/LICENSE`. The
-    include list carries them now, pinned to `build_zipapp.NOTICE_FILES` by
-    test, and a partial checkout fails with the missing file and the deploy
-    script named.
 
 ### Added
 
