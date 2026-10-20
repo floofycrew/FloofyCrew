@@ -136,6 +136,8 @@ def harness():
             "spa/lib/tag.js": 'export const tag = (version) => `modded ${version}`;\n',
         },
         [{"kind": "spa", "side": "spa", "path": "spa/main.js"}],
+        # a soft dependency nobody installed → the resolver's RecommendsMissing warning on the row (test_5 reads it in words)
+        extra={"recommends": {"spa-companion": {"range": "^1.0.0", "reason": "the badge looks nicer with the companion"}}},
     )
     write_test_mod(gw, "spa-remap", {"patches/remap.json": json.dumps(REMAP_PATCH, indent=2) + "\n"}, [{"kind": "patch", "side": "spa", "path": "patches/remap.json"}])
     consent(gw)
@@ -370,6 +372,13 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         open_parts(page, "spa-healthy")
         healthy = page.inner_text('[data-testid="floofycrew-mod-row-spa-healthy"]')
         assert "spa/spa" in healthy and "SPA host" in healthy
+        # the row's warnings are words, not codes: the resolver's RecommendsMissing (spa-companion is not installed) reads as a phrase,
+        # the code stays on the element and in the tooltip with the message
+        warnings_el = page.locator('[data-testid="floofycrew-warnings-spa-healthy"] li')
+        assert warnings_el.count() == 1 and warnings_el.inner_text() == "a recommended mod is missing", healthy
+        assert "RecommendsMissing" not in healthy, f"a raw code leaked into the row text: {healthy!r}"
+        assert warnings_el.get_attribute("data-code") == "RecommendsMissing"
+        assert warnings_el.get_attribute("title").startswith("RecommendsMissing\nrecommends spa-companion"), warnings_el.get_attribute("title")
         assert page.inner_text('[data-testid="floofycrew-enabled-spa-healthy"]').startswith("enabled")
         # disable through the switch → POST /mods/spa-healthy/disable (the same handler as `floofy disable`) → enabled.json flips → the Loader reloads
         page.click('[data-testid="floofycrew-toggle-spa-healthy"]')

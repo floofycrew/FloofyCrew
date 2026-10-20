@@ -178,6 +178,22 @@ def test_mod_pages_open_from_the_name_link_not_a_gear():
     assert re.search(r"pageRow: \{[^}]*gridTemplateColumns: \"minmax\(12rem, 1\.4fr\) minmax\(10rem, 1fr\)\"", palette), "two columns: the name cell and the id"
 
 
+def test_mod_warnings_are_words_not_codes():
+    """The Installed-mods table never prints a finding's code (`RecommendsMissing`, `UndeclaredHost`) as the label: every code
+    goes through `warnings.mjs` (plain words, repeats counted, the code and the messages in the tooltip), and so do the
+    governance lists on the Mods and Doctor pages."""
+    mods = (UI / "app" / "pages" / "mods.mjs").read_text(encoding="utf-8")
+    doctor = (UI / "app" / "pages" / "doctor.mjs").read_text(encoding="utf-8")
+    assert 'import { describeWarnings, groupText, groupTitle, labelFor } from "../warnings.mjs";' in mods
+    assert 'import { labelFor } from "../warnings.mjs";' in doctor
+    assert "describeWarnings(row)" in mods and "groupText(group)" in mods and "title: groupTitle(group)" in mods, "the row list is the grouped description with the tooltip"
+    assert "floofycrew-warnings-${row.id}" in mods and '"data-code": group.code' in mods, "the code stays machine-readable on the element, not in the text"
+    for page, text in (("mods", mods), ("doctor", doctor)):
+        assert not re.search(r"\$\{(?:item|w|warning)\.code\}", text), f"{page}.mjs prints a raw code into the text"
+    assert "labelFor(warning.code)" in mods and "labelFor(w.code)" in doctor
+    assert (UI / "app" / "warnings.mjs").is_file() and (LOADER_APP_DIR / "tests" / "ui" / "warnings.test.mjs").is_file()
+
+
 def test_every_wait_has_a_spinner_and_the_activity_line_says_what_for():
     """Install, update, uninstall, enable/disable, reload, restore: the clicked button spins with a busy label, and one fixed line
     in the corner names the wait — including the wait BEFORE the confirmation modal opens (phase `asking`)."""

@@ -11,6 +11,15 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Manager App
+
+- The Installed-mods table says what a warning is instead of printing its code:
+  `RecommendsMissing` reads "a recommended mod is missing", `UndeclaredHost`
+  "contacts a host it does not declare", a code that repeats is one line with a
+  count, and the code with every message stays in the tooltip (`ui/app/warnings.mjs`,
+  covered by `node --test`). The governance lists on the Mods and Doctor pages use
+  the same words.
+
 ## 1.3.7 — 2026-10-19
 
 The quarantine heals itself. A mod a KiroCrew update parked ("yeeted") used to
