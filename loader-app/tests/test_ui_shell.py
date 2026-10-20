@@ -167,6 +167,9 @@ def test_mod_pages_open_from_the_name_link_not_a_gear():
     assert link, "the open-page control is an <a> on the mod's name"
     assert "const href = `#/mods/${encodeURIComponent(page.id)}`" in modpage and 'navigate("mods", page.id)' in modpage, "the link's href is the page's hash route; the click goes through navigate()"
     assert "floofycrew-page-inactive-${page.id}" in modpage and '"aria-disabled": "true"' in modpage, "an inactive mod's name is not a link and says so"
+    # the reason word alone ("Dependency") does not tell the user what to do; the Loader's detail does ("requires x >=1.2, installed is x@1.1")
+    assert 'detail: mod.detail || ""' in modpage, "pagesOf carries the Loader's decision detail"
+    assert "floofycrew-page-inactive-detail-${page.id}" in modpage and '${page.detail ? ` — ${page.detail}` : ""}; its page is not served' in modpage, "the inactive row shows the detail beside the badge and in its tooltip"
     for stale in ("GearIcon", "iconButton", '"aria-label": `Open '):
         assert stale not in modpage, stale
     assert "GearIcon" not in (UI / "app" / "modicon.mjs").read_text(encoding="utf-8")

@@ -24,7 +24,7 @@ export function pagesOf(state) {
   for (const [id, mod] of Object.entries((state && state.mods) || {})) {
     for (const part of mod.parts || []) {
       if (part.kind !== "ui") continue;
-      out.push({ id, version: mod.version, name: mod.name || id, active: Boolean(mod.active), enabled: mod.enabled !== false, reason: mod.reason || null, entry: part.entry, title: part.title || id, icon: part.icon || null, status: part.status });
+      out.push({ id, version: mod.version, name: mod.name || id, active: Boolean(mod.active), enabled: mod.enabled !== false, reason: mod.reason || null, detail: mod.detail || "", entry: part.entry, title: part.title || id, icon: part.icon || null, status: part.status });
     }
   }
   return out.sort((a, b) => a.title.localeCompare(b.title));
@@ -179,12 +179,13 @@ export function ModPagesList({ manager, navigate }) {
               )
             : React.createElement(
                 "span",
-                { style: styles.pageInactive, title: `${page.id} is ${page.reason || "not active"}; its page is not served`, "aria-disabled": "true", "data-testid": `floofycrew-page-inactive-${page.id}` },
+                { style: styles.pageInactive, title: `${page.id} is ${page.reason || "not active"}${page.detail ? ` — ${page.detail}` : ""}; its page is not served`, "aria-disabled": "true", "data-testid": `floofycrew-page-inactive-${page.id}` },
                 face,
                 React.createElement("strong", null, page.name),
               ),
           title ? React.createElement("span", { style: styles.muted, title: `${page.name} — ${title}` }, title) : null,
-          page.active ? null : React.createElement("span", { style: { ...styles.badge, ...styles.warn } }, page.reason || (page.enabled ? "inactive" : "disabled")),
+          page.active ? null : React.createElement("span", { style: { ...styles.badge, ...styles.warn }, title: page.detail || undefined }, page.reason || (page.enabled ? "inactive" : "disabled")),
+          page.active || !page.detail ? null : React.createElement("span", { style: { ...styles.muted, minWidth: 0, overflowWrap: "anywhere" }, "data-testid": `floofycrew-page-inactive-detail-${page.id}` }, page.detail),
         ),
         React.createElement("code", { style: { ...styles.modId, overflowWrap: "anywhere" }, title: `${page.id} ${page.version}` }, page.id),
       );

@@ -11,6 +11,76 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.7 — 2026-10-19
+
+The quarantine heals itself. A mod a KiroCrew update parked ("yeeted") used to
+come back only on a host rollback or by hand, even after the Forge had repaired
+it and the registry graded the fix `tested` on the new host; now the hourly
+trigger and the host-change handler reinstall it from the registry the moment a
+version is graded safe here, and registry grading lets a verdict measured on this
+exact host outrank a manifest range written before that host existed. The Forge
+scheduler no longer auto-pauses on an expired certificate, and its GitHub
+publishing runs on the desk's own `gh auth login`. The edition's default registry
+source is recorded at `floofy init` and cannot be removed.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.9 |
+| external (public) | insider | 0.7.0rc5 |
+| external (public) | stable | 0.6.0 |
+
+- **model-retry-policy 0.2.0: backend failover.** Opt-in. When a dashboard
+  chat's same-model retries are spent, the chat is moved to another agent
+  backend that serves the SAME model (kiro-cli ↔ KAS ↔ Claude Code ↔ Codex)
+  before any model chain is walked — the model never changes. A session's
+  backend is its harness process, so the move is the host's own three steps for
+  a provider change, arranged from two seams: the existing `replace` on the
+  dashboard's `_fallback_swap_for_turn` asks `agent-backend-router` which
+  backends list the model (`failover_candidates`), skips one that itself
+  throttled within `cooldown_s` or that `agent-backend-doctor` says is not
+  usable right now (`backend_ready`), files a route request for the session's
+  next cold start (`request_route`), marks the key pending and lets the host
+  re-queue the message; a new `replace` on `SessionManager.get_or_create` resets
+  the key's live session when that message is dequeued and the allocation
+  cold-starts on the requested backend, where the host's provider-switch replay
+  rebuilds the conversation from its own log. At most `max_per_turn` moves per
+  user turn, an `exclude` list, pinned agents never moved, dashboard chats
+  only, a pending move cancelled when the ladder gives up. The chat notice says
+  what happened; the page gains a Backend failover section (toggle, limits,
+  exclusions, support picture, a preview of where the default model would go,
+  the pending / last move) and a `failover` route; the journal counts
+  `failover` events. New hard dependency `agent-backend-doctor >=0.2.1`, the
+  router is `recommends >=0.3.2` (without it the mechanism stays off and the
+  page says so).
+- **agent-backend-router 0.3.2: a route-request API for other mods.**
+  `failover_candidates` / `request_route` / `cancel_route_request` /
+  `route_request`; a request is honoured at construction inside the usual fence
+  (pool, served-list eligibility, pins — a request that fails it is logged and
+  the strategy decides), recorded with strategy `requested`, never moves the
+  round-robin counter, and expires. `status.route_requests` lists pending ones.
+- **agent-backend-doctor 0.2.1: `backend_ready(backend)`.** A blocking,
+  read-only readiness verdict for a NEW session on a backend: host probe, the
+  doctor's discovery on a host miss, the spawn-path cache (`needs_forget`) and,
+  for Codex with the launch environment on, the read-only preflight (plan-level
+  verdicts block; an unbuilt pair does not).
+- **agent-backend-router 0.3.1: the host's own backend gets no exemption from the
+  model rule.** 0.3.0 always admitted the requested backend (`agent.acp_backend`)
+  on the theory that a harness handed a model it does not serve fails the
+  session. Seen live on a host whose default is Codex: a `claude-fable-5.1`
+  session landed on codex-acp in the round robin and it answered in a second —
+  on its own default GPT model, a silent substitution. The requested backend is
+  now admitted only while its served list is unknown or carries the model; when
+  the list is known and lacks it the session is routed to a backend that lists
+  the model, and it stays on the host's choice only when none does (reasons on
+  the decision record: "the requested backend does not list this model; the one
+  backend that does" / "no backend lists this model; keeping the host's choice").
+  The page's eligibility box flags the host's backend amber in that case; the
+  regression test replays the live list the box advertised.
+- `tools/gateway-temp-chat.py --turns N` sends the message N times on the same
+  slot and reports per-turn seconds (turn 1 is the cold start).
 - **The public export refuses credential-shaped literals.** GitHub's push
   protection declined the 1.3.6 export: the doctor's redaction test spelled a
   made-up AWS access key id next to a 40-character secret, and the remote treats
@@ -50,6 +120,53 @@ KiroCrew; it never ships a rebuilt host.
   test fixtures and a registry-template example are neutral now. Every touched
   mod's `files[]` hashes are refreshed in place (same versions; the registry
   treats a same-version commit as a refresh).
+- **Forge scheduler: a dead hop to the build desk is a skip, never a failure.**
+  The scheduler host's `forge_tick` and `forge_notify` script crons used to
+  raise when ssh to the desk failed (an expired ssh certificate, a desk mid
+  reboot). KiroCrew pauses a job after five consecutive failures and never
+  resumes it, so one certificate gap on 2026-10-04 switched off the four hourly
+  lanes and the notifier within six hours and they stayed off for fifteen days,
+  unnoticed behind the deduplicated alert. Both crons now return a `skipped`
+  result carrying the same diagnosis (the DM dedupe and the "recovered" line are
+  unchanged) and the next fire tries again. Reinstall with
+  `forge/scheduler/register-crons.sh --mode install` or copy the two scripts
+  into `~/.kiro/crew/crons/`.
+- **Manager: an inactive mod page says what it is waiting for.** The Mod pages
+  row of a held mod showed only the Loader's reason word (`Dependency`), which
+  does not tell the user what to do. `pagesOf()` now carries the Loader's
+  decision detail and the row shows it beside the badge and in the tooltip
+  (`requires agent-backend-doctor >=0.2.1 <1.0.0, installed is
+  agent-backend-doctor@0.2.0`). Surfaced when model-retry-policy 0.2.0's new
+  hard dependency held it inactive on a host whose doctor was still 0.2.0.
+- **The quarantine heals itself (Requirement 6.7).** A mod the host update
+  parked ("yeeted") used to come back only on a host rollback or by hand, even
+  after the Forge had repaired it and the registry graded the fix `tested` on
+  the new host — on the testing desk `custom-themes` sat parked for seventeen
+  days with a `tested` row in its own compat cache. Now the hourly trigger's
+  freshness pass (right after the registry refresh) and the host-change handler
+  (right after yeeting) ask the registry for a version graded `tested`/`expected`
+  on the current host and reinstall it through the ordinary install path:
+  enabled as parked, seam parts back, patches re-applied, parked copy removed,
+  a `yeet-heal` audit row. The only consent carried forward is the yes already
+  given for the code kinds the parked copy had; a grown kind, a governance
+  target, a flag or an unlisted source stop the heal with the reason recorded,
+  as do a mod the registry does not know and one with no verdict here yet.
+  `floofy yeet --heal [--plan] [--now]` is the explicit form.
+- **A verdict measured on this host outranks a stale `kirocrew` range.** Every
+  first-party manifest still said `>=0.7.0 <0.9.0` when the hosts reached
+  0.9.0.4 and 0.10.0.2, and `best_version` excluded a version on its range
+  before looking at its verdict — so a row the Forge had graded `tested` on
+  exactly this host could not install, update or heal anything. The range is
+  the author's forecast and the matrix row a measurement; the Loader already
+  treats a non-strict range as a warning (Requirement 1.3), and registry
+  grading now follows: a `tested`/`expected` verdict for this exact host
+  version admits a non-strict out-of-range version. A `strict` range, another
+  edition, `broken` and `yanked` keep excluding.
+- **Forge: GitHub publishing through `gh auth login`.** The release stage's
+  GitHub credential is now `GH_TOKEN`, else the `gh` CLI's own login
+  (`gh auth token`), else the `~/forge/secrets/github-token` file; the blocker a
+  missing credential records clears on `gh auth status`, so the owner item is
+  `gh auth login` once on the desk rather than minting and placing a token.
 
 ## 1.3.6 — 2026-10-12
 

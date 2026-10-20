@@ -2,8 +2,8 @@
   "schema": 1,
   "id": "agent-backend-doctor",
   "name": "Agent Backend Doctor",
-  "version": "0.2.0",
-  "description": "Finds, un-caches and repairs KiroCrew's agent-backend harnesses (Claude Code, Codex, OpenCode, pi). Fills the host's adapter search when an npm global prefix it does not look in (~/.local/node, ~/.npm-global, a ~/.npmrc prefix, $NPM_CONFIG_PREFIX) holds claude-agent-acp / codex-acp / pi-acp; resets the gateway's cached 'not found' so a backend installed after the gateway started works without a restart; keeps a Bedrock-backed Codex's AWS credentials usable inside KiroCrew's sandbox (an isolated 0600 copy of the configured profile's non-secret keys outside ~/.aws, handed to the codex-acp child explicitly, with a launch preflight and a sandboxed provider-chain probe); one page showing per backend what the host sees, what this mod found, the gateway cache state and the advertised models, with an opt-in CODEX_PATH switch (run the codex you installed) and an opt-in symlink repair into ~/.local/bin. Unofficial.",
+  "version": "0.2.1",
+  "description": "Finds, un-caches and repairs KiroCrew's agent-backend harnesses (Claude Code, Codex, OpenCode, pi). Fills the host's adapter search when an npm global prefix it does not look in (~/.local/node, ~/.npm-global, a ~/.npmrc prefix, $NPM_CONFIG_PREFIX) holds claude-agent-acp / codex-acp / pi-acp; resets the gateway's cached 'not found' so a backend installed after the gateway started works without a restart; keeps a Bedrock-backed Codex's AWS credentials usable inside KiroCrew's sandbox (an isolated 0600 copy of the configured profile's non-secret keys outside ~/.aws, handed to the codex-acp child explicitly, with a launch preflight and a sandboxed provider-chain probe); one page showing per backend what the host sees, what this mod found, the gateway cache state and the advertised models, with an opt-in CODEX_PATH switch (run the codex you installed) and an opt-in symlink repair into ~/.local/bin. Exposes a readiness read for other mods (installed, cache state, Codex preflight) so a session is only moved to a backend that will start. Unofficial.",
   "authors": [
     "Oscar Tseng"
   ],
@@ -57,11 +57,11 @@
     },
     {
       "path": "README.md",
-      "sha256": "2f0a845dffff61500b253331690c5e74decfb680b8196d9a6b8047a4fa82b7e7"
+      "sha256": "3d8919de8f221d0333a979649a43840fe97f89e4052c7d5e1af7c8a962786be4"
     },
     {
       "path": "hook/__init__.py",
-      "sha256": "c942676dfa474a1120989821810cdce93c20d416c4499e834f3393319224e6f1"
+      "sha256": "e92459a962795eb68712f92779d452d5f1141f1e1bde3b596430cbc67257f363"
     },
     {
       "path": "hook/awsenv.py",
@@ -81,7 +81,7 @@
     },
     {
       "path": "tests/hook_test.py",
-      "sha256": "b0e5846427c11898d0a0f475917c00430b073c7ee4c17f1a695ef178d4dfd05a"
+      "sha256": "d2052f8fbc3072264659581bef0b5f552c0ec3e3d853a322f7e24beb19bc0d57"
     },
     {
       "path": "tests/page_probe.py",

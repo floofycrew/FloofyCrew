@@ -67,6 +67,24 @@ def _status() -> dict:
         "config": cfg, "effective": P.describe(cfg),
         "host": {"retries": P.HOST_RETRIES, "delay_base_s": P.HOST_DELAY_BASE, "candidate_attempts": P.HOST_CANDIDATE_ATTEMPTS, "version": "probe"},
         "budget_overrides": [], "hooks": 0, "presets": list(P.PRESETS), "infinite": P.INFINITE, "counters": {}, "recent": [],
+        "failover": _failover(cfg),
+    }
+
+
+def _failover(cfg: dict) -> dict:
+    """The hook's ``failover`` route, as it reads with both companion mods active and a kiro/kas/claude pool."""
+    exclude = set(cfg["backend_failover"]["exclude"])
+    candidates = [
+        {"backend": "kas", "eligible": True, "wire_model": "claude-opus-4.8", "reason": "list unknown", "throttled_ago": 42.0},
+        {"backend": "claude", "eligible": True, "wire_model": "claude-opus-4-8[1m]", "reason": "listed", "throttled_ago": None},
+        {"backend": "codex", "eligible": False, "wire_model": "", "reason": "lists no Claude model", "throttled_ago": None},
+    ]
+    return {
+        "enabled": P.backend_failover(cfg) is not None,
+        "support": {"router": "ok", "doctor": "ok", "allocation_hook": "active", "available": True},
+        "pending": [], "turns_tracked": 0,
+        "last": {"from": "kiro", "to": "kas", "model": "claude-opus-4.8", "state": "landed", "landed": "kas", "ts": 1700000000.0},
+        "preview": {"available": True, "current": "kiro", "model": "claude-opus-4.8", "reason": "", "candidates": [c for c in candidates if c["backend"] not in exclude]},
     }
 
 
@@ -93,6 +111,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps({"models": [{"model_id": "claude-sonnet-5"}, {"model_id": "gpt-5.6-sol"}]}).encode())
         elif self.path == "/fake/route/status":
             self._send(json.dumps(_status()).encode())
+        elif self.path == "/fake/route/failover":
+            with LOCK:
+                cfg = P.merged_config(json.loads(json.dumps(STORE)))
+            self._send(json.dumps(_failover(cfg)).encode())
         else:
             self._send(b"not found", "text/plain", 404)
 
@@ -214,6 +236,38 @@ def main() -> int:
             wait_selected(page, "host")
             check(stored()["fallback"]["enabled"] is False and stored()["retries"]["mode"] == "host", "host card writes the host preset")
             check(stored()["retries"]["count"] == 7, "the count value is retained for the next time it is picked")
+
+            # 7. backend failover: off by default (no parameters), on = parameters + exclusions + preview; exclusions round-trip
+            fo = page.locator('[data-testid="mrp-failover"]')
+            check(not page.locator('[data-testid="mrp-failover-enabled"]').is_checked(), "failover starts off")
+            check(not page.locator('[data-testid="mrp-failover-params"]').is_visible(), "failover off: no parameters shown")
+            check("backend failover off" in page.locator('[data-testid="mrp-effective"]').inner_text(), "in-force line says the failover is off")
+            check("ready — Agent Backend Router: ok" in fo.inner_text(), "the support line names both companions")
+            page.locator('[data-testid="mrp-failover-enabled"]').click()
+            page.wait_for_function("document.querySelector('[data-testid=\"mrp-failover-params\"]').style.display !== 'none'", timeout=5000)
+            check(stored().get("backend_failover", {}).get("enabled") is True, f"failover on is stored as boolean true ({stored().get('backend_failover')})")
+            check("up to 2 backend move(s) per turn" in page.locator('[data-testid="mrp-effective"]').inner_text(), "in-force line describes the failover")
+            preview = page.locator('[data-testid="mrp-failover-preview"]').inner_text()
+            check("if claude-opus-4.8 throttles on kiro" in preview and "would take it as claude-opus-4-8[1m]" in preview and "itself throttled 42 s ago" in preview, f"preview lists the candidates ({preview!r})")
+            check("no: lists no Claude model" in preview, "an ineligible candidate says why")
+            check("last move: kiro → kas for claude-opus-4.8 — landed" in page.locator('[data-testid="mrp-failover-live"]').inner_text(), "the last move is shown")
+            page.fill('[data-testid="mrp-backend_failover-max_per_turn"]', "3")
+            page.locator('[data-testid="mrp-backend_failover-max_per_turn"]').dispatch_event("change")
+            page.wait_for_function("document.querySelector('[data-testid=\"mrp-effective\"]').innerText.includes('up to 3 backend move(s)')", timeout=5000)
+            check(stored()["backend_failover"]["max_per_turn"] == 3, "max moves per turn is stored")
+            page.locator('[data-testid="mrp-failover-exclude-codex"]').click()
+            page.wait_for_function("document.querySelector('[data-testid=\"mrp-effective\"]').innerText.includes('never codex')", timeout=5000)
+            check(stored()["backend_failover"]["exclude"] == ["codex"], f"exclusion is stored ({stored()['backend_failover']})")
+            check("codex" not in page.locator('[data-testid="mrp-failover-preview"]').inner_text(), "an excluded backend leaves the preview")
+            check(page.locator('[data-testid="mrp-failover-exclude-codex"]').is_checked(), "the exclusion box reads checked after the refresh")
+            page.locator('[data-mechanism="infinite_fixed"]').click()
+            wait_selected(page, "infinite_fixed")
+            check("never fires" in page.locator('[data-testid="mrp-failover-preview"]').inner_text(), "retry-forever explains that the failover cannot fire")
+            page.locator('[data-mechanism="host"]').click()
+            wait_selected(page, "host")
+            page.locator('[data-testid="mrp-failover-enabled"]').click()
+            page.wait_for_function("document.querySelector('[data-testid=\"mrp-effective\"]').innerText.includes('backend failover off')", timeout=5000)
+            check(stored()["backend_failover"]["enabled"] is False and stored()["backend_failover"]["exclude"] == ["codex"], "failover off keeps the exclusions for next time")
 
             page.evaluate("window.__unmount()")
             check(page.locator('[data-testid="mrp-page"]').count() == 0, "unmount removes the page")

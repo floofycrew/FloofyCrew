@@ -326,6 +326,72 @@ def forget(backend: str) -> dict[str, Any]:
     return done
 
 
+def backend_ready(backend: str) -> dict[str, Any]:
+    """Would a NEW session on *backend* start right now? For another mod about to move a session there.
+
+    BLOCKING (the host's install probe may shell out; discovery walks the
+    filesystem; the Codex preflight reads two files) — call it off the event
+    loop. Reads only; never repairs. The verdict folds four things:
+
+    * the host's own install probe (``installed`` / ``missing`` / ``unknown``);
+    * this mod's discovery when the host says ``missing``: an adapter found under
+      an npm prefix the host does not search counts as installed, because the
+      ``after`` hook on the host's resolver fills exactly that spawn;
+    * the spawn path's cache: a cached ``negative`` is reported as
+      ``needs_forget`` — the caller runs :func:`forget` ON THE EVENT LOOP before
+      the start, so a backend installed after the gateway came up is spawnable
+      without a restart;
+    * for Codex with the AWS launch environment enabled: the preflight verdict,
+      read without writing (``ok`` / ``static_only`` / …); a failing preflight
+      means the session's start would fail on credentials, so the backend is
+      not ready and the verdict says why.
+
+    ``ready`` is the conjunction; ``detail`` is one sentence for a log line.
+    Never raises.
+    """
+    out: dict[str, Any] = {"backend": backend, "ready": False, "installed": "unknown", "found_by": "", "cache": "unknown", "needs_forget": False, "awsenv": None, "detail": ""}
+    try:
+        probe = _probe(backend)
+        installed = str(probe.get("installed", "unknown")).lower()
+        out["installed"] = installed
+        found_by = "host" if installed == "installed" else ""
+        if installed != "installed":
+            name = _process_names().get(backend, "")
+            if backend in NODE_ADAPTER_BACKENDS and name:
+                found = D.find_adapter(name, home=_home(), search_path=_search_path(), environ=dict(os.environ), package=_adapter_packages().get(backend))
+                if found is not None:
+                    found_by, installed = "doctor", "installed"
+            elif backend not in ("", "kas") and name and D.launcher_candidates(name, home=_home(), environ=dict(os.environ)):
+                found_by, installed = "doctor", "installed"
+        out["found_by"] = found_by
+        out["installed"] = installed
+        cache = cache_state(backend)
+        out["cache"] = str(cache.get("state", "unknown"))
+        out["needs_forget"] = out["cache"] == "negative" and installed == "installed"
+        if backend == "codex" and awsenv_enabled():
+            # Read-only pass: an unbuilt pair reads ``not_applied`` here and is built by the launch hook
+            # itself, so only a verdict about the PLAN (no config, no profile, static keys, broken chain) blocks.
+            pf = AWS.preflight(home=_home(), host_home=_host_home(), environ=dict(os.environ), write=False)
+            out["awsenv"] = pf.verdict
+            if not pf.ok and pf.verdict != "not_applied":
+                out["detail"] = f"codex: the AWS launch preflight says {pf.verdict!r}, so a new session would fail on credentials"
+                return out
+        if installed == "installed":
+            out["ready"] = True
+            out["detail"] = f"{_policy_name(backend)}: installed ({'found by the doctor, the host missed it' if found_by == 'doctor' else 'per the host probe'})" + \
+                            ("; the gateway's cached 'not found' must be cleared first" if out["needs_forget"] else "")
+        elif installed == "missing":
+            missing = ", ".join(probe.get("missing_components") or []) or "harness missing"
+            out["detail"] = f"{_policy_name(backend)}: not installed ({missing}); the doctor found no complete install under any npm prefix either"
+        else:
+            out["ready"] = True  # UNKNOWN is a failed CHECK, not a missing harness (the host's own three-state contract)
+            out["detail"] = f"{_policy_name(backend)}: the install probe could not decide ({probe.get('error') or 'unknown'}); treating it as present"
+    except Exception as exc:  # noqa: BLE001 - a readiness read never breaks the caller's retry
+        out["detail"] = f"{_policy_name(backend)}: readiness read failed ({type(exc).__name__}: {exc}); treating it as present"
+        out["ready"] = True
+    return out
+
+
 def _reset_negatives() -> list[dict[str, Any]]:
     """On activation: every backend whose cache holds a miss is reset so the next spawn resolves through the after-hook."""
     out = []

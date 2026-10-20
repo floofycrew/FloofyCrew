@@ -20,12 +20,12 @@ tree counts as different). Every differing file must be an adapter module
 edition stamp; a difference anywhere else fails the report, as does a share of
 identical files below 80 %.
 
-Measured at 1.3.6 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.2.0's `electron:` target support (`floofy_core.asar`, `floofy_core.electron`) and the `custom-themes` editor, 1.3.0's `floofy.mod(id).dialog` and commit-pinned link records, the unattended freshness pass `floofy_core/freshness.py` — every new module is shared core, identical in both trees):
+Measured at 1.3.7 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.2.0's `electron:` target support (`floofy_core.asar`, `floofy_core.electron`) and the `custom-themes` editor, 1.3.0's `floofy.mod(id).dialog` and commit-pinned link records, the unattended freshness pass `floofy_core/freshness.py`, the quarantine heal `floofy_core/quarantine_heal.py` — every new module is shared core, identical in both trees):
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 231 | 257 | 89.9 % |
-| bytes | 2 808 106 | 2 900 380 | 96.8 % |
+| files | 233 | 259 | 90.0 % |
+| bytes | 2 845 209 | 2 937 483 | 96.9 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:

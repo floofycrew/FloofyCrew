@@ -28,7 +28,7 @@ REGISTRY_PY = REPO / "loader-app" / "floofy_loader" / "hooks_registry.py"
 
 pytestmark = pytest.mark.skipif(not REGISTRY_PY.exists(), reason="needs the FloofyCrew checkout (loader-app/) for the real hook registry")
 
-FAKE_MODULES = ("kiro_crew", "kiro_crew.llm_helpers", "kiro_crew.dashboard", "kiro_crew.dashboard.chat_runner", "kiro_crew.dashboard.chat_utils", "kiro_crew.dashboard.state", "kiro_crew.subagent", "kiro_crew.slack", "kiro_crew.slack.gateway")
+FAKE_MODULES = ("kiro_crew", "kiro_crew.llm_helpers", "kiro_crew.dashboard", "kiro_crew.dashboard.chat_runner", "kiro_crew.dashboard.chat_utils", "kiro_crew.dashboard.state", "kiro_crew.subagent", "kiro_crew.slack", "kiro_crew.slack.gateway", "kiro_crew.session")
 
 
 # --- the fake host ---------------------------------------------------------------------------------------------
@@ -176,6 +176,36 @@ def _fake_host():
     cu.POSTTOKEN_RECOVERY_PREFIX = "[Interrupted turn — automatic recovery]"
     cu._POSTTOKEN_RECOVER_MSG = f"{cu.POSTTOKEN_RECOVERY_PREFIX}\nThe previous response was interrupted partway through by a transient backend error. Continue from where it stopped."
     cu._SYNTHETIC_RECOVERY_MSGS = (cu._POSTTOKEN_RECOVER_MSG,)
+    cu.effective_session_key = lambda slot: getattr(slot, "linked_session_key", "") or f"dashboard:{slot.key}"
+
+    # session: the allocation seam the backend failover replaces. The fake manager keeps one live
+    # provider per key; ``reset`` pops it (the host's recycle: process gone, conversation kept) and
+    # ``get_or_create`` cold-starts through ``factory`` when none is live — the factory is where
+    # the router's route request would be honoured, so the fake reads the request table itself.
+    se = types.ModuleType("kiro_crew.session")
+
+    class SessionManager:
+        def __init__(self, factory):
+            self.live = {}
+            self.factory = factory
+            self.resets = []
+            self.busy = set()
+
+        async def reset(self, key, *, skip_if_busy=False, **_kw):
+            self.resets.append(key)
+            if skip_if_busy and key in self.busy:
+                return False
+            self.live.pop(key, None)
+            return True
+
+        async def get_or_create(self, key, *args, **kwargs):
+            if key in self.live:
+                return self.live[key], False, False
+            provider = self.factory(key)
+            self.live[key] = provider
+            return provider, True, False
+
+    se.SessionManager = SessionManager
 
     sa = types.ModuleType("kiro_crew.subagent")
     sa.TRANSIENT_RETRIES = lh.TRANSIENT_RETRIES
@@ -191,7 +221,7 @@ def _fake_host():
     dash = types.ModuleType("kiro_crew.dashboard")
     slack = types.ModuleType("kiro_crew.slack")
     return {"kiro_crew": kc, "kiro_crew.llm_helpers": lh, "kiro_crew.dashboard": dash, "kiro_crew.dashboard.chat_runner": cr, "kiro_crew.dashboard.chat_utils": cu, "kiro_crew.dashboard.state": st,
-            "kiro_crew.subagent": sa, "kiro_crew.slack": slack, "kiro_crew.slack.gateway": sg}
+            "kiro_crew.subagent": sa, "kiro_crew.slack": slack, "kiro_crew.slack.gateway": sg, "kiro_crew.session": se}
 
 
 # --- the two ladders, as the host runs them ------------------------------------------------------------------------------
@@ -318,6 +348,25 @@ def _load_hook():
     return module
 
 
+class _CapturingLog:
+    """A logger stand-in that keeps every line (``records``) and forwards to the real logger."""
+
+    def __init__(self):
+        self.records = []
+        self._logger = logging.getLogger("test.mrp")
+
+    def __getattr__(self, level):
+        def emit(msg, *args, **kwargs):
+            try:
+                text = msg % args if args else str(msg)
+            except Exception:  # noqa: BLE001
+                text = str(msg)
+            self.records.append(logging.LogRecord("test.mrp", logging.INFO, "", 0, text, (), None))
+            getattr(self._logger, level)(msg, *args, **kwargs)
+
+        return emit
+
+
 @pytest.fixture
 def host(tmp_path):
     saved = {k: sys.modules.get(k) for k in FAKE_MODULES}
@@ -330,7 +379,7 @@ def host(tmp_path):
 
     def activate(config):
         ctx = SimpleNamespace(
-            mod_id="model-retry-policy", version="0.1.0", config=FakeConfig(config), log=logging.getLogger("test.mrp"), state={},
+            mod_id="model-retry-policy", version="0.1.0", config=FakeConfig(config), log=_CapturingLog(), state={},
             routes=FakeRoutes(), data_dir=str(tmp_path), hooks=registry.for_mod("model-retry-policy"), host=SimpleNamespace(version="0.7.0.5"),
         )
         hook.activate(ctx)
@@ -580,3 +629,313 @@ def test_deactivate_restores_the_host_one_shot(host):
     host.registry.deactivate("model-retry-policy")
     assert host.st._ChatSlot.queue_insert is original_qi
     assert run(midturn_ladder(host.cr, host.cu, host.st._ChatSlot(), errors=4))[::2] == (1, "terminal")
+
+
+# --- backend failover ------------------------------------------------------------------------------------------------------------
+
+
+class FakeRouter(types.ModuleType):
+    """The agent-backend-router's public surface as the failover uses it (≥ 0.3.2)."""
+
+    def __init__(self, pool=("kiro", "kas", "claude", "codex"), served=None):
+        super().__init__("floofy_mods.agent-backend-router.hook")
+        self.pool = list(pool)
+        self.served = served if served is not None else {"kiro": None, "kas": None, "claude": ["claude-opus-4-8[1m]"], "codex": ["openai.gpt-5.6-sol[low]"]}
+        self.requests = {}
+        self.cancelled = []
+        self.throttled_ago = {}
+        self.pinned_sessions = {}
+        self.queries = []
+
+    def failover_candidates(self, session_key, *, model, current, exclude=()):
+        self.queries.append((session_key, model, current, tuple(exclude)))
+        if session_key in self.pinned_sessions:
+            return {"candidates": [], "reason": f"agent {self.pinned_sessions[session_key]!r} is pinned to kas"}
+        if current not in self.pool:
+            return {"candidates": [], "reason": f"{current} is not in the pool"}
+        start = self.pool.index(current)
+        ordered = [self.pool[(start + i) % len(self.pool)] for i in range(1, len(self.pool))]
+        out = []
+        for b in ordered:
+            if b in exclude:
+                continue
+            lst = self.served.get(b)
+            if lst is None:  # list unknown: same-namespace kiro/kas serve the model unchanged
+                out.append({"backend": b, "eligible": b in ("kiro", "kas"), "wire_model": model if b in ("kiro", "kas") else "", "reason": "list unknown", "throttled_ago": self.throttled_ago.get(b)})
+                continue
+            base = model.replace(".", "-")
+            hit = [s for s in lst if base.split("-")[0] in s and base[-3:].replace("-", "") in s.replace(".", "").replace("-", "")]
+            wire = "" if not hit else (hit[0] if hit[0].endswith("[1m]") else hit[0].split("[")[0])  # a window marker stays; an effort pair is bare
+            out.append({"backend": b, "eligible": bool(hit), "wire_model": wire, "reason": "listed" if hit else "not listed", "throttled_ago": self.throttled_ago.get(b)})
+        return {"candidates": out, "reason": "" if any(c["eligible"] for c in out) else "no other backend in the pool lists this model"}
+
+    def request_route(self, session_key, backend, *, model="", reason="", by="", ttl=180.0):
+        self.requests[session_key] = {"backend": backend, "model": model, "reason": reason, "by": by, "ttl": ttl}
+        return {"ok": True, "backend": backend}
+
+    def cancel_route_request(self, session_key):
+        self.cancelled.append(session_key)
+        return self.requests.pop(session_key, None) is not None
+
+    def route_request(self, session_key):
+        return self.requests.get(session_key)
+
+    def _read_default_backend(self):
+        return ""
+
+    def _read_default_model(self):
+        return "claude-opus-4.8"
+
+
+class FakeDoctor(types.ModuleType):
+    def __init__(self):
+        super().__init__("floofy_mods.agent-backend-doctor.hook")
+        self.not_ready = {}
+        self.negatives = set()
+        self.forgotten = []
+        self.asked = []
+
+    def backend_ready(self, backend):
+        name = "kiro" if backend == "" else backend
+        self.asked.append(name)
+        if name in self.not_ready:
+            return {"backend": backend, "ready": False, "installed": "missing", "needs_forget": False, "detail": self.not_ready[name]}
+        return {"backend": backend, "ready": True, "installed": "installed", "needs_forget": name in self.negatives, "detail": f"{name}: installed"}
+
+    def forget(self, backend):
+        self.forgotten.append("kiro" if backend == "" else backend)
+        return {"ok": True}
+
+
+class Provider:
+    """The slot's live provider as the router stamps it."""
+
+    def __init__(self, backend, model, session):
+        self.model = model
+        self._floofy_abr = {"backend": "" if backend == "kiro" else backend, "model": model, "session": session, "agent": "kirocrew"}
+
+
+def _failover_world(host, monkeypatch, config, *, router=True, doctor=True, served=None):
+    """Activate the mod with the two companion mods (or without), and a fake session manager whose factory honours the router's request."""
+    fr = FakeRouter(served=served) if router else None
+    fd = FakeDoctor() if doctor else None
+    if fr is not None:
+        monkeypatch.setitem(sys.modules, "floofy_mods.agent-backend-router.hook", fr)
+    else:
+        monkeypatch.delitem(sys.modules, "floofy_mods.agent-backend-router.hook", raising=False)
+    if fd is not None:
+        monkeypatch.setitem(sys.modules, "floofy_mods.agent-backend-doctor.hook", fd)
+    else:
+        monkeypatch.delitem(sys.modules, "floofy_mods.agent-backend-doctor.hook", raising=False)
+    ctx = host.activate(config)
+    se = host.modules["kiro_crew.session"]
+
+    manager = se.SessionManager(None)
+    manager.default_model = "claude-opus-4.8"
+
+    def factory(key):
+        req = fr.requests.pop(key, None) if fr is not None else None  # the real router consumes the request at construction
+        backend = req["backend"] if req else "kiro"
+        return Provider(backend, (req or {}).get("model") or manager.default_model, key)
+
+    manager.factory = factory
+    return types.SimpleNamespace(ctx=ctx, router=fr, doctor=fd, manager=manager, se=se)
+
+
+async def throttled_turn(host, world, slot, *, failures, model="claude-opus-4.8"):
+    """One dashboard turn whose every prompt attempt throttles, through the real ladder shape INCLUDING the re-queue.
+
+    Each failed attempt walks the host's interactive ladder (same-model retries, then the swap seam);
+    the swap's re-queue is modelled as the dequeue that follows: ``get_or_create`` on the session key,
+    which is where a pending failover resets and cold-starts. Returns the attempts as
+    ``(backend, model)`` pairs and the slot's transcript.
+    """
+    cr = host.cr
+    key = f"dashboard:{slot.key}"
+    attempts = []
+    world.manager.default_model = model
+    client, _new, _res = await world.manager.get_or_create(key)
+    for _ in range(failures):
+        backend = "kiro" if client._floofy_abr["backend"] == "" else client._floofy_abr["backend"]
+        attempts.append((backend, client.model))
+        if slot._transient_5xx_retries < cr.TRANSIENT_RETRIES:
+            slot._transient_5xx_retries += 1
+            cr.transient_retry_delay(slot._transient_5xx_retries)
+            client, _new, _res = await world.manager.get_or_create(key)  # the same-model re-queue dequeues onto the live session
+            continue
+        cand = await cr._fallback_swap_for_turn(slot, client)
+        if cand is None:
+            slot._transient_5xx_retries = 0
+            slot._fallback_candidate_idx = 0
+            slot._fallback_walked = []
+            return attempts, "terminal"
+        slot.append("notice", f"⚠️ {slot._fallback_primary_model or model} is throttled — running on {cand} until {slot._fallback_primary_model or model} recovers.", "msg msg-info")
+        slot._transient_5xx_retries = cr.fallback_rewound_transient_budget()
+        cr.transient_retry_delay(1)
+        client, _new, _res = await world.manager.get_or_create(key)  # the swap's re-queue dequeues: pending failover → reset + cold start
+    return attempts, "cut"
+
+
+def test_failover_off_leaves_the_model_swap_alone_even_with_both_companions(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 1}})
+    assert world.ctx.state["backend_failover"] == {"enabled": False, "router": "ok", "doctor": "ok", "allocation_hook": "active", "available": True}
+    slot = host.st._ChatSlot("s1")
+    attempts, end = run(throttled_turn(host, world, slot, failures=6))
+    # count 1: 1 + 1 attempts on the primary, the host's own swap to the "auto" candidate for 2, then the chain is exhausted
+    assert [b for b, _m in attempts] == ["kiro"] * 4, "no backend move"
+    assert [m for _b, m in attempts] == ["claude-opus-4.8"] * 2 + ["auto"] * 2 and end == "terminal"
+    assert world.router.requests == {} and world.manager.resets == [] and not host.faults
+
+
+def test_failover_moves_a_throttled_session_to_the_next_backend_with_a_replayed_cold_start(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 3}, "backend_failover": {"enabled": True, "max_per_turn": 2}})
+    slot = host.st._ChatSlot("s2")
+    attempts, end = run(throttled_turn(host, world, slot, failures=5))
+    # attempt 1 + 3 retries on kiro, then the swap seam moved the session: the re-queue cold-started on kas
+    assert attempts == [("kiro", "claude-opus-4.8")] * 4 + [("kas", "claude-opus-4.8")] and end == "cut"
+    assert world.manager.resets == ["dashboard:s2"], "the live session was reset exactly once, by the allocation seam"
+    assert world.router.queries[0] == ("dashboard:s2", "claude-opus-4.8", "kiro", ())
+    assert world.doctor.asked == ["kas"]
+    assert slot._transient_5xx_retries == 1, "the new backend got the whole same-model budget (counter rewound to 0, one retry spent since); the host's rewind would read 3"
+    assert slot._active_fallback_model == "" and slot._fallback_walked == [], "no model swap happened: the model never changed"
+    notice = [m for m in slot.messages if m["role"] == "notice"][-1]["content"]
+    assert notice.startswith("⟳ claude-opus-4.8 is throttled on kiro — moving this chat to kas with the same model.") and "replayed from KiroCrew's own log" in notice
+    j = world.ctx.state
+    assert j["failovers_seen"] == 1
+    ev = [e for e in host.hook._journal.recent(10) if e.kind == "failover"][-1]
+    assert (ev.previous, ev.backend, ev.model, ev.attempt) == ("kiro", "kas", "claude-opus-4.8", 1) and ev.detail == "move 1/2 this turn"
+    assert host.hook._failover_last["state"] == "landed" and host.hook._failover_last["landed"] == "kas"
+    assert host.hook._pending_failover == {} and world.router.requests == {}
+    assert not host.faults
+
+
+def test_failover_walks_the_candidates_then_hands_over_to_the_model_chain(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 0}, "backend_failover": {"enabled": True, "max_per_turn": 2}})
+    slot = host.st._ChatSlot("s3")
+    attempts, end = run(throttled_turn(host, world, slot, failures=7))
+    backends = [b for b, _m in attempts]
+    # count 0: every failed attempt reaches the swap seam. kiro -> kas -> claude (the two moves), then the host's model chain on claude
+    assert backends[:3] == ["kiro", "kas", "claude"]
+    assert attempts[2] == ("claude", "claude-opus-4-8[1m]"), "Claude Code gets the same model in its own spelling"
+    assert attempts[3:] == [("claude", "auto")] and end == "terminal", "max_per_turn reached: the host's own agent.fallback_model walk ran on claude, then the chain was exhausted"
+    assert world.router.queries[1][3] == ("kiro",), "the second query excludes the backend already tried this turn"
+    assert len(world.router.queries) == 2, "after max_per_turn the router is not asked again this turn"
+    assert world.manager.resets == ["dashboard:s3", "dashboard:s3"]
+    assert any("already moved 2 time(s) this turn (max 2)" in line for line in _log_lines(world))
+    # a genuine new user turn starts the count over
+    slot.append("user", "again", "msg msg-u")
+    assert "s3" not in host.hook._failover_turns
+
+
+def test_failover_skips_a_backend_that_is_not_ready_or_still_cooling_down(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 0}, "backend_failover": {"enabled": True, "max_per_turn": 3, "cooldown_s": 60}})
+    world.doctor.not_ready["kas"] = "kas: not installed (kiro-cli missing)"
+    world.doctor.negatives.add("codex")
+    slot = host.st._ChatSlot("s4")
+    run(throttled_turn(host, world, slot, failures=1, model="gpt-5.6-sol"))
+    # kas not ready → skipped; claude never lists a GPT model; codex (lists gpt-5.6-sol) taken, its cached negative cleared first
+    assert world.doctor.asked == ["kas", "codex"] and world.doctor.forgotten == ["codex"]
+    ev = [e for e in host.hook._journal.recent(10) if e.kind == "failover"][-1]
+    assert ev.backend == "codex" and ev.detail == "move 1/3 this turn; skipped kas (kas: not installed (kiro-cli missing))"
+    assert world.router.requests == {} and host.hook._failover_last["to"] == "codex"
+    # a backend that itself throttled inside the cooldown is skipped without asking the doctor
+    world.doctor.not_ready.clear()
+    world.doctor.asked.clear()
+    world.router.throttled_ago["kas"] = 12.0
+    slot2 = host.st._ChatSlot("s5")
+    run(throttled_turn(host, world, slot2, failures=1, model="claude-opus-4.8"))
+    assert host.hook._failover_last["to"] == "claude" and world.doctor.asked == ["claude"]
+    assert [e for e in host.hook._journal.recent(10) if e.kind == "failover"][-1].detail == "move 1/3 this turn; skipped kas (throttled 12 s ago)"
+    world.router.throttled_ago["kas"] = 120.0  # past the cooldown: kas is a candidate again
+    slot3 = host.st._ChatSlot("s6b")
+    run(throttled_turn(host, world, slot3, failures=1, model="claude-opus-4.8"))
+    assert host.hook._failover_last["to"] == "kas"
+
+
+def test_failover_needs_the_router_and_falls_back_to_the_model_chain_without_it(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 0}, "backend_failover": {"enabled": True}}, router=False)
+    assert world.ctx.state["backend_failover"]["router"] == "not active" and world.ctx.state["backend_failover"]["available"] is False
+    slot = host.st._ChatSlot("s6")
+    attempts, end = run(throttled_turn(host, world, slot, failures=4))
+    assert attempts == [("kiro", "claude-opus-4.8"), ("kiro", "auto")] and end == "terminal", "the host's own model walk, no backend move"
+    assert world.manager.resets == []
+    status = host.hook._status(FakeRequest())
+    assert status["failover"]["enabled"] is True and status["failover"]["support"]["router"] == "not active"
+    fo = host.hook._failover_status(FakeRequest())
+    assert fo["preview"] == {"available": False}
+
+
+def test_failover_is_not_attempted_while_a_model_walk_is_in_progress(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 0}, "backend_failover": {"enabled": True}})
+    slot = host.st._ChatSlot("s7")
+    slot._active_fallback_model = "auto"  # the host already moved this session onto a fallback model earlier in the turn
+    attempts, _end = run(throttled_turn(host, world, slot, failures=2))
+    assert world.router.queries == [] and world.manager.resets == [] and [b for b, _m in attempts] == ["kiro", "kiro"]
+
+
+def test_a_pending_move_that_is_never_dequeued_expires_and_a_refused_reset_drops_it(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 0}, "backend_failover": {"enabled": True}})
+    H = host.hook
+    slot = host.st._ChatSlot("s8")
+    key = "dashboard:s8"
+    client, _n, _r = run(world.manager.get_or_create(key))
+    assert run(host.cr._fallback_swap_for_turn(slot, client)) == "claude-opus-4.8"
+    assert key in H._pending_failover and key in world.router.requests
+    H._pending_failover[key]["ts"] -= 10_000  # the re-queue never came (Stop during the backoff)
+    client2, _n, _r = run(world.manager.get_or_create(key))
+    assert client2 is client and world.manager.resets == [] and world.router.cancelled == [key] and key not in world.router.requests
+    assert any("expired unconsumed" in line for line in _log_lines(world))
+    # a reset the host refuses (a turn still in flight) drops the move and allocates as before
+    slot9 = host.st._ChatSlot("s9")
+    key9 = "dashboard:s9"
+    client9, _n, _r = run(world.manager.get_or_create(key9))
+    run(host.cr._fallback_swap_for_turn(slot9, client9))
+    world.manager.busy.add(key9)
+    again, _n, _r = run(world.manager.get_or_create(key9))
+    assert again is client9 and world.manager.resets == [key9] and key9 in world.router.cancelled
+    assert H._failover_last == {**H._failover_last, "state": "dropped", "why": "reset refused"}
+
+
+def test_a_give_up_row_cancels_the_pending_move_and_deactivate_cancels_the_rest(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 0}, "backend_failover": {"enabled": True}})
+    H = host.hook
+    slot = host.st._ChatSlot("s10")
+    client, _n, _r = run(world.manager.get_or_create("dashboard:s10"))
+    run(host.cr._fallback_swap_for_turn(slot, client))
+    slot.append("error", host.cu.TRANSIENT_GIVE_UP_TEXT, "msg msg-err", meta={host.cu.TRANSIENT_NOTICE_META_KEY: host.cu.TRANSIENT_NOTICE_GIVE_UP})
+    assert H._pending_failover == {} and world.router.cancelled == ["dashboard:s10"] and H._failover_last["state"] == "cancelled"
+    slot2 = host.st._ChatSlot("s11")
+    client2, _n, _r = run(world.manager.get_or_create("dashboard:s11"))
+    run(host.cr._fallback_swap_for_turn(slot2, client2))
+    assert "dashboard:s11" in H._pending_failover
+    H.deactivate(world.ctx)
+    assert "dashboard:s11" in world.router.cancelled and H._pending_failover == {}
+
+
+def test_a_move_that_lands_elsewhere_is_reported_not_hidden(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"retries": {"mode": "count", "count": 0}, "backend_failover": {"enabled": True}})
+    slot = host.st._ChatSlot("s12")
+    key = "dashboard:s12"
+    client, _n, _r = run(world.manager.get_or_create(key))
+    run(host.cr._fallback_swap_for_turn(slot, client))
+    world.router.requests.pop(key)  # the router could not honour it (its fence changed) — the factory lands on kiro
+    landed, _n, _r = run(world.manager.get_or_create(key))
+    assert landed._floofy_abr["backend"] == "" and host.hook._failover_last["state"] == "landed_elsewhere" and host.hook._failover_last["landed"] == "kiro"
+    assert any("was meant for kas but the allocation landed on kiro" in line for line in _log_lines(world))
+
+
+def test_failover_status_route_previews_the_default_model(host, monkeypatch):
+    world = _failover_world(host, monkeypatch, {"backend_failover": {"enabled": True, "cooldown_s": 30, "exclude": ["codex"]}})
+    out = host.hook._failover_status(FakeRequest())
+    assert out["enabled"] is True and out["support"]["available"] is True and out["pending"] == []
+    assert out["preview"]["available"] and out["preview"]["current"] == "kiro" and out["preview"]["model"] == "claude-opus-4.8"
+    assert [c["backend"] for c in out["preview"]["candidates"]] == ["kas", "claude"], "the excluded backend is not offered"
+    desc = host.hook._status(FakeRequest())["effective"]
+    assert desc["failover"] == "up to 2 backend move(s) per turn, skip a backend throttled within 30 s, never codex"
+    assert desc["failover_blocked_by_infinite_retries"] is False
+    world.ctx.config.doc["retries"] = {"mode": "infinite"}
+    assert host.hook._status(FakeRequest())["effective"]["failover_blocked_by_infinite_retries"] is True
+
+
+def _log_lines(world):
+    return [rec.getMessage() for rec in getattr(world.ctx.log, "records", [])]

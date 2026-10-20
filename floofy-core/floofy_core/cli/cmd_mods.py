@@ -219,16 +219,24 @@ def list_mods(ctx: CliContext, args: argparse.Namespace) -> int:
 # --- install ----------------------------------------------------------------------------------
 
 
-def _confirm_install(ctx: CliContext, disclosure, *, pre_confirmed: list[str], accept_flags: bool, accept_unlisted: bool = False) -> tuple[bool, list[str], str, str | None]:
+def _confirm_install(ctx: CliContext, disclosure, *, pre_confirmed: list[str], accept_flags: bool, accept_unlisted: bool = False, prior_kinds: frozenset[str] = frozenset()) -> tuple[bool, list[str], str, str | None]:
     """Return ``(go, confirmed_targets, refusal, unlisted_how)`` after the Requirement 11.7 / 11.4 / 8.8 questions.
 
     The unlisted-source line of a git reference is confirmed like the one-time
     warning: the user types :data:`floofy_core.consent.ACCEPT_PHRASE`, or
     automation passes ``--accept-unlisted-source`` (``unlisted_how`` records
     ``typed`` / ``flag``). ``--yes`` never covers it (Requirement 8.8, 11.1).
+
+    ``prior_kinds`` are the code kinds the user already said yes to for this very
+    mod (the quarantine heal reads them from the parked copy's manifest): the
+    host parked the mod without asking, so bringing it back with the *same*
+    kinds asks nothing again; a kind the repaired version grew still needs the
+    yes. Governance targets, flags and the unlisted-source line are never
+    covered by it (Requirement 6.7).
     """
-    if disclosure.confirm_kinds:
-        kinds = ", ".join(disclosure.confirm_kinds)
+    asked_kinds = [k for k in disclosure.confirm_kinds if k not in prior_kinds]
+    if asked_kinds:
+        kinds = ", ".join(asked_kinds)
         if not ctx.console.confirm(f"This mod has {kinds} parts that run with gateway privileges or modify payload files. Install {disclosure.mod_id} {disclosure.version}?", default=False):
             return False, [], f"install of {disclosure.mod_id} declined ({kinds} parts need an explicit yes; --yes for automation)", None
     if disclosure.flags and not accept_flags:
@@ -362,7 +370,7 @@ def _say_dependency_summary(ctx: CliContext, mod_id: str, results: list[dict[str
         ctx.warn(f"  {mod_id} requires {r['id']} {r.get('range') or ''}: {r['status']} — {r.get('detail') or ''}; {mod_id} stays inactive (Dependency) until it is installed")
 
 
-def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabled: bool = False, pre_confirmed: list[str], accept_flags: bool, keep_enabled: bool = False, accept_unlisted: bool = False, dependency_of: dict[str, Any] | None = None, _visiting: frozenset[str] = frozenset(), defer_reload: bool = False) -> dict[str, Any]:
+def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabled: bool = False, pre_confirmed: list[str], accept_flags: bool, keep_enabled: bool = False, accept_unlisted: bool = False, dependency_of: dict[str, Any] | None = None, _visiting: frozenset[str] = frozenset(), defer_reload: bool = False, prior_kinds: frozenset[str] = frozenset()) -> dict[str, Any]:
     """Validate → plan dependencies → disclose → confirm → install dependencies → place → seam handlers → flag → audit (→ reload).
 
     Shared by install/update/profile. ``dependency_of`` marks a recursive call made
@@ -385,7 +393,7 @@ def install_source(ctx: CliContext, source: ResolvedSource, *, now: bool, disabl
     try:
         if not report.ok:
             raise InstallError(f"{disclosure.mod_id}: `floofy validate` found {len(report.errors)} error(s); not installed")
-        go, confirmed, refusal, unlisted_how = _confirm_install(ctx, disclosure, pre_confirmed=pre_confirmed, accept_flags=accept_flags or ctx.assume_yes, accept_unlisted=accept_unlisted)
+        go, confirmed, refusal, unlisted_how = _confirm_install(ctx, disclosure, pre_confirmed=pre_confirmed, accept_flags=accept_flags or ctx.assume_yes, accept_unlisted=accept_unlisted, prior_kinds=prior_kinds)
         if not go:
             ctx.audit.record("install", mod=disclosure.mod_id, version=disclosure.version, result="declined", detail=refusal, governanceFlags=[f["code"] for f in disclosure.flags], source=source.to_dict(), commit=source.commit, tier=source.tier)
             raise InstallError(refusal)

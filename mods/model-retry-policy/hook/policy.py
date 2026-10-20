@@ -29,12 +29,20 @@ Configuration (``ctx.config``; every key optional, see :data:`DEFAULTS`)::
     fallback: {enabled: false, profile: "<id>",
                profiles: {"<id>": {name, primary_retries,
                                    steps: [{model, retries}], exhausted: stop | retry-last}}}
+    backend_failover: {enabled: false, max_per_turn: 2, cooldown_s: 120, exclude: []}
 
 The four mechanisms the mod offers map onto it as presets (:data:`PRESETS`):
 a retry count, infinite retries at a fixed interval, infinite retries with
 exponential backoff, and a fallback profile that moves to another model after
 N retries. A fallback profile owns the same-model budget (``primary_retries``)
 and uses whatever delay curve is configured between attempts.
+
+``backend_failover`` is independent of the four: when the same-model budget is
+spent on a dashboard turn, the session is moved to ANOTHER AGENT BACKEND that
+serves the same model (kiro-cli ↔ KAS ↔ Claude Code ↔ Codex, as the Agent
+Backend Router's served lists allow) before any model chain is walked. The
+model never changes; the conversation is replayed from KiroCrew's own log on
+the new backend. :func:`backend_failover` returns the settings or ``None``.
 
 "Infinite" is :data:`INFINITE` retries — the host compares its counter against
 a plain ``int``, and a turn is still ended by Stop, a session reset or the
@@ -78,7 +86,11 @@ DEFAULTS: dict[str, Any] = {
     "retries": {"mode": "host", "count": HOST_RETRIES},
     "delay": {"mode": "host", "interval_s": 30.0, "base_s": HOST_DELAY_BASE, "factor": 2.0, "max_s": 300.0, "jitter": 0.25},
     "fallback": {"enabled": False, "profile": "", "profiles": {}},
+    "backend_failover": {"enabled": False, "max_per_turn": 2, "cooldown_s": 120.0, "exclude": []},
 }
+
+FAILOVER_MAX_PER_TURN = 8
+"""The most backend moves one user turn may make (a pool is rarely larger)."""
 
 PRESETS: dict[str, dict[str, Any]] = {
     # The four mechanisms, as the page offers them. Each is a config patch.
@@ -185,7 +197,33 @@ def merged_config(stored: dict[str, Any] | None) -> dict[str, Any]:
         "profile": profile if profile in profiles else "",
         "profiles": profiles,
     }
+
+    bf = stored.get("backend_failover") if isinstance(stored.get("backend_failover"), dict) else {}
+    exclude = [_backend_name(b) for b in (bf.get("exclude") or []) if _backend_name(b)] if isinstance(bf.get("exclude"), list) else []
+    cfg["backend_failover"] = {
+        "enabled": bf.get("enabled", False) is True,
+        "max_per_turn": _int(bf.get("max_per_turn", 2), 2, 1, FAILOVER_MAX_PER_TURN),
+        "cooldown_s": _num(bf.get("cooldown_s", 120.0), 120.0, 0.0, MAX_DELAY_S),
+        "exclude": exclude[:16],
+    }
     return cfg
+
+
+def _backend_name(value: Any) -> str:
+    """A backend as the router names it (``kiro`` / ``kas`` / ``claude`` / ``codex`` …); ``""`` for junk."""
+    if not isinstance(value, str):
+        return ""
+    text = value.strip().lower()
+    if text == "":
+        return "kiro"  # the host spells kiro-cli's v2 loop as the empty string
+    return text if len(text) <= 32 and text.replace("-", "").replace("_", "").isalnum() else ""
+
+
+def backend_failover(cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """The backend-failover settings when the mechanism is on; ``None`` when it is off (or the policy is)."""
+    if not cfg["enabled"] or not cfg["backend_failover"]["enabled"]:
+        return None
+    return cfg["backend_failover"]
 
 
 def active_profile(cfg: dict[str, Any]) -> dict[str, Any] | None:
@@ -198,7 +236,7 @@ def active_profile(cfg: dict[str, Any]) -> dict[str, Any] | None:
 def is_host_behaviour(cfg: dict[str, Any]) -> bool:
     """True when nothing is overridden: every hook should call straight through."""
     return (not cfg["enabled"]) or (
-        cfg["retries"]["mode"] == "host" and cfg["delay"]["mode"] == "host" and active_profile(cfg) is None
+        cfg["retries"]["mode"] == "host" and cfg["delay"]["mode"] == "host" and active_profile(cfg) is None and backend_failover(cfg) is None
     )
 
 
@@ -359,6 +397,7 @@ def describe(cfg: dict[str, Any]) -> dict[str, Any]:
     if d["mode"] != "host" or retries is not None:
         delay += f", jitter {round(d['jitter'] * 100)} %"
     midturn = midturn_budget(cfg)
+    bf = backend_failover(cfg)
     return {
         "host_behaviour": is_host_behaviour(cfg),
         "retries": "host (3)" if retries is None else ("infinite" if retries >= INFINITE else str(retries)),
@@ -369,6 +408,9 @@ def describe(cfg: dict[str, Any]) -> dict[str, Any]:
         "profile": prof["name"] if prof else None,
         "exhausted": prof["exhausted"] if prof else None,
         "preset": preset_of(cfg),
+        "failover": None if bf is None else f"up to {bf['max_per_turn']} backend move(s) per turn, skip a backend throttled within {bf['cooldown_s']:g} s"
+                    + (f", never {', '.join(bf['exclude'])}" if bf["exclude"] else ""),
+        "failover_blocked_by_infinite_retries": bf is not None and retries is not None and retries >= INFINITE,
     }
 
 
@@ -397,12 +439,13 @@ def preset_of(cfg: dict[str, Any]) -> str:
 class Event:
     ts: float
     surface: str          # dashboard | unattended | subagent | cron
-    kind: str             # retry | resume | swap | exhausted | stay
+    kind: str             # retry | resume | swap | exhausted | stay | failover
     attempt: int = 0
     delay: float | None = None
-    model: str = ""       # the model retried / swapped to
-    previous: str = ""    # for swap: the model swapped away from
+    model: str = ""       # the model retried / swapped to (for failover: the model kept)
+    previous: str = ""    # for swap: the model swapped away from; for failover: the backend left
     detail: str = ""
+    backend: str = ""     # for failover: the backend moved to
 
 
 @dataclass
@@ -412,6 +455,7 @@ class Counters:
     swaps: int = 0
     exhausted: int = 0
     stays: int = 0
+    failovers: int = 0    # backend moves (same model, another backend, conversation replayed)
     by_surface: dict[str, int] = field(default_factory=dict)
     since: float = field(default_factory=time.time)
     last_ts: float | None = None
@@ -467,6 +511,8 @@ class Journal:
                 c.exhausted += 1
             elif event.kind == "stay":
                 c.stays += 1
+            elif event.kind == "failover":
+                c.failovers += 1
             c.by_surface[event.surface] = c.by_surface.get(event.surface, 0) + 1
             c.last_ts = event.ts
             self._dirty = True

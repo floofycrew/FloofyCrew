@@ -303,6 +303,79 @@ export default async function mount(container, api) {
     profilesBox.append(el("div", {}, btn("New profile…", newProfile)));
   }
 
+  // --- backend failover ------------------------------------------------------------------------------------------
+  // Same model, another agent backend: when the same-model retries are spent on a dashboard turn, move the chat
+  // to another backend that serves the model (per Agent Backend Router) and is usable right now (per Agent Backend
+  // Doctor). The hook's `failover` route carries the support picture and a preview for the host's default model.
+  const foEnabled = el("input", { type: "checkbox", "data-testid": "mrp-failover-enabled" });
+  foEnabled.addEventListener("change", () => save({ backend_failover: { enabled: foEnabled.checked } }));
+  const foMax = numField(["backend_failover", "max_per_turn"], "moves per turn, at most", { min: 1, width: "4.5rem" });
+  const foCooldown = numField(["backend_failover", "cooldown_s"], "skip a backend that itself throttled within", { step: 10, suffix: "s" });
+  const foParams = el("div", { "data-testid": "mrp-failover-params", style: { display: "flex", flexWrap: "wrap", gap: "0.6rem 1.2rem", alignItems: "center" } }, foMax.row, foCooldown.row);
+  const foExclude = el("div", { "data-testid": "mrp-failover-exclude", style: { display: "flex", flexWrap: "wrap", gap: "0.4rem 0.8rem", alignItems: "center", fontSize: "0.85rem" } });
+  const foSupport = el("div", { "data-testid": "mrp-failover-support", style: { color: muted, fontSize: "0.8rem" } }, "");
+  const foPreview = el("div", { "data-testid": "mrp-failover-preview", style: { ...mono } }, "");
+  const foLive = el("div", { "data-testid": "mrp-failover-live", style: { fontSize: "0.85rem" } }, "");
+  const foHelp = el("p", { style: { color: muted, margin: "0.2rem 0 0", fontSize: "0.85rem" } },
+    "The model never changes. A backend is a process, so the move is a reset and a cold start on the other backend; KiroCrew replays the conversation from its own log (tool results are not carried, and the replay is re-billed). Runs before any model fallback, on dashboard chats only; a pinned agent (Spec / Plan…) stays where it is.");
+  let failover = null;
+
+  function renderFailover() {
+    const c = cfg();
+    const bf = c.backend_failover || {};
+    foEnabled.checked = bf.enabled === true;
+    for (const f of [foMax, foCooldown]) { const v = readPath(c, f.path); if (v !== undefined) f.input.value = v; }
+    foParams.style.display = bf.enabled ? "flex" : "none";
+    foExclude.replaceChildren();
+    const known = ["kiro", "kas", "claude", "codex"];
+    const excluded = new Set(bf.exclude || []);
+    if (bf.enabled) {
+      foExclude.append(small("never move to:"));
+      for (const name of known) {
+        const box = el("input", { type: "checkbox", "data-testid": `mrp-failover-exclude-${name}` });
+        box.checked = excluded.has(name);
+        box.addEventListener("change", () => {
+          const next = new Set(excluded); if (box.checked) next.add(name); else next.delete(name);
+          save({ backend_failover: { exclude: [...next] } });
+        });
+        foExclude.append(el("label", { style: { display: "flex", alignItems: "center", gap: "0.3rem" } }, box, el("code", {}, name)));
+      }
+    }
+    const sup = (failover && failover.support) || (status && status.failover && status.failover.support) || null;
+    if (!sup) { foSupport.textContent = ""; } else {
+      const parts = [`Agent Backend Router: ${sup.router}`, `Agent Backend Doctor: ${sup.doctor}`, `allocation seam: ${sup.allocation_hook}`];
+      foSupport.textContent = (sup.available ? "ready — " : "NOT available on this gateway — ") + parts.join(" · ");
+      foSupport.style.color = sup.available ? muted : "var(--warning, #c9822b)";
+    }
+    const eff = (status && status.effective) || {};
+    const blocked = eff.failover_blocked_by_infinite_retries;
+    const pv = failover && failover.preview;
+    if (!bf.enabled) { foPreview.textContent = ""; }
+    else if (blocked) { foPreview.textContent = "With \"retry forever\" the same-model budget is never spent, so this never fires: pick a retry count or a fallback profile."; }
+    else if (!pv || !pv.available) { foPreview.textContent = pv && pv.error ? `preview unavailable: ${pv.error}` : "preview unavailable (the router is not active)"; }
+    else {
+      const rows = (pv.candidates || []).map((cnd) => el("div", { style: { display: "grid", gridTemplateColumns: "5rem 1fr", gap: "0.6rem", padding: "0.1rem 0" } },
+        el("code", { style: { color: cnd.eligible ? "inherit" : muted } }, cnd.backend),
+        el("span", { style: { color: cnd.eligible ? "inherit" : muted } }, cnd.eligible ? `would take it as ${cnd.wire_model}${cnd.throttled_ago !== null && cnd.throttled_ago !== undefined ? ` (itself throttled ${Math.round(cnd.throttled_ago)} s ago)` : ""}` : `no: ${cnd.reason}`)));
+      foPreview.replaceChildren(el("div", { style: { color: muted, marginBottom: "0.2rem" } }, `if ${pv.model} throttles on ${pv.current}, in pool order:${pv.reason ? ` ${pv.reason}` : ""}`), ...rows);
+    }
+    const fo = failover || (status && status.failover) || {};
+    const pending = fo.pending || [];
+    const last = fo.last || {};
+    const bits = [];
+    if (pending.length) bits.push(`pending: ${pending.map((p) => `${p.session} ${p.from} → ${p.to} (${Math.round(p.age_s)} s)`).join(", ")}`);
+    if (last.to) bits.push(`last move: ${last.from} → ${last.to} for ${last.model || "auto"} — ${last.state}${last.landed && last.landed !== last.to ? ` on ${last.landed}` : ""}${last.why ? ` (${last.why})` : ""}, ${ago(last.ts)}`);
+    foLive.textContent = bits.join(" · ");
+  }
+
+  async function refreshFailover() {
+    try {
+      const response = await api.routes.fetch("failover");
+      if (response.ok) failover = await response.json();
+    } catch (error) { api.log.warn("failover status unavailable", error); }
+    renderFailover();
+  }
+
   // --- timeline (what will happen) -----------------------------------------------------------------------------------
   const timelineBox = el("div", { "data-testid": "mrp-timeline", style: { ...mono } });
   async function renderTimeline() {
@@ -333,9 +406,10 @@ export default async function mount(container, api) {
     const e = status.effective || {};
     effectiveLine.replaceChildren(chip("in force:", MECHANISMS[e.preset] ? MECHANISMS[e.preset].label : e.preset), chip("same-model retries", e.retries), chip("between retries", e.delay),
       e.chain ? chip("then", e.chain.length ? e.chain.join(" → ") + (e.exhausted === "retry-last" ? " → stay" : " → error") : "error") : chip("then", "agent.fallback_model chain"),
-      chip("mid-turn recoveries", e.midturn === undefined ? "host (1)" : e.midturn));
+      chip("mid-turn recoveries", e.midturn === undefined ? "host (1)" : e.midturn),
+      chip("backend failover", e.failover ? e.failover : "off"));
     const c = status.counters || {};
-    counters.replaceChildren(chip("retries", c.retries || 0), chip("mid-turn recoveries", c.resumes || 0), chip("model swaps", c.swaps || 0), chip("stayed on a candidate", c.stays || 0), chip("chains exhausted", c.exhausted || 0), chip("last", ago(c.last_ts)),
+    counters.replaceChildren(chip("retries", c.retries || 0), chip("mid-turn recoveries", c.resumes || 0), chip("model swaps", c.swaps || 0), chip("backend moves", c.failovers || 0), chip("stayed on a candidate", c.stays || 0), chip("chains exhausted", c.exhausted || 0), chip("last", ago(c.last_ts)),
       ...Object.entries(c.by_surface || {}).map(([k, v]) => chip(k, v)));
     eventsPre.textContent = (status.recent || []).slice(-40).reverse().map((ev) => {
       const when = new Date(ev.ts * 1000).toLocaleTimeString();
@@ -343,9 +417,11 @@ export default async function mount(container, api) {
       if (ev.kind === "resume") return `${when}  ${ev.surface.padEnd(10)} mid-turn recovery #${ev.attempt}  (${ev.detail})`;
       if (ev.kind === "swap") return `${when}  ${ev.surface.padEnd(10)} switch ${ev.previous || "?"} → ${ev.model}`;
       if (ev.kind === "stay") return `${when}  ${ev.surface.padEnd(10)} stay on ${ev.model}  (${ev.detail})`;
+      if (ev.kind === "failover") return `${when}  ${ev.surface.padEnd(10)} backend ${ev.previous || "?"} → ${ev.backend}  keeping ${ev.model || "auto"}  (${ev.detail})`;
       return `${when}  ${ev.surface.padEnd(10)} exhausted on ${ev.model}  ${ev.detail || ""}`;
     }).join("\n") || "no retries recorded yet — they appear here when a model or API error is retried";
     hooksLine.textContent = `${status.hooks} hook(s) registered · retry budget overridden on ${(status.budget_overrides || []).length} binding(s)${status.host && status.host.version ? ` · KiroCrew ${status.host.version}` : ""}`;
+    renderFailover();
   }
 
   function renderConfig() {
@@ -368,18 +444,23 @@ export default async function mount(container, api) {
     }
     renderConfig();
     renderLive();
-    await renderTimeline();
+    await Promise.all([renderTimeline(), refreshFailover()]);
   }
 
   const page = el("div", { "data-testid": "mrp-page", style: { display: "flex", flexDirection: "column", gap: "0.9rem" } },
     el("p", { style: { margin: 0 } }, el("strong", { style: { color: accent } }, "Model Retry Policy"),
-      " — decides what KiroCrew does when the model or its API fails with a transient error (throttling, overload, 5xx, a dropped stream): how often to retry, how long to wait, and which model to move to. ",
-      el("span", { style: { color: muted } }, "Applies to dashboard chats, cron and Slack turns and sub-agents. Works alongside Agent Backend Router. Unofficial; nothing here is part of KiroCrew.")),
+      " — decides what KiroCrew does when the model or its API fails with a transient error (throttling, overload, 5xx, a dropped stream): how often to retry, how long to wait, which model to move to — and, with Agent Backend Router and Agent Backend Doctor, which other agent backend to move the chat to. ",
+      el("span", { style: { color: muted } }, "Applies to dashboard chats, cron and Slack turns and sub-agents. Unofficial; nothing here is part of KiroCrew.")),
     el("div", { style: { display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" } },
       el("label", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, enabled, "policy on"), small("(off = KiroCrew's own behaviour, nothing overridden)"), note),
     el("div", {}, el("div", { style: { marginBottom: "0.3rem" } }, "Mechanism"), group, help),
     el("div", {}, el("div", { style: { marginBottom: "0.3rem" } }, "Parameters"), paramsBox, paramsHint),
     el("div", {}, el("div", { style: { marginBottom: "0.3rem" } }, "Fallback profiles ", small("(a profile is the ordered list of models to move to, and how many attempts each gets)")), profilesBox),
+    el("div", { "data-testid": "mrp-failover" },
+      el("div", { style: { marginBottom: "0.3rem", display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" } },
+        el("label", { style: { display: "flex", alignItems: "center", gap: "0.4rem" } }, foEnabled, "Backend failover"),
+        small("(same model, another agent backend — when the same-model retries are spent)")),
+      foHelp, el("div", { style: { marginTop: "0.4rem", display: "flex", flexDirection: "column", gap: "0.4rem" } }, foParams, foExclude, foSupport, foPreview, foLive)),
     el("div", {}, el("div", { style: { marginBottom: "0.3rem" } }, "What will happen ", small("(the attempt sequence for a turn whose model keeps failing)")), timelineBox),
     el("div", {}, el("div", { style: { marginBottom: "0.3rem", display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" } }, "Live",
       btn("refresh", refresh),

@@ -37,6 +37,19 @@ three share and swaps in the user's policy (``hook/policy.py``):
   (``TRANSIENT_RETRIES``), which ``ctx.hooks`` cannot wrap; it is overridden by
   attribute assignment on the modules that bind it and restored in
   ``deactivate`` (the Loader runs ``deactivate`` on a fault too).
+* BACKEND FAILOVER (opt-in): inside the same ``_fallback_swap_for_turn`` seam,
+  before any model walk, a throttled dashboard session is moved to another
+  agent backend that serves the SAME model. A backend is a process, so the move
+  is the host's own three steps for a provider change — reset, cold start,
+  conversation replay from KiroCrew's log — arranged from two seams: the swap
+  hook marks the session key pending and files a route request with the Agent
+  Backend Router; a ``replace`` on ``SessionManager.get_or_create`` resets the
+  key's live session when the ladder's re-queued message is dequeued, and the
+  allocation that follows cold-starts on the requested backend. The router
+  answers which backends list the model (its served-list identity rule, its
+  pins, its pool); the Agent Backend Doctor answers whether the target is
+  usable right now (installed, un-cached, Codex's credential chain intact).
+  Without the router the mechanism stays off and the page says so.
 
 Every hook calls straight through when the user has not opted in
 (``policy.is_host_behaviour``), so the default is KiroCrew's behaviour
@@ -44,13 +57,17 @@ byte-for-byte. Nothing here writes host config, touches credentials or opens
 a socket; the mod's own state lives under ``ctx.data_dir``.
 
 Coexistence with ``agent-backend-router``: that mod wraps
-``AcpProvider.__init__`` / ``AcpProvider.stream`` (which backend a session
-gets, and per-turn telemetry). No target overlaps. Each retry attempt is a
-new ``stream`` call, so the router's telemetry sees one error sample per
-failed attempt — its own fallback strategy trips on those counts.
+``AcpProvider.__init__`` / ``AcpProvider.stream`` / ``AcpProvider.start``
+(which backend a session gets, per-turn telemetry, the launch). No target
+overlaps. Each retry attempt is a new ``stream`` call, so the router's
+telemetry sees one error sample per failed attempt — its own fallback strategy
+trips on those counts — and the failover above asks the router for its
+candidates and route requests through its public functions
+(``failover_candidates`` / ``request_route``, router ≥ 0.3.2).
 """
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import importlib
 import os
@@ -65,6 +82,9 @@ _int_overrides: list[tuple[Any, str, Any]] = []   # (module, attr, original) —
 _applied: dict[str, Any] = {"retries": None, "fingerprint": None}
 
 JOURNAL_FILE = "journal.json"
+ROUTER_MODULE = "floofy_mods.agent-backend-router.hook"
+DOCTOR_MODULE = "floofy_mods.agent-backend-doctor.hook"
+MOD_ID = "model-retry-policy"
 
 # The dashboard ladder calls ``_fallback_swap_for_turn`` and then, with no await in
 # between, ``fallback_rewound_transient_budget()`` and ``slot.append("notice", …)``.
@@ -162,6 +182,7 @@ def _publish(cfg: dict[str, Any]) -> None:
         "chain": desc["chain"],
         "host_behaviour": desc["host_behaviour"],
         "budget_overrides": len(_int_overrides),
+        "failover": desc["failover"],
     })
 
 
@@ -173,7 +194,7 @@ def _record(kind: str, surface: str, **fields: Any) -> None:
         _journal.flush()
         if _ctx is not None:
             c = _journal.counters
-            _ctx.state.update({"retries_seen": c.retries, "resumes_seen": c.resumes, "swaps_seen": c.swaps, "exhausted_seen": c.exhausted})
+            _ctx.state.update({"retries_seen": c.retries, "resumes_seen": c.resumes, "swaps_seen": c.swaps, "exhausted_seen": c.exhausted, "failovers_seen": c.failovers})
     except Exception as exc:  # noqa: BLE001 - bookkeeping never breaks a retry
         _ctx.log.debug("journal record failed: %s", exc)
 
@@ -242,8 +263,262 @@ _tracks: dict[str, dict[str, int]] = {}
 _TRACKS_MAX = 512
 
 
+# --- backend failover (same model, another agent backend) --------------------------------------------------------------
+#
+# The dashboard's ladder calls ``_fallback_swap_for_turn`` when the same-model budget is
+# spent and the error is still transient. The host's answer is a MODEL swap in place
+# (``set_model`` on the live harness process). This mod's answer, when the user enabled it,
+# comes first and is a BACKEND move: the same model on another harness. A live session
+# cannot change its backend — the backend is the process — so the move is a reset and a
+# cold start: this hook marks the slot's session key *pending* and returns the model as
+# the "candidate"; the ladder then re-queues the same message (its own
+# ``_queue_recovery``); when that message is dequeued, ``SessionManager.get_or_create``
+# (replaced below) sees the pending key, resets the live session through the host's own
+# ``reset`` (process gone, conversation kept) and lets the allocation cold-start; the
+# Agent Backend Router honours the route request this hook filed for that key; the host's
+# own provider-switch machinery then replays the conversation from KiroCrew's log onto the
+# new backend (``build_session_replay``). Nothing here reaches into the host's session
+# internals: a reset, a cold start and a replay are the three things the host does on its
+# own model change too. The Agent Backend Doctor answers whether the target backend is
+# usable right now; the router answers which backends serve the model.
+
+_pending_failover: dict[str, dict[str, Any]] = {}     # session key → what the next allocation of that key should do
+_failover_turns: dict[str, dict[str, Any]] = {}       # slot key → backends tried in the current user turn
+_PENDING_TTL = 180.0
+_TURN_TTL = 1800.0
+_failover_last: dict[str, Any] = {}                    # the last failover decision, for the page
+
+
+def _router():
+    """The agent-backend-router's hook module when it is active and new enough, else ``None``."""
+    import sys  # noqa: PLC0415
+
+    mod = sys.modules.get(ROUTER_MODULE)
+    return mod if mod is not None and hasattr(mod, "failover_candidates") and hasattr(mod, "request_route") else None
+
+
+def _doctor():
+    """The agent-backend-doctor's hook module when it is active and offers the readiness read, else ``None``."""
+    import sys  # noqa: PLC0415
+
+    mod = sys.modules.get(DOCTOR_MODULE)
+    return mod if mod is not None and hasattr(mod, "backend_ready") else None
+
+
+def _failover_support() -> dict[str, Any]:
+    """What the failover can do on this gateway, for the page and the log."""
+    import sys  # noqa: PLC0415
+
+    router_any = sys.modules.get(ROUTER_MODULE) is not None
+    doctor_any = sys.modules.get(DOCTOR_MODULE) is not None
+    return {
+        "router": "ok" if _router() is not None else ("too old (needs >= 0.3.2)" if router_any else "not active"),
+        "doctor": "ok" if _doctor() is not None else ("too old (needs >= 0.2.1)" if doctor_any else "not active"),
+        "allocation_hook": _alloc_hook_state,
+        "available": _router() is not None and _doctor() is not None and _alloc_hook_state == "active",
+    }
+
+
+_alloc_hook_state = "none"  # "active" once SessionManager.get_or_create is wrapped; else why not
+
+
+def _session_key_of(slot) -> str:
+    """The session key the slot's turns run on — the key the dashboard hands ``get_or_create``."""
+    try:
+        from kiro_crew.dashboard import chat_utils as cu  # noqa: PLC0415
+
+        fn = getattr(cu, "effective_session_key", None)
+        if callable(fn):
+            return str(fn(slot))
+        fn = getattr(cu, "session_key_for", None)
+        if callable(fn):
+            return str(fn(slot.key, getattr(slot, "linked_session_key", "") or ""))
+    except Exception:  # noqa: BLE001
+        pass
+    return str(getattr(slot, "linked_session_key", "") or f"dashboard:{getattr(slot, 'key', '')}")
+
+
+def _live_backend(client) -> tuple[str, str]:
+    """``(backend name, wire model)`` of the slot's live provider, from the router's stamp or the client itself."""
+    abr = getattr(client, "_floofy_abr", None)
+    if isinstance(abr, dict):
+        backend = str(abr.get("backend", ""))
+        model = str(abr.get("model", "") or "")
+    else:
+        backend = str(getattr(getattr(client, "client", None), "backend", "") or "")
+        model = str(getattr(client, "model", "") or getattr(client, "served_model", "") or "")
+    return ("kiro" if backend == "" else backend), model
+
+
+def _turn_track(slot) -> dict[str, Any]:
+    key = _slot_key(slot)
+    now = time.time()
+    track = _failover_turns.get(key)
+    if track is None or now - track.get("ts", 0) > _TURN_TTL:
+        if len(_failover_turns) >= _TRACKS_MAX:
+            _failover_turns.clear()
+        track = {"tried": [], "moves": 0, "ts": now}
+        _failover_turns[key] = track
+    track["ts"] = now
+    return track
+
+
+async def _pick_failover_target(slot, client, cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """Decide where a throttled session should move, or ``None`` (with the reason logged) to leave it to the model chain."""
+    bf = P.backend_failover(cfg)
+    router, doctor = _router(), _doctor()
+    if bf is None or router is None or doctor is None or _alloc_hook_state != "active":
+        return None
+    if getattr(slot, "_active_fallback_model", ""):
+        return None  # already on a fallback model: the model chain is in progress, backends were its turn first
+    session_key = _session_key_of(slot)
+    if not session_key or session_key in _pending_failover:
+        return None
+    track = _turn_track(slot)
+    current, model = _live_backend(client)
+    if track["moves"] >= bf["max_per_turn"]:
+        _ctx.log.info("backend failover: slot %s already moved %d time(s) this turn (max %d) — leaving the rest to the model chain",
+                      slot.key, track["moves"], bf["max_per_turn"])
+        return None
+    exclude = list(track["tried"]) + list(bf["exclude"])
+    try:
+        answer = router.failover_candidates(session_key, model=model, current=current, exclude=exclude)
+    except Exception as exc:  # noqa: BLE001 - the router's fence failing is not a reason to break the retry
+        _ctx.log.warning("backend failover: router query failed (%s) — model chain instead", exc)
+        return None
+    candidates = [c for c in answer.get("candidates", []) if c.get("eligible")]
+    if not candidates:
+        _ctx.log.info("backend failover: no other backend for %s on %s (%s)", model or "auto", current, answer.get("reason") or "none eligible")
+        return None
+    skipped: list[str] = []
+    for cand in candidates:
+        ago = cand.get("throttled_ago")
+        if ago is not None and bf["cooldown_s"] > 0 and ago < bf["cooldown_s"]:
+            skipped.append(f"{cand['backend']} (throttled {ago:.0f} s ago)")
+            continue
+        try:
+            ready = await asyncio.to_thread(doctor.backend_ready, _backend_id(cand["backend"]))
+        except Exception as exc:  # noqa: BLE001 - a readiness read failing is logged, then the backend is treated as present
+            _ctx.log.warning("backend failover: readiness read for %s failed (%s: %s); treating it as present", cand["backend"], type(exc).__name__, exc)
+            ready = {"ready": True, "detail": f"readiness read failed: {exc}", "needs_forget": False}
+        if not ready.get("ready"):
+            skipped.append(f"{cand['backend']} ({ready.get('detail') or 'not ready'})")
+            continue
+        if ready.get("needs_forget"):
+            try:
+                doctor.forget(_backend_id(cand["backend"]))  # on the loop, as the doctor asks
+            except Exception as exc:  # noqa: BLE001
+                _ctx.log.debug("forget(%s) failed: %s", cand["backend"], exc)
+        return {"session_key": session_key, "from": current, "to": cand["backend"], "model": model, "wire_model": cand.get("wire_model") or model,
+                "skipped": skipped, "ready": ready.get("detail", "")}
+    _ctx.log.info("backend failover: every other backend is skipped for %s on %s: %s", model or "auto", current, "; ".join(skipped))
+    return None
+
+
+def _backend_id(name: str) -> str:
+    return "" if name == "kiro" else name
+
+
+def _arm_failover(slot, target: dict[str, Any], cfg: dict[str, Any]) -> None:
+    """File the route request with the router, mark the session key pending, record the event, word the notice."""
+    router = _router()
+    reason = f"{target['model'] or 'auto'} throttled on {target['from']}"
+    # The ladder re-queues after the configured backoff; the move must outlive that wait, and not much more.
+    delay = P.effective_delay(cfg, 1, P.HOST_DELAY_BASE)
+    ttl = _PENDING_TTL + float(delay if delay is not None else P.HOST_DELAY_BASE)
+    router.request_route(target["session_key"], target["to"], model=target["wire_model"], reason=reason, by=MOD_ID, ttl=ttl)
+    if len(_pending_failover) >= _TRACKS_MAX:
+        _pending_failover.clear()
+    _pending_failover[target["session_key"]] = {**target, "ts": time.time(), "ttl": ttl, "slot": _slot_key(slot)}
+    track = _turn_track(slot)
+    track["tried"].append(target["from"])
+    track["moves"] += 1
+    _failover_last.clear()
+    _failover_last.update({**target, "ts": time.time(), "state": "pending"})
+    _pending_rewind.set(0)  # the new backend gets the whole same-model budget before the next swap
+    _pending_notice.set({"kind": "backend", "model": target["model"], "from": target["from"], "to": target["to"]})
+    _record("failover", "dashboard", attempt=track["moves"], model=target["model"], previous=target["from"], backend=target["to"],
+            detail=f"move {track['moves']}/{cfg['backend_failover']['max_per_turn']} this turn" + (f"; skipped {', '.join(target['skipped'])}" if target["skipped"] else ""))
+    _ctx.log.info("backend failover: session %s (slot %s) %s -> %s for %s; the next allocation resets and cold-starts with a replay%s",
+                  target["session_key"], slot.key, target["from"], target["to"], target["model"] or "auto",
+                  f" (skipped {', '.join(target['skipped'])})" if target["skipped"] else "")
+
+
+def _take_pending(key: str) -> dict[str, Any] | None:
+    pending = _pending_failover.pop(key, None)
+    if pending is None:
+        return None
+    if time.time() - pending.get("ts", 0) > float(pending.get("ttl", _PENDING_TTL)):
+        _ctx.log.info("backend failover for %s expired unconsumed; dropped", key)
+        router = _router()
+        if router is not None:
+            router.cancel_route_request(key)
+        return None
+    return pending
+
+
+def _cancel_pending_for_slot(slot, why: str) -> None:
+    key = _session_key_of(slot)
+    if _pending_failover.pop(key, None) is not None:
+        router = _router()
+        if router is not None:
+            router.cancel_route_request(key)
+        _failover_last.update({"state": "cancelled", "why": why})
+        _ctx.log.info("backend failover for %s cancelled: %s", key, why)
+
+
+async def _get_or_create(call_next, self, key, *args, **kwargs):
+    """``replace`` on ``SessionManager.get_or_create``: a pending failover resets the key's live session first.
+
+    The reset is the host's own ``reset`` (the process is recycled, the
+    conversation entry survives); the allocation that follows is a cold start,
+    which the router routes per the request filed for this key and the host
+    replays from its conversation log. A reset the host refuses (a turn still
+    in flight on the key) cancels the move and the allocation proceeds as it
+    would have. Every other key passes straight through.
+    """
+    pending = _take_pending(str(key)) if _pending_failover else None
+    if pending is None:
+        return await call_next(self, key, *args, **kwargs)
+    router = _router()
+    try:
+        try:
+            ok = await self.reset(key, skip_if_busy=True)
+        except TypeError:  # an older reset() without the keyword: busy keys are rare at this point (the previous turn released)
+            ok = await self.reset(key)
+    except Exception as exc:  # noqa: BLE001 - the host refusing is not our fault; allocate as before
+        ok = False
+        _ctx.log.warning("backend failover: reset of %s failed (%s) — staying on %s", key, exc, pending["from"])
+    if not ok:
+        _ctx.log.info("backend failover: %s is busy or gone; move to %s dropped, allocating as before", key, pending["to"])
+        if router is not None:
+            router.cancel_route_request(str(key))
+        _failover_last.update({"state": "dropped", "why": "reset refused"})
+        return await call_next(self, key, *args, **kwargs)
+    result = await call_next(self, key, *args, **kwargs)
+    try:
+        provider = result[0]
+        landed, _m = _live_backend(provider)
+    except Exception:  # noqa: BLE001
+        landed = "?"
+    if landed == pending["to"]:
+        _failover_last.update({"state": "landed", "landed": landed})
+        _ctx.log.info("backend failover: %s now runs on %s (%s)", key, landed, pending["model"] or "auto")
+    else:
+        if router is not None:
+            router.cancel_route_request(str(key))
+        _failover_last.update({"state": "landed_elsewhere", "landed": landed})
+        _ctx.log.warning("backend failover: %s was meant for %s but the allocation landed on %s (a warm-pool claim or the router's fence); the turn runs there",
+                         key, pending["to"], landed)
+    return result
+
+
 async def _swap_for_turn(call_next, slot, client, *args, **kwargs):
     cfg = _sync()
+    target = await _pick_failover_target(slot, client, cfg)
+    if target is not None:
+        _arm_failover(slot, target, cfg)
+        return target["model"] or str(getattr(slot, "model", "") or "auto")
     prof = P.active_profile(cfg)
     if prof is None or not prof["steps"]:
         return await call_next(slot, client, *args, **kwargs)
@@ -307,12 +582,20 @@ def _slot_append(call_next, self, role, content, *args, **kwargs):
     notice = _pending_notice.get()
     if notice is not None and role == "notice" and isinstance(content, str) and "is throttled" in content:
         _pending_notice.set(None)
-        budget = notice["budget"]
-        left = "unlimited" if budget >= P.INFINITE else f"{max(0, budget - notice['done'])} left"
-        content = f"⟳ Still throttled — retrying on {notice['model']} ({notice['done']} attempts so far, {left}). Stop ends the retries."
+        if notice.get("kind") == "backend":
+            content = (f"⟳ {notice['model'] or 'The model'} is throttled on {notice['from']} — moving this chat to {notice['to']} with the same model. "
+                       f"The conversation is replayed from KiroCrew's own log (tool results are not carried). Stop ends the retries.")
+        else:
+            budget = notice["budget"]
+            left = "unlimited" if budget >= P.INFINITE else f"{max(0, budget - notice['done'])} left"
+            content = f"⟳ Still throttled — retrying on {notice['model']} ({notice['done']} attempts so far, {left}). Stop ends the retries."
     elif role == "user":
-        # A genuine new turn: the host refreshes its one-shot allowance here, so the mod's count starts over too.
+        # A genuine new turn: the host refreshes its one-shot allowance here, so the mod's counts start over too.
         _midturn.pop(_slot_key(self), None)
+        _failover_turns.pop(_slot_key(self), None)
+    elif role == "error" and _is_give_up_notice(content, kwargs.get("meta")) and _pending_failover:
+        # The ladder dropped its re-queue (Stop during the backoff, or a nested turn): nothing will consume the move.
+        _cancel_pending_for_slot(self, "the turn ended without a re-queue")
     elif role == "error" and _is_resuming_notice(content, kwargs.get("meta")):
         # The dashboard is about to recover a turn that already streamed output: it sleeps
         # ``transient_retry_delay(1)`` next, in this same task. Hand the delay hook the real
@@ -335,18 +618,22 @@ _midturn: dict[str, int] = {}
 # literals are the 0.7 / 0.8 wording and only matter on a build without that module.
 _RESUMING_NOTICE = "transient_resuming"
 _RESUMING_TEXT = "⟳ Connection unstable — resuming…"
+_GIVE_UP_NOTICE = "transient_give_up"
+_GIVE_UP_TEXT = "⚠ Connection unstable — press Continue to resume"
 _RECOVERY_KIND = "synthetic_recovery"
 _RECOVERY_PREFIX = "[Interrupted turn — automatic recovery]"
 
 
 def _load_host_constants() -> None:
-    global _RESUMING_NOTICE, _RESUMING_TEXT, _RECOVERY_KIND, _RECOVERY_PREFIX
+    global _RESUMING_NOTICE, _RESUMING_TEXT, _RECOVERY_KIND, _RECOVERY_PREFIX, _GIVE_UP_NOTICE, _GIVE_UP_TEXT
     try:
         cu = importlib.import_module("kiro_crew.dashboard.chat_utils")
     except Exception:  # noqa: BLE001 - a build without the module keeps the literals
         return
     _RESUMING_NOTICE = str(getattr(cu, "TRANSIENT_NOTICE_RESUMING", _RESUMING_NOTICE))
     _RESUMING_TEXT = str(getattr(cu, "TRANSIENT_RESUMING_TEXT", _RESUMING_TEXT))
+    _GIVE_UP_NOTICE = str(getattr(cu, "TRANSIENT_NOTICE_GIVE_UP", _GIVE_UP_NOTICE))
+    _GIVE_UP_TEXT = str(getattr(cu, "TRANSIENT_GIVE_UP_TEXT", _GIVE_UP_TEXT))
     _RECOVERY_KIND = str(getattr(cu, "SYNTHETIC_RECOVERY_KIND", _RECOVERY_KIND))
     _RECOVERY_PREFIX = str(getattr(cu, "POSTTOKEN_RECOVERY_PREFIX", _RECOVERY_PREFIX))
 
@@ -359,6 +646,12 @@ def _is_resuming_notice(content, meta) -> bool:
     if isinstance(meta, dict) and meta.get("notice") == _RESUMING_NOTICE:
         return True
     return isinstance(content, str) and content.strip() == _RESUMING_TEXT
+
+
+def _is_give_up_notice(content, meta) -> bool:
+    if isinstance(meta, dict) and meta.get("notice") == _GIVE_UP_NOTICE:
+        return True
+    return isinstance(content, str) and content.strip() == _GIVE_UP_TEXT
 
 
 def _slot_queue_insert(call_next, self, index, content, *args, **kwargs):
@@ -431,8 +724,39 @@ def _status(_request):
         "hooks": len(hooks),
         "presets": list(P.PRESETS),
         "infinite": P.INFINITE,
+        "failover": _failover_facts(cfg),
         **snap,
     }
+
+
+def _failover_facts(cfg: dict[str, Any]) -> dict[str, Any]:
+    now = time.time()
+    return {
+        "enabled": P.backend_failover(cfg) is not None,
+        "support": _failover_support(),
+        "pending": [{"session": k, "from": v["from"], "to": v["to"], "model": v["model"], "age_s": round(now - v["ts"], 1)} for k, v in list(_pending_failover.items())],
+        "last": dict(_failover_last),
+        "turns_tracked": len(_failover_turns),
+    }
+
+
+def _failover_status(_request):
+    """The failover picture plus what a move would look like for the host's default model (the page's preview)."""
+    cfg = _sync()
+    out = _failover_facts(cfg)
+    router = _router()
+    preview: dict[str, Any] = {"available": False}
+    if router is not None:
+        try:
+            default_backend = str(getattr(router, "_read_default_backend")() or "")
+            default_model = str(getattr(router, "_read_default_model")() or "")
+            current = "kiro" if default_backend == "" else default_backend
+            answer = router.failover_candidates("", model=default_model, current=current, exclude=list(cfg["backend_failover"]["exclude"]))
+            preview = {"available": True, "current": current, "model": default_model or "auto", **answer}
+        except Exception as exc:  # noqa: BLE001 - the preview is a courtesy
+            preview = {"available": False, "error": f"{type(exc).__name__}: {exc}"}
+    out["preview"] = preview
+    return out
 
 
 def _preview(request):
@@ -485,7 +809,7 @@ def _reset(_request):
     if _journal is not None:
         _journal.clear()
         _journal.flush(force=True)
-    _ctx.state.update({"retries_seen": 0, "resumes_seen": 0, "swaps_seen": 0, "exhausted_seen": 0})
+    _ctx.state.update({"retries_seen": 0, "resumes_seen": 0, "swaps_seen": 0, "exhausted_seen": 0, "failovers_seen": 0})
     return {"ok": True}
 
 
@@ -513,20 +837,26 @@ def activate(ctx):
     _load_host_constants()
     _hook_if_present("kiro_crew.dashboard.state", "_ChatSlot.append", "replace", _slot_append)
     _hook_if_present("kiro_crew.dashboard.state", "_ChatSlot.queue_insert", "replace", _slot_queue_insert)
+    global _alloc_hook_state
+    _alloc_hook_state = "active" if _hook_if_present("kiro_crew.session", "SessionManager.get_or_create", "replace", _get_or_create) else "seam missing on this KiroCrew"
 
     ctx.routes.add("GET", "status", _status)
     ctx.routes.add("POST", "preview", _preview)
     ctx.routes.add("POST", "reset", _reset)
     ctx.routes.add("POST", "apply", _apply)
+    ctx.routes.add("GET", "failover", _failover_status)
 
     cfg = _sync()
     c = _journal.counters
-    ctx.state.update({"retries_seen": c.retries, "resumes_seen": c.resumes, "swaps_seen": c.swaps, "exhausted_seen": c.exhausted})
-    ctx.log.info("Model Retry Policy active: %s", P.describe(cfg))
+    ctx.state.update({"retries_seen": c.retries, "resumes_seen": c.resumes, "swaps_seen": c.swaps, "exhausted_seen": c.exhausted, "failovers_seen": c.failovers})
+    support = _failover_support()
+    ctx.state["backend_failover"] = {"enabled": P.backend_failover(cfg) is not None, **support}
+    ctx.log.info("Model Retry Policy active: %s; backend failover %s (router %s, doctor %s, allocation seam %s)", P.describe(cfg),
+                 "on" if P.backend_failover(cfg) is not None else "off", support["router"], support["doctor"], support["allocation_hook"])
 
 
-def _hook_if_present(module_name: str, attr: str, kind: str, fn) -> None:
-    """Register a hook, skipping quietly when this host build lacks the seam (logged, never a fault)."""
+def _hook_if_present(module_name: str, attr: str, kind: str, fn) -> bool:
+    """Register a hook, skipping quietly when this host build lacks the seam (logged, never a fault). True when registered."""
     try:
         module = importlib.import_module(module_name)
         owner = module
@@ -535,18 +865,27 @@ def _hook_if_present(module_name: str, attr: str, kind: str, fn) -> None:
             owner = getattr(owner, part)
         if not hasattr(owner, parts[-1]):
             _ctx.log.warning("seam %s:%s missing on this KiroCrew — that surface keeps the host's behaviour", module_name, attr)
-            return
+            return False
         getattr(_ctx.hooks, kind)(f"{module_name}:{attr}", fn)
+        return True
     except Exception as exc:  # noqa: BLE001
         _ctx.log.warning("could not hook %s:%s (%s) — that surface keeps the host's behaviour", module_name, attr, exc)
+        return False
 
 
 def deactivate(ctx):
-    global _ctx, _journal
+    global _ctx, _journal, _alloc_hook_state
     _restore_ints()
     _applied.update({"retries": None, "fingerprint": None})
     _tracks.clear()
     _midturn.clear()
+    router = _router()
+    for key in list(_pending_failover):
+        if router is not None:
+            router.cancel_route_request(key)
+    _pending_failover.clear()
+    _failover_turns.clear()
+    _alloc_hook_state = "none"
     if _journal is not None:
         _journal.flush(force=True)
     _ctx = None

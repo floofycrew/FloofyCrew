@@ -124,7 +124,7 @@ def test_no_sources_and_the_switch_and_offline_all_skip(home: DataHome, monkeypa
     disabled = freshness.run(FakeCtx(home, settings={"updates.check": False}))
     assert disabled["selfUpdate"].startswith("disabled") and disabled["registry"].startswith("disabled")
     offline = freshness.run(FakeCtx(home, offline=True))
-    assert offline == {"selfUpdate": "offline", "registry": "offline", "defaultSource": "none"}
+    assert offline == {"selfUpdate": "offline", "registry": "offline", "defaultSource": "none", "quarantine": "empty"}
     assert len(checks) == 1 and not refreshes, "neither switch-off nor offline touched the network paths"
 
 
@@ -209,3 +209,23 @@ def test_the_users_trust_settings_on_the_default_are_never_reset_by_the_tick(hom
     assert report["defaultSource"] == "present, fetched: usable 1, refused 0" and len(refreshes) == 1
     kept = SourceStore.load(home).sources[0]
     assert kept.trust == "owner" and kept.allow_unsigned is True
+
+
+def test_the_quarantine_heal_runs_last_even_when_the_refresh_is_skipped(home: DataHome, monkeypatch: pytest.MonkeyPatch):
+    """Requirement 6.7 on the tick: an empty quarantine costs nothing; a populated one is handed to the heal after
+    the refresh step, whatever that step decided (fresh, offline, disabled, failed)."""
+    import floofy_core.quarantine_heal as qh
+
+    calls: list = []
+    monkeypatch.setattr(qh, "heal", lambda ctx, **kw: calls.append(kw) or {"restored": [{"id": "a"}], "waiting": [], "manual": [{"id": "b"}], "failed": []})
+    _add_source(home)
+    _write_meta(home, age_seconds=60)
+    _spies(monkeypatch)
+    assert freshness.run(FakeCtx(home))["quarantine"] == "empty" and calls == []
+    (home.quarantine_dir("0.7.0.5") / "parked").mkdir(parents=True)
+    report = freshness.run(FakeCtx(home))
+    assert report["registry"].startswith("fresh") and report["quarantine"] == "restored 1, waiting 0, manual 1, failed 0" and len(calls) == 1
+    assert freshness.run(FakeCtx(home, offline=True))["quarantine"] == "restored 1, waiting 0, manual 1, failed 0", "offline: the cache may already hold the row"
+    assert freshness.run(FakeCtx(home, settings={"updates.check": False}))["quarantine"] == "restored 1, waiting 0, manual 1, failed 0"
+    monkeypatch.setattr(qh, "heal", lambda ctx, **kw: {"error": "boom"})
+    assert freshness.run(FakeCtx(home))["quarantine"] == "error: boom", "never raises"

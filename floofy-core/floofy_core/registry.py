@@ -69,8 +69,15 @@ class IndexVersion:
             in_range = Range.parse(self.kirocrew or "*").contains(base_version)
         except (InvalidRange, ValueError):
             in_range = False
-        edition_ok = not self.editions or edition in (None, "unknown") or edition in self.editions
-        return in_range and edition_ok
+        return in_range and self.supports_edition(edition)
+
+    def supports_edition(self, edition: str | None) -> bool:
+        return not self.editions or edition in (None, "unknown") or edition in self.editions
+
+    @property
+    def strict(self) -> bool:
+        """The manifest's ``kirocrew.strict`` as the index records it: an out-of-range host is a refusal, not a warning."""
+        return self.raw.get("strict") is True
 
     def verdict_for(self, host_version: str | None) -> str | None:
         return self.compat.get(host_version) if host_version else None
@@ -235,8 +242,14 @@ class IndexCache:
         Every version is graded by the matrix row for ``edition × channel ×
         hostVersion`` (``compat``), else by the index's inline ``compat`` cell:
         ``tested`` > ``expected`` > unknown; ``broken`` and ``yanked`` versions are
-        excluded, as are versions whose ``kirocrew`` range or ``editions`` do not
-        admit this host. The reason for an empty answer names what was excluded.
+        excluded, as are versions whose ``editions`` do not admit this host. A
+        version whose ``kirocrew`` range does not admit this host is excluded
+        unless a verdict on this exact host says it works: the range is the
+        author's forecast, the matrix row is a measurement, and the Loader's own
+        rule (Requirement 1.3) already treats a non-strict range as a warning,
+        not a gate — a ``tested`` row on 0.9.0.4 must not lose to a manifest
+        written when 0.9 did not exist. A ``strict`` range stays a hard
+        exclusion. The reason for an empty answer names what was excluded.
         """
         entry = self.find(ref)
         if entry is None:
@@ -252,12 +265,14 @@ class IndexCache:
             if version.yanked:
                 excluded.append(f"{version.version} (yanked: {version.yanked})")
                 continue
-            if not version.supports(base_version, edition):
-                excluded.append(f"{version.version} (declares kirocrew {version.kirocrew}" + (f", editions {', '.join(version.editions)}" if version.editions else "") + ")")
-                continue
             verdict = row.verdict(entry.id, version.version) if row is not None else None
             if verdict is None:
                 verdict = version.verdict_for(host_version)
+            if not version.supports(base_version, edition):
+                measured_here = verdict in ("tested", "expected") and version.supports_edition(edition) and not version.strict
+                if not measured_here:
+                    excluded.append(f"{version.version} (declares kirocrew {version.kirocrew}" + (f", editions {', '.join(version.editions)}" if version.editions else "") + (", strict" if version.strict else "") + ")")
+                    continue
             if verdict == "broken":
                 excluded.append(f"{version.version} (broken on {host_version})")
                 continue

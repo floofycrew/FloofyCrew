@@ -26,7 +26,12 @@ the PATH wrapper on the public one; design DR-3). It performs, best-effort:
   user has keeps its trust settings) and fetched on every tick while its cache
   is not usable (never fetched, refused, errored), because FloofyCrew's own
   registry is the one source the user consented to at ``floofy init``. Once it
-  is usable it falls under the daily rule like every other source.
+  is usable it falls under the daily rule like every other source;
+* the **quarantine heal** (Requirement 6.7; :mod:`floofy_core.quarantine_heal`),
+  last: a mod the host update parked comes back when the registry cache grades a
+  version ``tested``/``expected`` on the current host. It runs after the refresh
+  so a matrix row the Forge published this hour acts this hour, and also when
+  the refresh was skipped or offline (the cache may already hold the row).
 
 Both steps are silent and never raise: the trigger's job is re-applying patches,
 and an expired credential, an offline desk or a broken feed must not fail it —
@@ -94,6 +99,14 @@ def _default_source_step(ctx: Any, *, fetch: bool) -> str:
 
 def run(ctx: Any, *, now: float | None = None) -> dict[str, Any]:
     """The trigger's freshness pass; returns a small report for ``--json`` documents. Never raises."""
+    report = _updates(ctx, now=now)
+    # 3. the quarantine heal (Requirement 6.7), on every path above — offline or with the update steps disabled the
+    # cache may already hold the row that frees a parked mod; after the refresh so a row published this hour acts now
+    report["quarantine"] = _quarantine_step(ctx)
+    return report
+
+
+def _updates(ctx: Any, *, now: float | None = None) -> dict[str, Any]:
     report: dict[str, Any] = {"selfUpdate": "skipped", "registry": "skipped", "defaultSource": "skipped"}
     try:
         enabled = bool(ctx.settings().get("updates.check"))
@@ -150,3 +163,18 @@ def run(ctx: Any, *, now: float | None = None) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         report["registry"] = f"error: {exc}"
     return report
+
+
+def _quarantine_step(ctx: Any) -> str:
+    """Requirement 6.7: hand a populated quarantine to :func:`floofy_core.quarantine_heal.heal`; an empty one costs a listdir."""
+    try:
+        if not ctx.home.quarantine.is_dir() or not any(p.is_dir() and p.name != "requests" for p in ctx.home.quarantine.iterdir()):
+            return "empty"
+        from .quarantine_heal import heal  # noqa: PLC0415
+
+        outcome = heal(ctx)
+    except Exception as exc:  # noqa: BLE001 - never fails the trigger
+        return f"error: {exc}"
+    if outcome.get("error"):
+        return f"error: {outcome['error']}"
+    return f"restored {len(outcome['restored'])}, waiting {len(outcome['waiting'])}, manual {len(outcome['manual'])}, failed {len(outcome['failed'])}"
