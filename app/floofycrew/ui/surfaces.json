@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "description": "FloofyCrew surface registry: stable names for host UI surfaces located by content fingerprints (Requirement 4.4). `dom` is a CSS selector over attributes the host renders literally (data-testid, ids, ARIA roles, literal class names); `bundle` is a literal or regex expected in the module text of the hashed chunk named by its stem (never by hash); `chunk` may list several stems, tried in order (a hook the bundler folds into a differently named shared chunk on another build — `useTheme` on 0.7.0.x is inside `terminal` on public 0.6.0). `fromBuild` is the host build each row was written against; the reporter and the Forge record where a row stops matching.",
+  "writtenAgainst": "0.7.0.5",
+  "surfaces": [
+    {
+      "name": "shell.root",
+      "description": "The React mount point of the dashboard shell (index.html).",
+      "fromBuild": "0.6.0",
+      "dom": { "selector": "#root", "count": "once" }
+    },
+    {
+      "name": "dashboard.shell",
+      "description": "The dashboard grid (topbar / nav / content) once React has mounted.",
+      "fromBuild": "0.7.0.5",
+      "dom": { "selector": "[data-testid=\"dashboard-shell\"]", "count": "once" },
+      "bundle": { "chunk": "App", "contains": "\"data-testid\":`dashboard-shell`", "count": "once" }
+    },
+    {
+      "name": "topbar",
+      "description": "The glass top bar of the shell.",
+      "fromBuild": "0.7.0.5",
+      "dom": { "selector": "[data-testid=\"dashboard-shell\"] header.topbar", "count": "once" },
+      "bundle": { "chunk": "App", "contains": "topbar topbar-glass", "count": "once" }
+    },
+    {
+      "name": "sidebar.nav",
+      "description": "The main navigation rail (desktop) — a <nav role=navigation> inside the shell.",
+      "fromBuild": "0.7.0.5",
+      "dom": { "selector": "[data-testid=\"dashboard-shell\"] nav[role=\"navigation\"]" },
+      "bundle": { "chunk": "App", "contains": "app.main_navigation" }
+    },
+    {
+      "name": "logo",
+      "description": "The brand logo image inside the sidebar collapse button (pack branding lands here).",
+      "fromBuild": "0.7.0.5",
+      "dom": { "selector": "nav[role=\"navigation\"] button[aria-expanded] img[aria-hidden=\"true\"]" },
+      "bundle": { "chunk": "App", "contains": "?.logoClass??", "count": "once" }
+    },
+    {
+      "name": "favicon",
+      "description": "The document icon link (the host's static one, plus #mc-theme-favicon when a pack brands it).",
+      "fromBuild": "0.6.0",
+      "dom": { "selector": "link[rel=\"icon\"]" },
+      "bundle": { "chunk": ["useTheme", "terminal"], "contains": "mc-theme-favicon" }
+    },
+    {
+      "name": "theme.tokens",
+      "description": "The element carrying data-theme / data-mode (the CSS token scope).",
+      "fromBuild": "0.6.0",
+      "dom": { "selector": "html[data-theme]", "count": "once" },
+      "bundle": { "chunk": ["useTheme", "terminal"], "contains": ".dataset.theme=", "count": "once" }
+    },
+    {
+      "name": "theme.custom-style",
+      "description": "Where the host injects a custom pack's generated CSS (<style id=mc-custom-theme-<slug>>); bundle-only because the element exists only while a pack is active.",
+      "fromBuild": "0.7.0.5",
+      "bundle": { "chunk": ["useTheme", "terminal"], "contains": "mc-custom-theme-" }
+    },
+    {
+      "name": "theme.reset-site",
+      "description": "The useTheme effect that resets a missing custom pack to the default theme (the site the reset-guard patch anchors on).",
+      "fromBuild": "0.7.0.5",
+      "bundle": { "chunk": ["useTheme", "terminal"], "regex": "\\.has\\([A-Za-z_$][\\w$]*\\)\\|\\|[A-Za-z_$][\\w$]*\\([A-Za-z_$][\\w$]*\\)\\}\\},\\[", "count": "once" }
+    },
+    {
+      "name": "theme.decor-slot",
+      "description": "The fixed full-viewport slot themes decorate (desktop layout).",
+      "fromBuild": "0.7.0.5",
+      "dom": { "selector": "[data-testid=\"theme-decor-slot\"]", "count": "once" },
+      "bundle": { "chunk": "App", "contains": "\"data-testid\":`theme-decor-slot`", "count": "once" }
+    },
+    {
+      "name": "page.main",
+      "description": "The routed page area (<main id=main-content>).",
+      "fromBuild": "0.7.0.5",
+      "dom": { "selector": "main#main-content", "count": "once" },
+      "bundle": { "chunk": "App", "contains": "id:`main-content`", "count": "once" }
+    },
+    {
+      "name": "apps.page",
+      "description": "The App Store page area, present on /apps routes.",
+      "fromBuild": "0.7.0.5",
+      "dom": { "selector": "main#main-content", "route": "/apps", "count": "once" },
+      "bundle": { "chunk": "App", "contains": "path:`/apps`" }
+    },
+    {
+      "name": "settings.page",
+      "description": "The Settings page area, present on /settings routes.",
+      "fromBuild": "0.7.0.5",
+      "dom": { "selector": "main#main-content", "route": "/settings", "count": "once" },
+      "bundle": { "chunk": "App", "contains": "path:`/settings/*`", "count": "once" }
+    }
+  ]
+}
