@@ -11,6 +11,17 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- **A mod archive release could hide the FloofyCrew release from public hosts**
+  (`floofy_core.selfupdate`). The public feed reads GitHub's `releases/latest`,
+  which is whichever release was created last; after the seven mod archives of
+  1.3.8 were published, hosts read `this is newer than the newest published
+  release (1.0.0)` (os-notify-bridge 1.0.0). Only `vX.Y.Z` / `floofycrew-vX.Y.Z`
+  counts as a FloofyCrew release now: when `latest` is anything else the reader
+  lists every release and takes the newest FloofyCrew-tagged, non-draft,
+  non-prerelease one; the plain `releases` list shape applies the same filter.
+
 ## 1.3.8 — 2026-10-21
 
 Public hosts can update again. Every GitHub release so far shipped an empty
