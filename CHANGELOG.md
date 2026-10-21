@@ -41,11 +41,23 @@ KiroCrew; it never ships a rebuilt host.
   `build_zipapp.NOTICE_FILES` by test) and a partial checkout fails naming the
   missing file.
 
+- **The GitHub release shipped an empty `supports` list**, so every public host
+  read `1.3.7 does not list host 0.9.0 (external/stable) as supported` and
+  `floofy self-update` stayed on 1.3.1. The release workflow builds from a tag
+  with no Forge beside it and never passed `--supports`; `packaging/public/build.py`
+  now defaults to the `[tool.floofycrew.supports]` table of `pyproject.toml` (the
+  release cut keeps it equal to the Forge's `loader: ok` rows), and a test pins
+  that a build without the flag ships the table and names the current public
+  stable host.
+
 ### Supports
 
 Measured by the Forge on 2026-10-20 against this tree: internal stable 0.9.0.4
 and internal beta 0.10.0.2 are `loader: ok` (16/16 anchors, 20/20 fingerprints,
 all eleven first-party mods `tested`); both join the list at the next release.
+The external table catches up with the Forge's public lanes, where it had stood
+at 0.6.0 / 0.7.0rc5 since 1.1.0: stable 0.7.0, 0.7.1, 0.7.2, 0.9.0 and insider
+0.7.0rc6 to 0.10.0rc4 (all `loader: ok` on FloofyCrew 1.3.2's fingerprints).
 
 ## 1.3.7 — 2026-10-19
 

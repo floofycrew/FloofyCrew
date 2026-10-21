@@ -119,6 +119,19 @@ before you acknowledge it). Documentation: `docs/` in the source repository.
 """
 
 
+def pyproject_supports() -> dict[str, dict[str, list[str]]]:
+    """``[tool.floofycrew.supports]`` from the repository's ``pyproject.toml``: the host versions this tree claims.
+
+    The release cut keeps that table equal to the Forge's ``loader: ok`` rows, so a tag build
+    without a Forge beside it (the GitHub release workflow) still ships the same list.
+    """
+    import tomllib  # noqa: PLC0415
+
+    with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
+        table = tomllib.load(handle).get("tool", {}).get("floofycrew", {}).get("supports", {})
+    return {str(edition): {str(channel): [str(v) for v in versions] for channel, versions in channels.items()} for edition, channels in table.items() if isinstance(channels, dict)}
+
+
 def _release_notes(version: str, tag: str, repo: str, supports: dict | None, sums: dict[str, str]) -> str:
     lines = [f"# floofycrew v{version} (public edition)", "", f"Release tag `{tag}` of {repo}.", "",
              "FloofyCrew is an **unofficial** modding ecosystem for KiroCrew. This release ships the `floofy`",
@@ -176,16 +189,19 @@ def build_release(out: Path, *, supports: dict | None = None, interpreter: str =
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default=str(DEFAULT_OUT), help=f"target directory (default {DEFAULT_OUT.relative_to(REPO_ROOT)})")
-    parser.add_argument("--supports", default=None, metavar="JSON", help="a supports.json from the release stage to record")
+    parser.add_argument("--supports", default=None, metavar="JSON", help="a supports.json from the release stage to record (default: the [tool.floofycrew.supports] table of pyproject.toml, which is what a tag build on GitHub ships)")
     parser.add_argument("--python", default="/usr/bin/env python3.12", help="shebang interpreter of dist/floofy.pyz")
     parser.add_argument("--tag", default=None, help="the release tag being built (default v<version>); pins the app-registry row to loader-app-<tag>")
     parser.add_argument("--check", action="store_true", help="build twice into temporary directories and exit 1 unless both trees are byte-identical")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    supports = None
     if args.supports:
         document = json.loads(Path(args.supports).read_text(encoding="utf-8"))
         supports = document.get("supports", document)
+    else:
+        # The GitHub release workflow builds from a tag with no Forge beside it; without a
+        # supports list every public host reads "does not list your host" and self-update stops.
+        supports = pyproject_supports()
     if args.check:
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             a = tree_digest(Path(build_release(Path(first) / "public", supports=supports, interpreter=args.python, tag=args.tag)["out"]))
