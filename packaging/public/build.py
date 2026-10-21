@@ -110,7 +110,7 @@ it contains no KiroCrew code and never replaces the host (design DR-1).
 | `app/floofycrew/` | the Loader app directory — what the host clones when this branch is listed as an app registry |
 | `app-registry.json` | this tree as a KiroCrew app registry: one row, the Loader app |
 | `dist/SHA256SUMS` | sha256 of the release assets and of `app/floofycrew/**` (the assets themselves are on the GitHub release) |
-| `LICENSE`, `NOTICE.md`, `LICENSES/` | MIT, and the Apache-2.0 notices for the portions derived from KiroCrew |
+| `LICENSE`, `NOTICE.md` | Apache License 2.0, and the notices for FloofyCrew and the portions derived from KiroCrew |
 | `RELEASE.md` | version, the host versions it supports, hashes |
 
 Install: `curl -fsSL {repo.replace("https://github.com/", "https://raw.githubusercontent.com/")}/main/packaging/public/install.sh | sh`
@@ -170,11 +170,9 @@ def build_release(out: Path, *, supports: dict | None = None, interpreter: str =
         (dist / "supports.json").write_text(json.dumps({"floofycrew": version, "supports": supports}, indent=2) + "\n", encoding="utf-8")
 
     shutil.copy2(HERE / "install.sh", out / "install.sh")
-    # the licence and third-party notices (the themes.py port derives from KiroCrew, Apache-2.0)
-    for name in ("LICENSE", "NOTICE.md", "LICENSES/Apache-2.0.txt"):
-        target = out / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPO_ROOT / name, target)
+    # the licence and the notices (FloofyCrew and the KiroCrew portions it derives from, both Apache-2.0)
+    for name in build_zipapp.NOTICE_FILES:
+        shutil.copy2(REPO_ROOT / name, out / name)
     (out / "app-registry.json").write_text(json.dumps(_app_registry(tag), indent=2) + "\n", encoding="utf-8")
     (out / ".gitignore").write_text("__pycache__/\n*.pyc\n", encoding="utf-8")
     (out / "README.md").write_text(_readme(version, repo), encoding="utf-8")

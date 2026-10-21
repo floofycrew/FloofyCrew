@@ -380,7 +380,7 @@ def capture_install_confirm(browser, gw) -> None:
         "version": "1.0.0",
         "description": "A throwaway mod that adds one agent - here to show what the manager asks before it changes anything.",
         "authors": ["FloofyCrew"],
-        "license": "MIT",
+        "license": "Apache-2.0",
         "kirocrew": {"version": ">=0.7.0 <0.9.0"},
         "dependsOn": {"floofycrew": ">=0.0.0"},
         "parts": [{"kind": "agent", "side": "gateway", "path": "agents/demo.json"}],

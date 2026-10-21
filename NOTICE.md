@@ -1,9 +1,16 @@
-# Third-party notices
+# Notices
 
-FloofyCrew is licensed under the MIT License (see `LICENSE`). It is an
-unofficial project, not affiliated with Kiro or KiroCrew. The portions listed
-below are derived from KiroCrew and remain licensed under the Apache License,
-Version 2.0 (`LICENSES/Apache-2.0.txt`); everything else is original.
+```
+FloofyCrew
+Copyright 2026 Oscar Tseng
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+```
+
+FloofyCrew is an unofficial project, not affiliated with Kiro or KiroCrew. The
+portions listed below are derived from KiroCrew, which is licensed under the
+same Apache License, Version 2.0 (the text is `LICENSE`); its attribution is
+reproduced here as that license requires. Everything else is original.
 
 ## Derived from KiroCrew (Apache License 2.0)
 

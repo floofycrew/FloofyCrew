@@ -11,6 +11,24 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Changed
+
+- **FloofyCrew is licensed under the Apache License 2.0** (it was MIT through
+  1.3.8; releases already published stay as published). One license now covers
+  the whole tree: FloofyCrew's own code and the portions derived from KiroCrew
+  (the `themes.py` port, the quoted patch anchors) were already Apache-2.0, so
+  the "MIT except…" split and the separate `LICENSES/Apache-2.0.txt` are gone —
+  `LICENSE` is the Apache-2.0 text, and `NOTICE.md` carries FloofyCrew's own
+  NOTICE above the KiroCrew attribution it reproduces. The two files still ship
+  in every artifact (zipapp, wheel `dist-info/licenses/` + `License-File`,
+  Loader app tree, both release trees), pinned by the same tests. The eleven
+  first-party mods, `tools/throttle-injector` and the `examples/` manifests are
+  Apache-2.0 too, and `floofy new` now scaffolds an Apache-2.0 `LICENSE` stub
+  (the text ships as package data, `floofy_core/licenses/Apache-2.0.txt`, read
+  through `importlib.resources` so the zipapp scaffolds it as well) with
+  `"license": "Apache-2.0"` in the manifest. The public and internal edition
+  package trees drop their `LICENSES/` directory accordingly.
+
 ### Fixed
 
 - **A host that never recorded the edition's default registry source now gets

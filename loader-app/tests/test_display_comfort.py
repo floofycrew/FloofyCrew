@@ -37,7 +37,7 @@ def test_the_mod_is_valid_and_declares_what_it_needs():
     assert code_kinds_of(MANIFEST) == {"spa"}, "no python-hook: the config route is the Loader's own"
     assert MANIFEST["network"] == {"hosts": [], "credentials": False}
     assert Range.parse(MANIFEST["dependsOn"]["floofycrew"]).contains(Version.parse(FRAMEWORK_VERSION))
-    assert (MOD_DIR / "LICENSE").read_text(encoding="utf-8").startswith("MIT License")
+    assert (MOD_DIR / "LICENSE").read_text(encoding="utf-8").lstrip().startswith("Apache License")
     listed = {f["path"] for f in MANIFEST["files"]}
     assert listed == {"README.md", "LICENSE", "spa/boot.css", "spa/boot.js", "spa/runtime.mjs", "ui/icon.svg", "ui/page.mjs"}
 

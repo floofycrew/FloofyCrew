@@ -56,9 +56,9 @@ def release(tmp_path_factory: pytest.TempPathFactory) -> dict:
 def test_layout_assets_and_the_public_only_adapter(release: dict):
     root: Path = release["root"]
     version = release["version"]
-    assert {p.name for p in root.iterdir()} == {"README.md", "RELEASE.md", "install.sh", "app-registry.json", ".gitignore", "LICENSE", "NOTICE.md", "LICENSES", "app", "dist"}
-    # the notices are the repository's, byte for byte, and ride inside the app tree too (it vendors the themes.py port)
-    for name in ("LICENSE", "NOTICE.md", "LICENSES/Apache-2.0.txt"):
+    assert {p.name for p in root.iterdir()} == {"README.md", "RELEASE.md", "install.sh", "app-registry.json", ".gitignore", "LICENSE", "NOTICE.md", "app", "dist"}
+    # the license and notices are the repository's, byte for byte, and ride inside the app tree too (it vendors the themes.py port)
+    for name in ("LICENSE", "NOTICE.md"):
         assert (root / name).read_bytes() == (build_module.REPO_ROOT / name).read_bytes(), name
         assert (root / "app" / "floofycrew" / name).is_file(), name
     assert {p.name for p in (root / "dist").iterdir()} == {"floofy.pyz", f"floofycrew-{version}-py3-none-any.whl", f"floofycrew-loader-app-{version}.zip", "SHA256SUMS", "supports.json"}

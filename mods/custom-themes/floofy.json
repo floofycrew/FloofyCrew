@@ -7,7 +7,7 @@
   "authors": [
     "Oscar Tseng"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "tags": [
     "theme",
     "editor",
@@ -73,11 +73,11 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+      "sha256": "efbb38757df87b37a0ba908725830a90cded07b9842ce24e1635bb0763fa2a34"
     },
     {
       "path": "README.md",
-      "sha256": "d606d2763d5c14f34ee3e0c20e81f4d34498d3ec829ab9bc7f5bdcbacfa57ded"
+      "sha256": "27519cca69abe1777e8971d55a270bc551819729c32fc1e37a528a94ee0f6bee"
     },
     {
       "path": "hook/__init__.py",

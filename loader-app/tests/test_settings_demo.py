@@ -34,7 +34,7 @@ def test_the_mod_is_valid_and_declares_what_it_needs():
     assert code_kinds_of(MANIFEST) == {"python-hook"}, "the hook makes it land disabled (Requirement 11.7); the ui part alone would not"
     assert MANIFEST["network"] == {"hosts": [], "credentials": False}
     assert Range.parse(MANIFEST["dependsOn"]["floofycrew"]).contains(Version.parse(FRAMEWORK_VERSION)), "the mod's floor is the release that ships the ui part and ctx.routes"
-    assert (MOD_DIR / "LICENSE").read_text(encoding="utf-8").startswith("MIT License")
+    assert (MOD_DIR / "LICENSE").read_text(encoding="utf-8").lstrip().startswith("Apache License")
     listed = {f["path"] for f in MANIFEST["files"]}
     assert listed == {"README.md", "LICENSE", "hook/__init__.py", "ui/page.mjs", "ui/icon.svg"}
     page = (MOD_DIR / "ui" / "page.mjs").read_text(encoding="utf-8")

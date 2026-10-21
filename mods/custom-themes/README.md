@@ -94,4 +94,4 @@ python scripts/hash_example_files.py mods/custom-themes    # files[] hashes
 python -m floofy_core.cli_validate mods/custom-themes      # zero errors, zero warnings
 ```
 
-The mod's own files are MIT (`LICENSE`). It ships no artwork but its icon.
+The mod's own files are Apache-2.0 (`LICENSE`). It ships no artwork but its icon.

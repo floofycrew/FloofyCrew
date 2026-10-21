@@ -83,8 +83,9 @@ BINARY_SUFFIXES: frozenset[str] = frozenset(
 #: attribution from a public repository, not an internal identifier, so these files
 #: are not scanned — including in the release workflow's ``--allowlist /dev/null``
 #: passes, which a path allowlist could not cover. A ``LICENSE`` file in the tree is
-#: NOT exempt: those are our own MIT texts, and a copyright line there must not
-#: spell an internal account name (the public export audit found three that did).
+#: NOT exempt: those are our own license texts (Apache-2.0, with our copyright
+#: line), and a copyright line there must not spell an internal account name (the
+#: public export audit found three that did).
 def is_legal_notice(path: Path) -> bool:
     stem = path.name.upper()
     if stem.startswith(("NOTICE", "COPYING")):

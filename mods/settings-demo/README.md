@@ -42,4 +42,4 @@ python scripts/hash_example_files.py mods/settings-demo      # files[] hashes
 python -m floofy_core.cli_validate mods/settings-demo        # zero errors, zero warnings
 ```
 
-`LICENSE` is MIT; `ui/icon.svg` is drawn for this mod (no third-party artwork).
+`LICENSE` is Apache-2.0; `ui/icon.svg` is drawn for this mod (no third-party artwork).

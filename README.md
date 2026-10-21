@@ -235,9 +235,9 @@ through the App Kit seam, never the host's plugin entry point.
 
 ## Credits and license
 
-Author: **Oscar Tseng**. Licensed under the [MIT License](LICENSE); the
-theme-pack validation is ported from KiroCrew (Apache License 2.0) &mdash;
-attribution and the license text are in [NOTICE.md](NOTICE.md) and `LICENSES/`,
-and every built artifact carries them.
+Author: **Oscar Tseng**. Licensed under the [Apache License 2.0](LICENSE); the
+theme-pack validation is ported from KiroCrew (also Apache License 2.0) &mdash;
+both attributions are in [NOTICE.md](NOTICE.md), and every built artifact
+carries the license and the notices.
 
 <div align="right">[<a href="#readme-top">back to top</a>]</div>

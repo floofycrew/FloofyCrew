@@ -7,7 +7,7 @@
   "authors": [
     "Oscar Tseng"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "tags": [
     "retry",
     "backoff",
@@ -61,11 +61,11 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+      "sha256": "efbb38757df87b37a0ba908725830a90cded07b9842ce24e1635bb0763fa2a34"
     },
     {
       "path": "README.md",
-      "sha256": "42406f20d69b91c4d95a48d8796d4235957bcd459802cb8b09f19426e534e4ee"
+      "sha256": "9f065c7ed2f3ad93ac823aaa0a9e40913499b435d31a91e46fd4e2361100a245"
     },
     {
       "path": "hook/__init__.py",
