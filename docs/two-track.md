@@ -20,12 +20,12 @@ tree counts as different). Every differing file must be an adapter module
 edition stamp; a difference anywhere else fails the report, as does a share of
 identical files below 80 %.
 
-Measured at 1.3.7 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.2.0's `electron:` target support (`floofy_core.asar`, `floofy_core.electron`) and the `custom-themes` editor, 1.3.0's `floofy.mod(id).dialog` and commit-pinned link records, the unattended freshness pass `floofy_core/freshness.py`, the quarantine heal `floofy_core/quarantine_heal.py` — every new module is shared core, identical in both trees):
+Measured at 1.3.8 (main: 1.1.0's terminal experience, the FloofyCrew App, `ui` parts and `floofy.mod(id)`, the git-reference and link-record work, 1.2.0's `electron:` target support (`floofy_core.asar`, `floofy_core.electron`) and the `custom-themes` editor, 1.3.0's `floofy.mod(id).dialog` and commit-pinned link records, the unattended freshness pass `floofy_core/freshness.py`, the quarantine heal `floofy_core/quarantine_heal.py` — every new module is shared core, identical in both trees):
 
 | | identical | total | share |
 |---|---|---|---|
-| files | 233 | 259 | 90.0 % |
-| bytes | 2 845 209 | 2 937 483 | 96.9 % |
+| files | 234 | 260 | 90.0 % |
+| bytes | 2 857 054 | 2 949 328 | 96.9 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:
@@ -39,8 +39,8 @@ python scripts/artifact_identity_report.py --keep /tmp/trees   # keep both trees
 ## The same mod archives on both editions
 
 `scripts/install_both_editions.py` builds each first-party mod into one
-deterministic archive — `custom-themes-1.0.1.zip` (sha256
-`f0125720a56e9459e1f0fc677f4a64e232f26decab0e31e859057e1bc058d4c5`, 41 667
+deterministic archive — `custom-themes-1.0.2.zip` (sha256
+`03b463e3c0785ec31d29f3731b2b03ea4592250dd0d939bdfbc072e097f47983`, 41 754
 bytes: a `ui` editor, a `python-hook` backend, `spa` runtime + boot parts and the
 theme-reset `patch`), `rimuru-branding-2.0.0.zip` (sha256
 `af46e27a3953a9b4686658651222d3a60813f91a8fa7a373a652851f64a6111e`, 57 596

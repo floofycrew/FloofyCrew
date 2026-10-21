@@ -62,7 +62,7 @@ export function createReporter({ surfaces, patches, state, document: doc = null,
       await surfaces.load?.();
       const rows = await surfaces.check();
       if (Array.isArray(options.extraSurfaces) && options.extraSurfaces.length) {
-        const adHoc = createSurfaces({ document: doc, window: win, bus: { on() {}, emit() {} }, definitions: options.extraSurfaces, fetch: fetchImpl });
+        const adHoc = createSurfaces({ document: doc, window: win, bus: { on() {}, emit() {} }, definitions: options.extraSurfaces, fetch: fetchImpl, hostVersion: () => state()?.host?.version ?? null });
         rows.push(...(await adHoc.check()));
       }
       const patchReport = await patches.report();

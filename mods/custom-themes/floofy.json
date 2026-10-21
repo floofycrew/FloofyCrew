@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "custom-themes",
   "name": "Custom themes",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A theme editor for KiroCrew inside the FloofyCrew App, and the layer theme mods build on. A theme is a host theme pack (palette, branding, fonts, overrides.css — installed through the host's own validator, listed in Settings → Display) plus a FloofyCrew layer of extra CSS that may restyle anything, scoped to the theme and applied by the mod on the first frame and at runtime. Start from the running host's own built-in themes (read from its stylesheet, decorations included), edit every palette token with a live preview, export/import a theme as one file, install it and switch to it. Carries the theme-reset guard every custom theme needs. Unofficial.",
   "authors": [
     "Oscar Tseng"
@@ -67,7 +67,7 @@
       "kind": "patch",
       "side": "spa",
       "path": "patches/theme-reset-guard.json",
-      "description": "import-map patch on the useTheme chunk: the persisting theme reset (a failed per-pack fetch writes the default theme into the workspace config) becomes a no-op — the guard every custom theme needs, moved here from rimuru-branding"
+      "description": "import-map patch on the useTheme chunk: the persisting theme reset (a failed per-pack fetch writes the default theme into the workspace config) becomes a no-op — the guard every custom theme needs, moved here from rimuru-branding; not applicable from public 0.8.0.dev20260928053132, where the host fixed the reset (toBuild)"
     }
   ],
   "files": [
@@ -97,7 +97,7 @@
     },
     {
       "path": "patches/theme-reset-guard.json",
-      "sha256": "b9d703784571811fc61300b409bcf8ccce7ce0c1185686492b84ffedff415775"
+      "sha256": "6bea05fa1ec4b33cd213c0fa6fd0d309efb3720a8c17cf8c7923514cfccc4acd"
     },
     {
       "path": "spa/boot.js",

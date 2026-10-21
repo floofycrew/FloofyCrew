@@ -20,9 +20,76 @@
 //   `/assets/*` (admitted by `connect-src 'self'`) and cached per document.
 //
 // The shipped registry is `surfaces.json` (one row per surface, `fromBuild`
-// naming the host build it was written against). Nothing here rewrites the
-// document; this is a locator and a reporter input.
+// naming the host build it was written against — a record, not a gate; an
+// optional `toBuild` is the gate: the first full host version the surface no
+// longer exists on, exclusive, the same field the patch descriptors carry, so a
+// site the host removed reports `not-applicable` there instead of a miss).
+// Nothing here rewrites the document; this is a locator and a reporter input.
 "use strict";
+
+// --- host versions ------------------------------------------------------------------
+//
+// Mirrors `floofy_core.semver.HostVersion` (kept in lock-step with the Python
+// evaluator): `X.Y.Z`, an optional PEP 440 pre-release (`rc1`), an optional
+// internal build number (`.5`), an optional `.devN`, an optional `-tag`;
+// ordering dev < a < b < rc < tagged < final, then the build number.
+const HOST_VERSION_RE = /^(\d+)\.(\d+)\.(\d+)(?:(a|b|rc)(\d+))?(?:\.(\d+))?(?:\.dev(\d+))?(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
+const PHASE_RANK = { dev: 0, a: 1, b: 2, rc: 3, tag: 4, final: 5 };
+
+/**
+ * Parse a host version into a comparable key, or `null` when the text is not a host version.
+ * @param {unknown} text
+ * @returns {number[]|null}
+ */
+export function hostVersionKey(text) {
+  if (typeof text !== "string") return null;
+  const match = HOST_VERSION_RE.exec(text.trim());
+  if (!match) return null;
+  const [, major, minor, patch, preTag, preNum, build, dev, tag] = match;
+  let phase = PHASE_RANK.final;
+  let number = 0;
+  if (dev !== undefined) [phase, number] = [PHASE_RANK.dev, Number(dev)];
+  else if (preTag !== undefined) [phase, number] = [PHASE_RANK[preTag], Number(preNum)];
+  else if (tag !== undefined) phase = PHASE_RANK.tag;
+  // SemVer §11.4 for the tag identifiers: numeric ones sort numerically and below alphanumeric ones
+  const tagKey = tag === undefined ? [] : tag.split(".").flatMap((part) => (/^(0|[1-9]\d*)$/.test(part) ? [0, Number(part), ""] : [1, 0, part]));
+  return [Number(major), Number(minor), Number(patch), phase, number, tagKey, Number(build ?? 0)];
+}
+
+/** `-1`, `0` or `1` for two host version strings; `null` when either does not parse. */
+export function compareHostVersions(left, right) {
+  const a = hostVersionKey(left);
+  const b = hostVersionKey(right);
+  if (!a || !b) return null;
+  const cmp = (x, y) => {
+    if (Array.isArray(x) && Array.isArray(y)) {
+      for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+        if (i >= x.length) return -1;
+        if (i >= y.length) return 1;
+        const inner = cmp(x[i], y[i]);
+        if (inner !== 0) return inner;
+      }
+      return 0;
+    }
+    if (x === y) return 0;
+    return x < y ? -1 : 1;
+  };
+  return cmp(a, b);
+}
+
+/**
+ * Whether a surface row applies to `hostVersion`: `null` when it does, else the reason.
+ * `toBuild` is exclusive on the full host version (Vencord-style, as on patch descriptors);
+ * an unknown host version or an unparsable gate never excludes a row (the miss would then be a
+ * real miss to look at, not a silent skip).
+ */
+export function surfaceApplicability(def, hostVersion) {
+  const toBuild = def?.toBuild;
+  if (typeof toBuild !== "string" || !toBuild) return null;
+  const order = compareHostVersions(hostVersion, toBuild);
+  if (order === null) return null;
+  return order < 0 ? null : `host ${hostVersion} is not below toBuild ${toBuild}`;
+}
 
 /** Extract `{stem, name}` chunk entries from a list of URLs or module text (`/assets/<stem>-<hash>.js`). */
 export const CHUNK_RE = /(?:\/assets\/|\.\/)([A-Za-z][A-Za-z0-9_.]*?)-([A-Za-z0-9_-]{8})\.js\b/g;
@@ -121,8 +188,9 @@ export function resolveDom(fingerprint, doc, pathname = "/") {
  * @param {any[]} [options.definitions] surface definitions (default: the shipped `surfaces.json`, loaded lazily)
  * @param {typeof fetch} [options.fetch]
  * @param {(fn: Function, ms: number) => any} [options.debounce] timer used to coalesce mutations
+ * @param {() => (string|null|undefined)} [options.hostVersion] the running host's version (for `toBuild` gates)
  */
-export function createSurfaces({ document: doc, window: win, bus, definitions, fetch: fetchImpl, debounce }) {
+export function createSurfaces({ document: doc, window: win, bus, definitions, fetch: fetchImpl, debounce, hostVersion }) {
   /** @type {any[]} */
   let defs = Array.isArray(definitions) ? definitions : [];
   /** @type {Promise<any[]>|null} */
@@ -156,9 +224,11 @@ export function createSurfaces({ document: doc, window: win, bus, definitions, f
 
   function resolveAll() {
     const now = pathname();
+    const version = typeof hostVersion === "function" ? hostVersion() : null;
     let changed = false;
     for (const def of defs) {
-      const next = resolveDom(def.dom, doc, now);
+      const outside = surfaceApplicability(def, version);
+      const next = outside ? { status: "not-applicable", node: null, reason: outside } : resolveDom(def.dom, doc, now);
       const prev = resolved.get(def.name);
       if (!prev || prev.status !== next.status || prev.node !== next.node) changed = true;
       resolved.set(def.name, next);
@@ -218,7 +288,15 @@ export function createSurfaces({ document: doc, window: win, bus, definitions, f
     await ensureDefinitions();
     resolveAll();
     const rows = [];
+    const version = typeof hostVersion === "function" ? hostVersion() : null;
     for (const def of defs) {
+      // a row the host has since removed (`toBuild`) is not-applicable here, for dom and bundle alike
+      const outside = surfaceApplicability(def, version);
+      if (outside) {
+        if (def.dom) rows.push({ name: def.name, kind: "dom", status: "not-applicable", reason: outside });
+        if (def.bundle) rows.push({ name: def.name, kind: "bundle", status: "not-applicable", reason: outside, chunk: null });
+        continue;
+      }
       if (def.dom) {
         const dom = resolved.get(def.name) ?? resolveDom(def.dom, doc, pathname());
         rows.push({ name: def.name, kind: "dom", status: dom.status, reason: dom.reason });

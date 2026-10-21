@@ -9,7 +9,8 @@ from typing import Any
 import pytest
 
 from floofy_core import cli_spa, spa_report
-from floofy_core.spa_report import SpaReport, bundle_stems, check_bundle_fingerprints, discover_chunks, load_registry, match_bundle
+from floofy_core.semver import HostVersion
+from floofy_core.spa_report import SpaReport, bundle_stems, check_bundle_fingerprints, discover_chunks, load_registry, match_bundle, surface_applicability
 
 from floofy_testing import REPO_ROOT
 
@@ -62,6 +63,61 @@ def test_default_registry_is_found_and_well_formed():
     for name in ("favicon", "theme.tokens", "theme.custom-style", "theme.reset-site"):
         surface = next(s for s in registry["surfaces"] if s["name"] == name)
         assert bundle_stems(surface["bundle"]) == ["useTheme", "terminal"], name
+    # a gated row was written against a build before its toBuild
+    for surface in registry["surfaces"]:
+        if "toBuild" in surface:
+            assert HostVersion.parse(surface["fromBuild"]) < HostVersion.parse(surface["toBuild"]), surface["name"]
+    reset_site = next(s for s in registry["surfaces"] if s["name"] == "theme.reset-site")
+    assert reset_site["toBuild"] == "0.8.0.dev20260928053132", "the persisting theme reset is fixed upstream from that public nightly"
+    logo = next(s for s in registry["surfaces"] if s["name"] == "logo")
+    assert logo["bundle"] == {"chunk": "App", "contains": "?.logoClass??(", "count": "once"}, "the collapse button's ternary; the mobile rail added on 0.8.0.dev20260928053132 uses the plain fallback"
+
+
+def test_surface_applicability_to_build_is_exclusive_and_never_excludes_an_unknown_version():
+    row = {"name": "theme.reset-site", "fromBuild": "0.7.0.5", "toBuild": "0.8.0.dev20260928053132"}
+    for inside in ("0.6.0", "0.7.0rc5", "0.7.0.5", "0.7.0.8", "0.8.0.dev20260924061032"):
+        assert surface_applicability(row, inside) is None, inside
+    assert surface_applicability(row, "0.8.0.dev20260928053132") == "host 0.8.0.dev20260928053132 is not below toBuild 0.8.0.dev20260928053132"
+    # insider 0.8.0rc1 (Forge repair, round 1) ships the same useTheme: a release candidate orders after the dev builds
+    assert surface_applicability(row, "0.8.0rc1") == "host 0.8.0rc1 is not below toBuild 0.8.0.dev20260928053132"
+    assert surface_applicability(row, "0.8.0") is not None and surface_applicability(row, "0.9.0.1") is not None
+    # public-nightly 0.9.0.dev20260929061324 (Forge repair, round 1): a later minor's dev build orders after the gate
+    assert surface_applicability(row, "0.9.0.dev20260929061324") == "host 0.9.0.dev20260929061324 is not below toBuild 0.8.0.dev20260928053132"
+    # public-nightly 0.9.0.dev20260930061058 (Forge repair, round 1): the next nightly of that minor orders after it and the gate
+    assert surface_applicability(row, "0.9.0.dev20260930061058") == "host 0.9.0.dev20260930061058 is not below toBuild 0.8.0.dev20260928053132"
+    # internal-beta 0.8.0.6 (Forge repair, round 1): the internal edition's four-component build numbers order after
+    # the 0.8.0 pre-releases, so the first internal 0.8.0 build is past the gate while every 0.7.0.x stays inside it
+    assert surface_applicability(row, "0.8.0.6") == "host 0.8.0.6 is not below toBuild 0.8.0.dev20260928053132"
+    assert surface_applicability(row, "0.7.0.8") is None
+    # internal-beta 0.10.0.2 (Forge repair, round 1): a two-digit minor orders numerically ("0.10" > "0.9" > "0.8"),
+    # never lexically; useTheme-B40pc58T.js keeps the query-hook shape, so the row stays not-applicable
+    assert surface_applicability(row, "0.10.0.2") == "host 0.10.0.2 is not below toBuild 0.8.0.dev20260928053132"
+    assert HostVersion.parse("0.10.0.2") > HostVersion.parse("0.9.0.4") > HostVersion.parse("0.8.0.6")
+    assert surface_applicability(row, None) is None and surface_applicability(row, "") is None
+    assert surface_applicability({"name": "x", "toBuild": "soon"}, "0.8.0") is None, "an unparsable gate never excludes"
+    assert surface_applicability({"name": "ungated", "fromBuild": "0.7.0.5"}, "9.9.9") is None, "fromBuild is a record, not a gate"
+
+
+def test_check_bundle_fingerprints_records_a_gated_row_as_not_applicable(tmp_path: Path):
+    """public 0.8.0.dev20260928053132: useTheme no longer has the persisting reset; the row is gated, not missed."""
+    dist = fake_dist(tmp_path)
+    (dist / "assets" / "useTheme-BBBBBBBB.js").write_text("r.dataset.theme=U(e,t);let W=Ue(i),G=z&&W!==null&&!f.has(W);", encoding="utf-8")
+    registry = {
+        "schema": 1,
+        "surfaces": [
+            {"name": "theme.tokens", "fromBuild": "0.6.0", "bundle": {"chunk": ["useTheme", "terminal"], "contains": ".dataset.theme=", "count": "once"}},
+            {"name": "theme.reset-site", "fromBuild": "0.7.0.5", "toBuild": "0.8.0.dev20260928053132", "bundle": {"chunk": ["useTheme", "terminal"], "regex": r"\.has\(\w\)\|\|\w\(\w\)\}\},\[", "count": "once"}},
+        ],
+    }
+    newer = check_bundle_fingerprints(dist, registry, host_version="0.8.0.dev20260928053132")
+    assert newer.matched == ["theme.tokens#bundle"] and newer.missed == [] and newer.ok
+    assert newer.not_applicable == [{"name": "theme.reset-site#bundle", "kind": "bundle", "reason": "host 0.8.0.dev20260928053132 is not below toBuild 0.8.0.dev20260928053132"}]
+    data = newer.to_dict()
+    assert data["spaFingerprints"] == {"matched": 1, "total": 1, "missed": []} and data["notApplicable"][0]["name"] == "theme.reset-site#bundle"
+    older = check_bundle_fingerprints(dist, registry, host_version="0.8.0.dev20260924061032")
+    assert [m["name"] for m in older.missed] == ["theme.reset-site#bundle"], "inside the gate the fingerprint is evaluated — and this chunk lacks the site"
+    unknown = check_bundle_fingerprints(dist, registry, host_version=None)
+    assert [m["name"] for m in unknown.missed] == ["theme.reset-site#bundle"], "no host version: rows are evaluated, never silently skipped"
 
 
 def test_bundle_stems_accepts_a_string_or_a_list():

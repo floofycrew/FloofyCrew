@@ -106,7 +106,12 @@ part (`floofy_loader.pending.plan_boot`), the CLI with
 
 `surfaces.json` is the registry: one row per stable name, written against a
 host build (`fromBuild`), with up to two fingerprints — never a chunk hash,
-never a line number:
+never a line number. `fromBuild` is a record; an optional `toBuild` is a gate —
+the first full host version the surface no longer exists on (exclusive, as on
+patch descriptors): from that host on the row is *not applicable* (dom and
+bundle alike), not a miss. `theme.reset-site` carries one: the persisting theme
+reset is fixed upstream from public 0.8.0.dev20260928053132. The ordering is
+`floofy_core.semver.HostVersion`'s, mirrored by `compareHostVersions()`.
 
 * `dom` — a CSS selector over attributes the host renders literally and that
   survive minification (`data-testid`, ids, ARIA roles/labels, literal class

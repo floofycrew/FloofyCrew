@@ -17,6 +17,7 @@ import { RestartButton, UpdateAndRestartButton } from "../actions.mjs";
 import { BusyButton, Spinner } from "../busy.mjs";
 import { Switch } from "../modicon.mjs";
 import { commandNote, styles } from "../palette.mjs";
+import { describeWarnings, groupText, groupTitle, labelFor } from "../warnings.mjs";
 import { ModPage, ModPagesList } from "./modpage.mjs";
 
 export function compatBadge(row) {
@@ -52,13 +53,14 @@ function Parts({ parts }) {
   );
 }
 
+/** The row's warnings in words: one line per distinct code (a count when it repeats), the code and every message in the tooltip. */
 function Warnings({ row }) {
-  const items = [...(row.warnings || []).map((w) => ({ kind: "warning", ...w })), ...(row.governance || []).map((w) => ({ kind: "governance", ...w }))];
-  if (!items.length) return null;
+  const groups = describeWarnings(row);
+  if (!groups.length) return null;
   return React.createElement(
     "ul",
-    { style: styles.list },
-    items.map((item, index) => React.createElement("li", { key: index, style: item.kind === "governance" ? styles.warn : undefined, title: item.message }, `${item.kind === "governance" ? "governance " : ""}${item.code}`)),
+    { style: { ...styles.list, ...styles.warn }, "data-testid": `floofycrew-warnings-${row.id}` },
+    groups.map((group) => React.createElement("li", { key: `${group.kind}:${group.code}`, title: groupTitle(group), "data-code": group.code }, groupText(group))),
   );
 }
 
@@ -195,7 +197,7 @@ export function ModsPage({ manager, navigate, openConsent, rest }) {
         ? React.createElement(
             "ul",
             { style: { ...styles.warn, ...styles.list, marginTop: "0.4rem" } },
-            state.governance.map((warning, index) => React.createElement("li", { key: index }, `governance ${warning.code}: ${warning.message}`)),
+            state.governance.map((warning, index) => React.createElement("li", { key: index, title: warning.code }, `governance: ${labelFor(warning.code)} — ${warning.message}`)),
           )
         : null,
       // Requirement 7.7: the landing page reminds about MOD updates too (the data is kept fresh unattended
