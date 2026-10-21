@@ -47,6 +47,7 @@ from ..gitsource import UNLISTED_SOURCE_LINE
 from ..installer import CONFIRM_KINDS, InstallError, ResolvedSource, disclose, manifest_of, place, resolve_source, run_handlers, validate
 from ..modstore import read_source
 from ..registry import IndexCache
+from ..registry_sources import SourceStore
 from ..semver import InvalidVersion, Version
 from ..tier import describe, tier_for_candidate
 from .actions import kind_context, reapply, reload_gateway
@@ -111,8 +112,21 @@ def register(sub: argparse._SubParsersAction) -> None:
 # --- search -----------------------------------------------------------------------------------
 
 
+def _heal_default_registry(ctx: CliContext, *, why: str) -> bool:
+    """Record and fetch the edition's default registry source when the store lacks it; True when something was added."""
+    from .cmd_registry import heal_default_sources  # noqa: PLC0415
+
+    try:
+        store = SourceStore.load(ctx.home)
+    except InstallError:
+        return False
+    return heal_default_sources(ctx, store, why=why) is not None
+
+
 def search(ctx: CliContext, args: argparse.Namespace) -> int:
     cache = IndexCache.load(ctx.home)
+    if not cache.mods and _heal_default_registry(ctx, why="floofy search"):
+        cache = IndexCache.load(ctx.home)
     hits = cache.search(args.query)
     target = ctx.registry_target()
     installed = {mod.id: mod for mod in ctx.mods(include_broken=False)}
@@ -572,6 +586,11 @@ def update(ctx: CliContext, args: argparse.Namespace) -> int:
     if not args.check:
         ctx.require_consent("update mods")
     cache = IndexCache.load(ctx.home)
+    if not cache.mods:
+        # Requirement 8.12 on demand: a host that never recorded the edition's default source (installed before the default
+        # existed, or whose trigger never ran) would answer "the registry cache is empty" forever; record and fetch it first
+        if _heal_default_registry(ctx, why="floofy update"):
+            cache = IndexCache.load(ctx.home)
     if not cache.mods:
         raise CliError("the registry cache is empty: " + ("; ".join(cache.notes) if cache.notes else "nothing to update from") + " (floofy registry refresh)")
     current = ctx.current_payload()

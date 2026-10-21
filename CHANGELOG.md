@@ -13,6 +13,16 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Fixed
 
+- **A host that never recorded the edition's default registry source now gets
+  it on demand** (`floofy update`, `search`, `registry list`, `registry refresh`,
+  and the Loader step of `self-update`, which runs on the new release). The
+  default has been bundled since 1.3.6 but was recorded only by `floofy init`
+  and the hourly re-apply trigger; a public host installed as 1.3.1 and updated
+  by hand kept an empty store and answered `the registry cache is empty: no
+  registry cache yet (floofy registry add <url> …)` forever. The heal is the
+  same add-only step `init` runs: nothing changes once the default is recorded,
+  the user's trust settings are never touched, and `registry refresh` no longer
+  refuses an empty store when the edition ships a default.
 - **A mod archive release could hide the FloofyCrew release from public hosts**
   (`floofy_core.selfupdate`). The public feed reads GitHub's `releases/latest`,
   which is whichever release was created last; after the seven mod archives of
