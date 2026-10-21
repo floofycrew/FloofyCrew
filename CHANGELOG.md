@@ -11,6 +11,29 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.8 — 2026-10-21
+
+Public hosts can update again. Every GitHub release so far shipped an empty
+`supports` list (the release workflow builds from a tag with no Forge beside it
+and never passed `--supports`), so a public KiroCrew 0.9.0 read "1.3.7 does not
+list host 0.9.0 (external/stable) as supported" and stayed on 1.3.1; a tag build
+now ships the `supports` table of `pyproject.toml`, which has caught up with the
+Forge's graded public lanes (stable up to 0.9.0, insider up to 0.10.0rc4) and
+with the internal 0.9.0.4 stable and 0.10.0.2 beta hosts checked on the build
+desk. Two surface fingerprints that moved on KiroCrew 0.8.0 and later are
+re-anchored, with a `toBuild` gate for the theme-reset site the host fixed
+upstream (`custom-themes` 1.0.2). The Installed-mods table says what a warning
+is instead of printing its code.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.8.0.9, 0.9.0.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0 |
+
 ### Manager App
 
 - The Installed-mods table says what a warning is instead of printing its code:
