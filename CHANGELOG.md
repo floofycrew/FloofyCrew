@@ -11,7 +11,36 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- **The Forge widens a tested mod's declared host range on every release**
+  (`forge/forge/widen.py`, the release stage's first commit; `python -m forge
+  widen` prints the plan by hand). All eleven first-party mods still declared
+  `kirocrew >=0.7.0 <0.9.0` while the compatibility matrix graded every one of
+  them `tested` on 0.9.0.4 and 0.10.0.2: the repair loop only touches a mod
+  that *fails*, so a passing mod's manifest moved only when a human edited it,
+  and a host on FloofyCrew ≤ 1.3.6 — which gates on the range before it reads
+  the verdict — showed "nothing known to work here" for every mod. Now, for
+  each `mods/<id>` whose current version the matrix grades `tested` on a
+  `loader: ok` host its range excludes, the `<` upper bound rises to the next
+  minor of the highest such host and the mod's patch version is bumped, so the
+  release ships a mod version that declares what the Forge measured, with its
+  own tag and link record. `strict` ranges are never widened; `||` sets and
+  bounds other than a single `<X.Y.Z` are reported for a human.
+- **`floofy new` declares the host it is scaffolded on**: the range is
+  `>=0.7.0 <X.(Y+1).0` of the running host (a mod made on 0.9.0.4 declares
+  `<0.10.0`), instead of the fixed `<0.9.0` the scaffold shipped.
+
 ### Changed
+
+- **The eleven first-party mods declare the hosts the matrix has tested**:
+  `kirocrew <0.9.0` → `<0.11.0` (internal/stable 0.9.0.4 and internal/beta
+  0.10.0.2), each with a patch bump — `agent-backend-doctor` 0.2.2,
+  `agent-backend-router` 0.3.3, `agent-orchestrator` 0.2.5, `custom-themes`
+  1.0.3, `display-comfort` 1.0.1, `kiro-spec-plan` 0.1.1, `mochi-pet-zoom-fix`
+  1.0.1, `model-retry-policy` 0.2.1, `os-notify-bridge` 1.0.1,
+  `rimuru-branding` 2.0.1, `settings-demo` 1.0.1. The first run of the widening
+  above, applied by hand from the published matrix.
 
 - **FloofyCrew is licensed under the Apache License 2.0** (it was MIT through
   1.3.8; releases already published stay as published). One license now covers
@@ -31,6 +60,16 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Fixed
 
+- **A host whose channel is unknown can self-update again.** `floofy
+  self-update`, the App's *Update & restart* and the dashboard notice judged a
+  release's `supports` list for `edition/channel` and required the channel, so
+  an internal install whose ***REMOVED*** `info.json` names none (a Mac bundle,
+  `host internal 0.9.0.4 (channel unknown)`) was refused 1.3.8 — which lists
+  0.9.0.4 under internal/stable — with `does not list your host 0.9.0.4
+  (internal/None) as supported`, and stayed on 1.3.1. An unknown channel now
+  matches any channel of the edition that lists the host version, the rule the
+  compatibility cache has always applied (the channels of a stamped build are
+  the same bytes); the message reads `internal/any channel`.
 - **A host that never recorded the edition's default registry source now gets
   it on demand** (`floofy update`, `search`, `registry list`, `registry refresh`,
   and the Loader step of `self-update`, which runs on the new release). The

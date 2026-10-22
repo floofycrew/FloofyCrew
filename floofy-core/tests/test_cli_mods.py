@@ -416,6 +416,8 @@ def test_scaffolded_smoke_test_refresh_skips_bytecode(tmp_path: Path):
 
 def test_new_command_and_validate_command(env, tmp_path: Path):
     made = env.run("new", "spa", "--dir", str(tmp_path / "out"), "--id", "shiny-spa", "--author", "tests")
+    scaffolded = json.loads((tmp_path / "out" / "shiny-spa" / "floofy.json").read_text(encoding="utf-8"))
+    assert scaffolded["kirocrew"]["version"] == ">=0.7.0 <0.8.0", "the declared range follows the host it is scaffolded on (0.7.0.5), not a fixed default"
     assert made.exit == 0 and (tmp_path / "out" / "shiny-spa" / "floofy.json").is_file()
     again = env.run("new", "spa", "--dir", str(tmp_path / "out"), "--id", "shiny-spa")
     assert again.exit == 1 and "already exists" in again.stderr
