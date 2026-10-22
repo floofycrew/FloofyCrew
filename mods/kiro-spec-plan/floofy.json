@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "kiro-spec-plan",
   "name": "Kiro Spec & Plan",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Adds Kiro's built-in modes to the agent list \u2014 Spec, Quick Spec, Bug Fix and Plan \u2014 the same structured workflows as Kiro IDE, run by the kiro-cli v3 engine (KAS). Needs agent.acp_backend = kas.",
   "authors": [
     "Oscar Tseng"
@@ -16,7 +16,7 @@
     "workflow"
   ],
   "kirocrew": {
-    "version": ">=0.7.0 <0.9.0",
+    "version": ">=0.7.0 <0.11.0",
     "editions": [
       "internal",
       "external"
