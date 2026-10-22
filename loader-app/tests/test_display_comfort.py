@@ -85,7 +85,7 @@ def test_install_enable_config_round_trip(homes: Path):
     home.runtime.reload()
     state = home.runtime.state_dict()
     mod = state["mods"]["display-comfort"]
-    assert mod["active"] is True and mod["version"] == "1.0.0"
+    assert mod["active"] is True and mod["version"] == "1.0.1"
     statuses = [(p["kind"], p["status"]) for p in mod["parts"]]
     assert statuses == [("ui", "active"), ("spa", "active"), ("spa", "active")]
     assert mod["routes"] == [], "no python-hook, no routes"

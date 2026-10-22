@@ -39,14 +39,14 @@ python scripts/artifact_identity_report.py --keep /tmp/trees   # keep both trees
 ## The same mod archives on both editions
 
 `scripts/install_both_editions.py` builds each first-party mod into one
-deterministic archive — `custom-themes-1.0.2.zip` (sha256
-`f157595bbd68df91a5b08420a2eef385f8566fbaa77715b931e90d545968444f`, 45 084
+deterministic archive — `custom-themes-1.0.3.zip` (sha256
+`90a8cbd4bb04c693da5f97c684ad4ae7b248fa5a65bba4de53850c83b7d19a21`, 45 085
 bytes: a `ui` editor, a `python-hook` backend, `spa` runtime + boot parts and the
-theme-reset `patch`), `rimuru-branding-2.0.0.zip` (sha256
-`f24cf2e7bc5e344fd30bb687ba26f49f7a45cd09f42cf2136a9970f8d8f6d78f`, 60 634
-bytes: a pure `theme` part depending on it) and `settings-demo-1.0.0.zip` (sha256
-`4b5d93e16044d5481c318e1b17194c2d7a6f373fbe4865e268c913913c713a45`,
-10 364 bytes: a `ui` settings page + a `python-hook` backend route, task 11.6) —
+theme-reset `patch`), `rimuru-branding-2.0.1.zip` (sha256
+`3ceb6f7eb2fa6f6ea5a62e8d3e59eda66797fc1ce7080fc99e46f661ba23fca2`, 60 635
+bytes: a pure `theme` part depending on it) and `settings-demo-1.0.1.zip` (sha256
+`df067f853fc16eaefe574ecd38f7a9a409d8005e52d4728aeb2f087fa61c31ef`,
+10 366 bytes: a `ui` settings page + a `python-hook` backend route, task 11.6) —
 and installs those bytes on two scratch hosts — one that declares itself
 the internal edition (a `BUILD_VERSION` stamp, `X.Y.Z.N`) and one that does not
 (the public edition) — each with its own scratch data home and a payload copied

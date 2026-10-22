@@ -63,7 +63,7 @@ KiroCrew; it never ships a rebuilt host.
 - **A host whose channel is unknown can self-update again.** `floofy
   self-update`, the App's *Update & restart* and the dashboard notice judged a
   release's `supports` list for `edition/channel` and required the channel, so
-  an internal install whose ***REMOVED*** `info.json` names none (a Mac bundle,
+  an internal install whose bundle `info.json` names none (a Mac bundle,
   `host internal 0.9.0.4 (channel unknown)`) was refused 1.3.8 — which lists
   0.9.0.4 under internal/stable — with `does not list your host 0.9.0.4
   (internal/None) as supported`, and stayed on 1.3.1. An unknown channel now

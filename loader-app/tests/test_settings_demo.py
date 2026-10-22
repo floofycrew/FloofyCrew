@@ -57,7 +57,7 @@ def test_install_enable_config_round_trip_and_the_echo_route(homes: Path):
     assert status == 200 and body["ok"], body
     state = home.runtime.state_dict()
     mod = state["mods"]["settings-demo"]
-    assert mod["active"] is True and mod["version"] == "1.0.0"
+    assert mod["active"] is True and mod["version"] == "1.0.1"
     ui_part = next(p for p in mod["parts"] if p["kind"] == "ui")
     assert ui_part["status"] == "active" and ui_part["entry"] == "ui/page.mjs" and ui_part["title"] == "Settings demo" and ui_part["icon"] == "ui/icon.svg"
     hook_part = next(p for p in mod["parts"] if p["kind"] == "python-hook")
@@ -75,7 +75,7 @@ def test_install_enable_config_round_trip_and_the_echo_route(homes: Path):
     # the echo route before anything is stored: defaults over an empty config
     status, _, raw = home.runtime.mod_routes.dispatch_sync("settings-demo", "GET", "echo", query={"probe": ["1"]})
     reply = json.loads(raw)
-    assert status == 200 and reply["mod"] == "settings-demo" and reply["version"] == "1.0.0" and reply["config"] == {} and reply["method"] == "GET"
+    assert status == 200 and reply["mod"] == "settings-demo" and reply["version"] == "1.0.1" and reply["config"] == {} and reply["method"] == "GET"
     assert reply["effective"] == {"greeting": "Hello from settings-demo", "notify": False} and reply["query"] == {"probe": ["1"]}
     assert reply["host"] == {"edition": "internal", "version": "0.7.0.5"}
 
