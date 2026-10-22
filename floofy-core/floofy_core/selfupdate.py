@@ -457,10 +457,21 @@ def is_newer(candidate: str | None, running: str | None) -> bool:
 
 
 def supports_host(release: Release | None, edition: str | None, channel: str | None, host_version: str | None) -> bool:
-    """Whether the release's ``supports`` list names ``host_version`` for this edition and channel."""
-    if release is None or not edition or not channel or not host_version:
+    """Whether the release's ``supports`` list names ``host_version`` for this edition and channel.
+
+    A host whose channel is unknown (an internal install whose ``info.json`` does
+    not say, a Mac bundle) takes any channel of its edition that lists the
+    version — the same rule :meth:`floofy_core.compat.CompatCache.row_for`
+    applies: the channels of a stamped build are the same bytes (design DR-4),
+    so a release that supports ``0.9.0.4`` on ``stable`` supports it on a host
+    that cannot name its channel.
+    """
+    if release is None or not edition or not host_version:
         return False
-    return host_version in (release.supports.get(edition, {}) or {}).get(channel, [])
+    channels = release.supports.get(edition, {}) or {}
+    if channel:
+        return host_version in channels.get(channel, [])
+    return any(host_version in versions for versions in channels.values())
 
 
 def notice_text(release: Release | None, *, running: str, edition: str | None, channel: str | None, host_version: str | None) -> str | None:
@@ -468,7 +479,7 @@ def notice_text(release: Release | None, *, running: str, edition: str | None, c
     if release is None or not is_newer(release.version, running) or not supports_host(release, edition, channel, host_version):
         return None
     where = f" — release notes: {release.url}" if release.url else ""
-    return f"FloofyCrew {release.version} is available and supports your host {host_version} ({edition}/{channel}); you run {running}: `floofy self-update`{where}"
+    return f"FloofyCrew {release.version} is available and supports your host {host_version} ({edition}/{channel or 'any channel'}); you run {running}: `floofy self-update`{where}"
 
 
 def up_to_date_reason(release: Release | None, *, running: str, edition: str | None, channel: str | None, host_version: str | None) -> str | None:
@@ -487,7 +498,7 @@ def up_to_date_reason(release: Release | None, *, running: str, edition: str | N
     if is_newer(release.version, running):
         if supports_host(release, edition, channel, host_version):
             return None
-        return f"{release.version} does not list host {host_version} ({edition}/{channel}) as supported"
+        return f"{release.version} does not list host {host_version} ({edition}/{channel or 'any channel'}) as supported"
     if is_newer(running, release.version):
         return f"this is newer than the newest published release ({release.version})"
     return "this is the newest release"

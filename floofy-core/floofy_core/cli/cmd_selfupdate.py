@@ -173,7 +173,7 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
             if installed is not None:
                 ctx.set_result(selfUpdate={**document, "installed": {"loaderApp": {"install": installed}}})
             return 0
-        raise CliError(f"FloofyCrew {release.version} does not list your host {outcome.host_version} ({outcome.edition}/{outcome.channel}) as supported; `floofy self-update --force` installs it anyway, at your own risk")
+        raise CliError(f"FloofyCrew {release.version} does not list your host {outcome.host_version} ({outcome.edition}/{outcome.channel or 'any channel'}) as supported; `floofy self-update --force` installs it anyway, at your own risk")
     target = Path(args.target).expanduser() if args.target else default_target()
     if target is None:
         raise CliError("this floofy does not run from an installed zipapp (a checkout or a package install): update it the way you installed it, or name the zipapp to replace with --target")

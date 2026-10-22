@@ -370,6 +370,25 @@ def test_notice_only_for_a_newer_release_that_supports_the_running_host() -> Non
     assert not supports_host(release, "external", "beta", HOST) and not supports_host(release, None, "beta", HOST) and not supports_host(None, "internal", "beta", HOST)
     text = notice_text(release, running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version=HOST)
     assert text and release.version in text and "https://example.test/notes" in text
+
+
+def test_a_host_with_an_unknown_channel_takes_any_channel_that_lists_its_version() -> None:
+    """An internal install whose info.json names no channel (a Mac bundle) must still see the update.
+
+    Observed 2026-10-22: a Mac on FloofyCrew 1.3.1 with ``host internal 0.9.0.4 (channel
+    unknown)`` was refused 1.3.8 — whose ``supports`` lists 0.9.0.4 under internal/stable —
+    because ``supports_host`` required a channel. The channels of a stamped build are the
+    same bytes, so an unknown channel matches any channel that lists the version.
+    """
+    release = Release(newer(), f"v{newer()}", SUPPORTS, "https://example.test/notes")
+    assert supports_host(release, "internal", None, HOST)
+    assert not supports_host(release, "internal", None, "0.7.0.4")
+    assert not supports_host(release, "external", None, HOST)
+    text = notice_text(release, running=FRAMEWORK_VERSION, edition="internal", channel=None, host_version=HOST)
+    assert text and release.version in text
+    assert up_to_date_reason(release, running=FRAMEWORK_VERSION, edition="internal", channel=None, host_version=HOST) is None
+    reason = up_to_date_reason(release, running=FRAMEWORK_VERSION, edition="internal", channel=None, host_version="0.7.0.4")
+    assert reason == f"{release.version} does not list host 0.7.0.4 (internal/any channel) as supported"
     assert notice_text(release, running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version="0.7.0.4") is None, "not listed as supported: silent"
     assert notice_text(release, running=FRAMEWORK_VERSION, edition="external", channel="stable", host_version=HOST) is None, "another edition's list does not count"
     assert notice_text(Release(FRAMEWORK_VERSION, "v", SUPPORTS), running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version=HOST) is None, "the same version is no update"
