@@ -11,6 +11,30 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.9 — 2026-10-22
+
+The mods declare the hosts the Forge has measured. All eleven first-party mods
+still said `kirocrew <0.9.0` while the compatibility matrix graded every one of
+them `tested` on 0.9.0.4 and 0.10.0.2, because the repair loop only touches a
+mod that fails; a FloofyCrew ≤ 1.3.6 host gates on the range before it reads
+the verdict and showed "nothing known to work here" for every mod. The release
+stage now widens a tested mod's declared range on every release, and this one
+ships the first run of it: eleven manifests at `<0.11.0`, each with a patch
+bump and its own tag. An internal host whose channel is unknown (a Mac bundle,
+`host internal 0.9.0.4 (channel unknown)`) can self-update again, a host that
+never recorded the edition's default registry source gets it on demand, and a
+mod archive release no longer hides the FloofyCrew release from public hosts.
+FloofyCrew is licensed under the Apache License 2.0 from this release.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.8.0.9, 0.9.0.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0 |
+
 ### Added
 
 - **The Forge widens a tested mod's declared host range on every release**
