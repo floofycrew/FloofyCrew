@@ -11,6 +11,27 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.10 — 2026-10-23
+
+Kiro's modes work again on KiroCrew 0.8.0.9 and later. The host now reserves
+the engine's bundled mode ids and refuses a session whose agent carries one
+before anything reaches the engine, which is exactly the id kiro-spec-plan's
+four drop-in agents rely on to select Spec, Quick Spec, Bug Fix and Plan; every
+pick of them ended in "Rename this crewmate's template". kiro-spec-plan 0.2.0
+narrows that refusal to its four ids at the three seams a session start
+crosses, so the engine's own Spec orchestrator answers again, and reports each
+seam in its status. No other mod and no FloofyCrew code changes in this
+release.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.8.0.9, 0.9.0.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0 |
+
 ### Mods
 
 - **kiro-spec-plan 0.2.0: Kiro's modes run again on KiroCrew 0.8.0.9 and
