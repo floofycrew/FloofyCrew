@@ -11,6 +11,30 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Mods
+
+- **kiro-spec-plan 0.2.0: Kiro's modes run again on KiroCrew 0.8.0.9 and
+  later.** The host now reserves the engine's bundled mode ids
+  (`KAS_RESERVED_AGENT_IDS`: `spec`, `quick-spec`, `bug-fix`, `plan`, …) and
+  refuses, before anything reaches the engine, a session whose agent carries
+  one — "Rename this crewmate's template: 'spec' is reserved for a built-in
+  agent …". Those ids are exactly what this mod's four drop-in agents rely on
+  to select Kiro's Spec, Quick Spec, Bug Fix and Plan modes, so every pick of
+  them failed. The gateway hook now narrows the host's refusals to those four
+  ids at the three seams a session start crosses (`replace` hooks on
+  `kas_agents.to_client_custom_agent`, `runtime.attach_kas_custom_agents` and
+  `KasHarness.activation_refusal`): the client-agent projection returns a
+  tool-less placeholder instead of raising, the wire attach drops that
+  placeholder so the engine receives no client agent under a bundled id and
+  `session/set_mode` selects the built-in, and the activation check admits the
+  engine's `origin: bundled` stamp for a mode id. Every other agent id keeps
+  the host's behaviour; a host that never refused these ids gets no hooks;
+  `GET status` and the mod's exports carry `bridge: {needed, seams: {project,
+  wire, activate}}`, each `ok` or `missing: <why>`, so a host that moves one of
+  those functions shows up as a named gap. Verified with a real `spec` session
+  on 0.8.0.9: the engine's own Spec orchestrator answers. The README explains
+  why the modes cannot be copied out of the engine as prompts.
+
 ## 1.3.9 — 2026-10-22
 
 The mods declare the hosts the Forge has measured. All eleven first-party mods
