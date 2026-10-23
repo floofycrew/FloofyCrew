@@ -135,7 +135,17 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
         # Invoked by the process that just swapped this release in: no feed, no download — only the
         # staged Loader app, installed with THIS release's code (install_stage_with_new_release).
         installed = apply_staged(ctx, force=True)
-        ctx.set_result(selfUpdate={"installed": {"loaderApp": {"install": installed}}, "staged": read_stage(ctx.home.pending)})
+        # Requirement 8.12: a host updated from a release that predates the edition's default source (public 1.3.1) has an
+        # empty store; this step runs on the NEW release, the first code on the host that knows the default — record and fetch it
+        from ..registry_sources import SourceStore  # noqa: PLC0415
+        from .cmd_registry import heal_default_sources  # noqa: PLC0415
+
+        healed = None
+        try:
+            healed = heal_default_sources(ctx, SourceStore.load(ctx.home), why="self-update")
+        except Exception as exc:  # noqa: BLE001 - the Loader step above is what this call is for; the registry heal never fails it
+            ctx.warn(f"registry: the edition's default source could not be recorded now: {exc} (floofy registry refresh, or the re-apply trigger)")
+        ctx.set_result(selfUpdate={"installed": {"loaderApp": {"install": installed}}, "staged": read_stage(ctx.home.pending), "registry": healed})
         return 0
     if ctx.offline:
         raise CliError("self-update needs the network; drop --offline")
@@ -163,7 +173,7 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
             if installed is not None:
                 ctx.set_result(selfUpdate={**document, "installed": {"loaderApp": {"install": installed}}})
             return 0
-        raise CliError(f"FloofyCrew {release.version} does not list your host {outcome.host_version} ({outcome.edition}/{outcome.channel}) as supported; `floofy self-update --force` installs it anyway, at your own risk")
+        raise CliError(f"FloofyCrew {release.version} does not list your host {outcome.host_version} ({outcome.edition}/{outcome.channel or 'any channel'}) as supported; `floofy self-update --force` installs it anyway, at your own risk")
     target = Path(args.target).expanduser() if args.target else default_target()
     if target is None:
         raise CliError("this floofy does not run from an installed zipapp (a checkout or a package install): update it the way you installed it, or name the zipapp to replace with --target")

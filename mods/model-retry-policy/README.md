@@ -169,4 +169,4 @@ floofy validate .                  # schema, hashes, parts, targets, network sca
 python tests/smoke_test.py --refresh   # rewrite files[] after editing
 ```
 
-Unofficial; nothing here is part of KiroCrew. MIT.
+Unofficial; nothing here is part of KiroCrew. Apache-2.0.

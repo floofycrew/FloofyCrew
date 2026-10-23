@@ -1,10 +1,10 @@
 [project]
 name = "floofycrew"
-version = "1.3.8"
+version = "1.3.10"
 description = "Unofficial modding ecosystem for KiroCrew: manifest, loader, patcher, manager, registry, Forge."
 readme = "README.md"
 requires-python = ">=3.12"
-license = "MIT"
+license = "Apache-2.0"
 # Runtime code is standard-library only (Requirement 7.2): the CLI and the Loader
 # run on the host's own interpreter. Do not add runtime dependencies here.
 dependencies = []

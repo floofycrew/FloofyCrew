@@ -2,12 +2,12 @@
   "schema": 1,
   "id": "model-retry-policy",
   "name": "Model Retry Policy",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Chooses what KiroCrew does when the model or its API fails transiently (throttling, overload, 5xx, dropped stream) instead of the fixed three retries: a retry count of your own, retry forever at a fixed interval, retry forever with exponential backoff, or a fallback profile that moves to other models after N retries (and optionally never gives up on the last). Applies to dashboard chats (including errors that land mid-turn, after text or a tool call has streamed), cron/Slack turns and sub-agents. Opt-in backend failover: when a dashboard chat's same-model retries are spent, the chat is moved to another agent backend that serves the SAME model (kiro-cli, KAS, Claude Code, Codex \u2014 as Agent Backend Router's served lists allow and Agent Backend Doctor confirms the backend is usable), the conversation replayed by KiroCrew's own provider-switch replay; the model never changes. Unofficial.",
   "authors": [
     "Oscar Tseng"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "tags": [
     "retry",
     "backoff",
@@ -17,7 +17,7 @@
     "backend-failover"
   ],
   "kirocrew": {
-    "version": ">=0.7.0 <0.9.0",
+    "version": ">=0.7.0 <0.11.0",
     "editions": [
       "internal",
       "external"
@@ -61,11 +61,11 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+      "sha256": "efbb38757df87b37a0ba908725830a90cded07b9842ce24e1635bb0763fa2a34"
     },
     {
       "path": "README.md",
-      "sha256": "42406f20d69b91c4d95a48d8796d4235957bcd459802cb8b09f19426e534e4ee"
+      "sha256": "9f065c7ed2f3ad93ac823aaa0a9e40913499b435d31a91e46fd4e2361100a245"
     },
     {
       "path": "hook/__init__.py",

@@ -2,19 +2,19 @@
   "schema": 1,
   "id": "settings-demo",
   "name": "Settings demo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The example of a mod with its own settings page inside the FloofyCrew App (Requirement 16.4): a text field and a toggle persisted through floofy.mod(id).config, and a button calling the mod's own backend route, which the python-hook part registers with ctx.routes and which echoes the stored config. Unofficial; the second first-party mod.",
   "authors": [
     "Oscar Tseng"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "tags": [
     "example",
     "settings",
     "ui"
   ],
   "kirocrew": {
-    "version": ">=0.7.0 <0.9.0",
+    "version": ">=0.7.0 <0.11.0",
     "editions": [
       "internal",
       "external"
@@ -50,11 +50,11 @@
   "files": [
     {
       "path": "README.md",
-      "sha256": "d1bfb4457ffee829154280b75e7559b6ca4d23269b4a36bfab76eec6cf78d232"
+      "sha256": "9fdc59072af901a919819369aed08daddbd145b8a0f1310616bb6405d47bd36d"
     },
     {
       "path": "LICENSE",
-      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+      "sha256": "efbb38757df87b37a0ba908725830a90cded07b9842ce24e1635bb0763fa2a34"
     },
     {
       "path": "hook/__init__.py",

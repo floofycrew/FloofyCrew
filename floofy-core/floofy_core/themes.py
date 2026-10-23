@@ -3,8 +3,8 @@
 License note (Apache-2.0 §4(b): this file states its changes). The validation
 logic in this module is derived from KiroCrew's theme validator
 (``kiro_crew/dashboard/theme_validate.py``), licensed under the Apache License,
-Version 2.0 — the upstream copyright attribution and the license text are in
-``NOTICE.md`` and ``LICENSES/Apache-2.0.txt`` in the distribution root. It is a
+Version 2.0 — FloofyCrew's own license; the upstream copyright attribution is in
+``NOTICE.md`` and the license text in ``LICENSE`` in the distribution root. It is a
 hand-written Python port, restructured for FloofyCrew (dataclasses,
 :class:`ThemeValidationError`, the direct-write path); the section below and the
 in-line ``L…`` references say exactly what was ported and what was left out.

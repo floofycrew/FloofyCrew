@@ -27,8 +27,12 @@ def new(ctx: CliContext, args: argparse.Namespace) -> int:
     author = args.author or os.environ.get("USER") or os.environ.get("USERNAME") or "you"
     major = FRAMEWORK_VERSION.split(".")[0]
     framework_range = f"^{major}.0" if major != "0" else ">=0.0.0 <2.0.0"
+    # the declared host range follows the host this is scaffolded on, so a mod made on 0.9 does not
+    # start life declaring `<0.9.0`; without a host the scaffold's own default stands
+    current = ctx.current_payload()
+    host_range = f">=0.7.0 <{current.host_version.base.major}.{current.host_version.base.minor + 1}.0" if current is not None else None
     try:
-        root = scaffold(args.kind, Path(args.dir).expanduser(), mod_id=args.mod_id, name=args.name, author=author, framework_range=framework_range)
+        root = scaffold(args.kind, Path(args.dir).expanduser(), mod_id=args.mod_id, name=args.name, author=author, framework_range=framework_range, **({"host_range": host_range} if host_range else {}))
     except (ValueError, FileExistsError) as exc:
         raise CliError(str(exc)) from exc
     report = validate_mod(root)

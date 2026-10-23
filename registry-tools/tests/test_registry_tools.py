@@ -67,7 +67,7 @@ def test_build_index_from_records_folds_the_matrix_and_passes_the_schema(registr
     assert validate_instance(index, load_schema("index")) == []
     assert index["source"] == "test:scratch-registry" and index["floofycrew"] == "0.0.0-test"
     theme = next(m for m in index["mods"] if m["id"] == "example-theme")
-    assert theme["repo"] == "https://git.example/mods/example-theme" and theme["tags"] == ["example", "theme"] and theme["license"] == "MIT"
+    assert theme["repo"] == "https://git.example/mods/example-theme" and theme["tags"] == ["example", "theme"] and theme["license"] == "Apache-2.0"
     assert [v["version"] for v in theme["versions"]] == ["1.0.0", "1.1.0"], "versions sorted ascending"
     v100, v110 = theme["versions"]
     assert v100["compat"] == {"0.7.0": "broken", "0.7.0.5": "tested"}, "the override wins on 0.7.0; the run cell on 0.7.0.5"

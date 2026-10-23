@@ -90,6 +90,7 @@ __all__ = [
     "check",
     "download_release",
     "fetch_release",
+    "is_release_tag",
     "is_newer",
     "loader_archive_name",
     "notice_text",
@@ -118,6 +119,9 @@ PYZ_NAME = "floofy.pyz"
 SUMS_NAME = "SHA256SUMS"
 _LOADER_ARCHIVE_RE = re.compile(r"^floofycrew-loader-app-.+\.zip$")
 _VERSION_RE = re.compile(r"\bv?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b")
+# A FloofyCrew release tag: `v1.3.8` or `floofycrew-v1.3.8` (what .github/workflows/release.yml fires on).
+# A mod archive release in the same repository is `<mod id>-<version>` and is not one.
+_RELEASE_TAG_RE = re.compile(r"^(?:floofycrew-)?v(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$")
 _SUPPORTS_RE = re.compile(r"^\s*[-*]\s+([A-Za-z][\w-]*)\s*/\s*([A-Za-z][\w-]*)\s*:\s*(.*?)\s*$")
 _ASSET_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*`([0-9a-fA-F]{64})`\s*\|")
 _SUMS_LINE_RE = re.compile(r"^([0-9a-fA-F]{64})\s+\*?(\S.*)$")
@@ -365,20 +369,64 @@ def _assets_for(feed: ReleaseFeed, *, tag: str, version: str, names: dict[str, s
     }
 
 
+def is_release_tag(tag: str) -> bool:
+    """Whether a GitHub tag names a FloofyCrew release (``vX.Y.Z`` / ``floofycrew-vX.Y.Z``, the shapes the release workflow fires on).
+
+    The same repository publishes mod archives as releases tagged ``<mod id>-<version>``
+    (``custom-themes-1.0.2``); those are not FloofyCrew releases and must never be read as
+    one — GitHub's ``releases/latest`` is whichever release was created last.
+    """
+    return bool(_RELEASE_TAG_RE.match(tag))
+
+
+def _github_release_document(feed: ReleaseFeed, data: bytes, *, opener: Callable[..., Any] | None, timeout: float) -> dict[str, Any]:
+    """The newest FloofyCrew release object from a ``releases/latest`` (or ``releases``) answer.
+
+    When ``latest`` is not a FloofyCrew tag (a mod archive release was created after the
+    newest FloofyCrew release), the full list at ``…/releases`` is read and the newest
+    non-draft, non-prerelease FloofyCrew-tagged entry wins.
+    """
+    try:
+        document = json.loads(data.decode("utf-8"))
+    except ValueError as exc:
+        raise FeedError(f"{feed.url}: not JSON") from exc
+
+    def pick(entries: list[Any]) -> dict[str, Any] | None:
+        candidates = [r for r in entries if isinstance(r, dict) and isinstance(r.get("tag_name"), str) and not r.get("draft") and not r.get("prerelease") and is_release_tag(r["tag_name"])]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda r: Version.parse(_RELEASE_TAG_RE.match(r["tag_name"]).group(1)))
+
+    if isinstance(document, list):  # `…/releases` instead of `…/releases/latest`
+        chosen = pick(document)
+        if chosen is None:
+            raise FeedError(f"{feed.url}: no FloofyCrew release (tag vX.Y.Z) in the list")
+        return chosen
+    if not isinstance(document, dict) or not isinstance(document.get("tag_name"), str):
+        raise FeedError(f"{feed.url}: no tag_name in the release document")
+    if is_release_tag(document["tag_name"]):
+        return document
+    # `latest` is a mod archive release: list every release and take the newest FloofyCrew one
+    list_url = feed.url[: -len("/latest")] if feed.url.endswith("/latest") else feed.url
+    if list_url == feed.url:
+        raise FeedError(f"{feed.url}: latest release {document['tag_name']!r} is not a FloofyCrew release")
+    try:
+        listing = json.loads(fetch_bytes(f"{list_url}?per_page=100", opener=opener, timeout=timeout).decode("utf-8"))
+    except ValueError as exc:
+        raise FeedError(f"{list_url}: not JSON") from exc
+    chosen = pick(listing) if isinstance(listing, list) else None
+    if chosen is None:
+        raise FeedError(f"{feed.url}: latest release {document['tag_name']!r} is not a FloofyCrew release and {list_url} lists none")
+    return chosen
+
+
 def fetch_release(feed: ReleaseFeed, *, opener: Callable[..., Any] | None = None, timeout: float = TIMEOUT) -> Release:
     """Read the feed and describe its newest release; raises :class:`FeedError`."""
     data = fetch_bytes(feed.url, opener=opener, timeout=timeout)
     if feed.kind == "github-releases":
-        try:
-            document = json.loads(data.decode("utf-8"))
-        except ValueError as exc:
-            raise FeedError(f"{feed.url}: not JSON") from exc
-        if isinstance(document, list):  # `…/releases` instead of `…/releases/latest`: the first non-draft, non-prerelease entry
-            document = next((r for r in document if isinstance(r, dict) and not r.get("draft") and not r.get("prerelease")), None)
-        if not isinstance(document, dict) or not isinstance(document.get("tag_name"), str):
-            raise FeedError(f"{feed.url}: no tag_name in the release document")
-        tag = document["tag_name"]
-        match = _VERSION_RE.search(tag)
+        document = _github_release_document(feed, data, opener=opener, timeout=timeout)
+        tag = str(document["tag_name"])
+        match = _RELEASE_TAG_RE.match(tag)
         if not match:
             raise FeedError(f"{feed.url}: tag {tag!r} names no version")
         version = match.group(1)
@@ -409,10 +457,21 @@ def is_newer(candidate: str | None, running: str | None) -> bool:
 
 
 def supports_host(release: Release | None, edition: str | None, channel: str | None, host_version: str | None) -> bool:
-    """Whether the release's ``supports`` list names ``host_version`` for this edition and channel."""
-    if release is None or not edition or not channel or not host_version:
+    """Whether the release's ``supports`` list names ``host_version`` for this edition and channel.
+
+    A host whose channel is unknown (an internal install whose ``info.json`` does
+    not say, a Mac bundle) takes any channel of its edition that lists the
+    version — the same rule :meth:`floofy_core.compat.CompatCache.row_for`
+    applies: the channels of a stamped build are the same bytes (design DR-4),
+    so a release that supports ``0.9.0.4`` on ``stable`` supports it on a host
+    that cannot name its channel.
+    """
+    if release is None or not edition or not host_version:
         return False
-    return host_version in (release.supports.get(edition, {}) or {}).get(channel, [])
+    channels = release.supports.get(edition, {}) or {}
+    if channel:
+        return host_version in channels.get(channel, [])
+    return any(host_version in versions for versions in channels.values())
 
 
 def notice_text(release: Release | None, *, running: str, edition: str | None, channel: str | None, host_version: str | None) -> str | None:
@@ -420,7 +479,7 @@ def notice_text(release: Release | None, *, running: str, edition: str | None, c
     if release is None or not is_newer(release.version, running) or not supports_host(release, edition, channel, host_version):
         return None
     where = f" — release notes: {release.url}" if release.url else ""
-    return f"FloofyCrew {release.version} is available and supports your host {host_version} ({edition}/{channel}); you run {running}: `floofy self-update`{where}"
+    return f"FloofyCrew {release.version} is available and supports your host {host_version} ({edition}/{channel or 'any channel'}); you run {running}: `floofy self-update`{where}"
 
 
 def up_to_date_reason(release: Release | None, *, running: str, edition: str | None, channel: str | None, host_version: str | None) -> str | None:
@@ -439,7 +498,7 @@ def up_to_date_reason(release: Release | None, *, running: str, edition: str | N
     if is_newer(release.version, running):
         if supports_host(release, edition, channel, host_version):
             return None
-        return f"{release.version} does not list host {host_version} ({edition}/{channel}) as supported"
+        return f"{release.version} does not list host {host_version} ({edition}/{channel or 'any channel'}) as supported"
     if is_newer(running, release.version):
         return f"this is newer than the newest published release ({release.version})"
     return "this is the newest release"

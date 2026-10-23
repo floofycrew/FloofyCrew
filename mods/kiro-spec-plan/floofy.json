@@ -2,12 +2,12 @@
   "schema": 1,
   "id": "kiro-spec-plan",
   "name": "Kiro Spec & Plan",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Adds Kiro's built-in modes to the agent list \u2014 Spec, Quick Spec, Bug Fix and Plan \u2014 the same structured workflows as Kiro IDE, run by the kiro-cli v3 engine (KAS). Needs agent.acp_backend = kas.",
   "authors": [
     "Oscar Tseng"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "tags": [
     "agent",
     "kiro",
@@ -16,7 +16,7 @@
     "workflow"
   ],
   "kirocrew": {
-    "version": ">=0.7.0 <0.9.0",
+    "version": ">=0.7.0 <0.11.0",
     "editions": [
       "internal",
       "external"
@@ -68,11 +68,11 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+      "sha256": "efbb38757df87b37a0ba908725830a90cded07b9842ce24e1635bb0763fa2a34"
     },
     {
       "path": "README.md",
-      "sha256": "e58f5032e2cfbb6db9a8589a654f11f6b7ed7e9f5cb0146d05dd797ce7fc2a13"
+      "sha256": "90b8a78e0723a714297d18212f7c69b7b985f823d46e07fe007a4a45db464540"
     },
     {
       "path": "agents/bug-fix.json",
@@ -92,7 +92,7 @@
     },
     {
       "path": "hook/__init__.py",
-      "sha256": "21ca2519fab8418b03f013bc0b76420a589c4ffa61f32a3b1e82d97061f40d78"
+      "sha256": "59b16711799350e2539259af2d4d203630a650c04b950b544c8bd8d4ab808b0c"
     },
     {
       "path": "spa/main.js",
@@ -100,7 +100,7 @@
     },
     {
       "path": "tests/hook_test.py",
-      "sha256": "f9a2f696ccb83984bda43f21da678eaf4ff619ef3e681925b6f1d771c4a86bca"
+      "sha256": "62b074040a317b19c37ed59611c16acfbf1117bb78f0e71ec657e375c61d7d22"
     },
     {
       "path": "tests/smoke_test.py",

@@ -2,12 +2,12 @@
   "schema": 1,
   "id": "agent-orchestrator",
   "name": "Agent Orchestrator",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Real parallel multi-agent orchestration for KiroCrew: an orchestrator session divides a goal into items, runs one worker session per item at the same time, and coordinates them live over a typed, bounded message bus (hub-and-spoke: every worker reports to the orchestrator, which relays; worker \u21c4 worker is an opt-in setting) with wake-ups, a wait-any primitive and per-worker status lines. Ships the `agent-orchestrator` and `agent-orchestrator-worker` agents (built on the host's session-control and work-ledger tools, which stay untouched) and a live hub-and-spoke graph page with an animated message bus. Unofficial.",
   "authors": [
     "Oscar Tseng"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "tags": [
     "orchestration",
     "multi-agent",
@@ -18,7 +18,7 @@
     "visualization"
   ],
   "kirocrew": {
-    "version": ">=0.7.0 <0.9.0",
+    "version": ">=0.7.0 <0.11.0",
     "editions": [
       "internal",
       "external"
@@ -52,7 +52,7 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+      "sha256": "efbb38757df87b37a0ba908725830a90cded07b9842ce24e1635bb0763fa2a34"
     },
     {
       "path": "README.md",

@@ -20,7 +20,7 @@ live in `floofy-core/examples/<kind>/`, and `floofy new <kind>` scaffolds one.
   "version": "1.0.0",
   "description": "…",
   "authors": ["you"],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "links": {"docs": "https://…"},
   "icon": "icon.png",
   "tags": ["theme", "branding"]

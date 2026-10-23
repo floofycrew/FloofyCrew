@@ -2,12 +2,12 @@
   "schema": 1,
   "id": "custom-themes",
   "name": "Custom themes",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A theme editor for KiroCrew inside the FloofyCrew App, and the layer theme mods build on. A theme is a host theme pack (palette, branding, fonts, overrides.css — installed through the host's own validator, listed in Settings → Display) plus a FloofyCrew layer of extra CSS that may restyle anything, scoped to the theme and applied by the mod on the first frame and at runtime. Start from the running host's own built-in themes (read from its stylesheet, decorations included), edit every palette token with a live preview, export/import a theme as one file, install it and switch to it. Carries the theme-reset guard every custom theme needs. Unofficial.",
   "authors": [
     "Oscar Tseng"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "tags": [
     "theme",
     "editor",
@@ -16,7 +16,7 @@
     "first-frame"
   ],
   "kirocrew": {
-    "version": ">=0.7.0 <0.9.0",
+    "version": ">=0.7.0 <0.11.0",
     "editions": [
       "internal",
       "external"
@@ -73,11 +73,11 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+      "sha256": "efbb38757df87b37a0ba908725830a90cded07b9842ce24e1635bb0763fa2a34"
     },
     {
       "path": "README.md",
-      "sha256": "d606d2763d5c14f34ee3e0c20e81f4d34498d3ec829ab9bc7f5bdcbacfa57ded"
+      "sha256": "27519cca69abe1777e8971d55a270bc551819729c32fc1e37a528a94ee0f6bee"
     },
     {
       "path": "hook/__init__.py",

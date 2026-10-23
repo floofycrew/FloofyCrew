@@ -526,6 +526,46 @@ def test_the_editions_default_source_cannot_be_removed_and_is_flagged(env, monke
     assert "registry: default source ours missing" in doctor.stdout
 
 
+def test_registry_commands_heal_a_store_that_never_recorded_the_default(env, monkeypatch: pytest.MonkeyPatch):
+    """Seen on a public host on 2026-10-21: installed as 1.3.1 (before the default source existed), updated by hand to 1.3.8,
+    the trigger never ran — `floofy update --check` answered "the registry cache is empty: no registry cache yet
+    (floofy registry add <url> …)" although the edition ships a default. The user-facing registry paths record and
+    fetch the default on demand (add-only; nothing happens once it is recorded)."""
+    from floofy_core.signing import generate_keypair
+
+    key = generate_keypair("registry")
+    row = _ship_default(monkeypatch, env, key)
+    env.publish(INDEX, key=key)
+    assert not env.paths.registries.exists() and not IndexCache.load(env.paths).mods, "a host that never ran init: no store, no cache"
+    # 1. `mods update --check` on the empty host: the default is recorded and fetched before the cache is read
+    checked = env.run("update", "--check")
+    assert checked.exit == 0, checked.stderr
+    assert "registry source: ours recorded" in checked.stdout and "ours fetched — 1 mod(s), signature verified by key" in checked.stdout, checked.stdout
+    assert "registry cache is empty" not in checked.stderr and "registry cache is empty" not in checked.stdout
+    stored = SourceStore.load(env.paths).sources
+    assert len(stored) == 1 and stored[0].url == row["url"] and [m.id for m in IndexCache.load(env.paths).mods] == ["reggy"]
+    ops = [(r["op"], r["result"], r["detail"]) for r in read_audit(env.paths.audit)]
+    assert any(op == "registry-add" and result == "ok" and "floofy update" in detail for op, result, detail in ops)
+    assert any(op == "registry-refresh" and result == "ok" and "floofy update" in detail for op, result, detail in ops)
+    # 2. once recorded nothing is added again, on any of the healing paths
+    before = len(read_audit(env.paths.audit))
+    for argv in (("update", "--check"), ("search", "reggy"), ("registry", "list"), ("registry", "refresh")):
+        result = env.run(*argv)
+        assert result.exit == 0, (argv, result.stderr)
+        assert "registry source: ours recorded" not in result.stdout, argv
+    assert [r["op"] for r in read_audit(env.paths.audit)[before:]].count("registry-add") == 0
+    # 3. the store exists but was emptied by hand: `registry refresh` (which used to refuse "no registry sources") heals it too
+    env.paths.registries.write_text(json.dumps({"schema": 1, "sources": []}), encoding="utf-8")
+    refreshed = env.run("registry", "refresh")
+    assert refreshed.exit == 0, refreshed.stderr
+    assert "registry source: ours recorded" in refreshed.stdout and [s.name for s in SourceStore.load(env.paths).sources] == ["ours"], refreshed.stdout
+    assert "ours: 1 mod(s), signature verified" in refreshed.stdout, "the refresh that followed fetched the healed default"
+    # 4. the trigger's own run still reports the default as present afterwards
+    env.paths.registries.write_text(json.dumps({"schema": 1, "sources": []}), encoding="utf-8")
+    searched = env.run("search", "reggy")
+    assert searched.exit == 0 and searched.json["mods"] and searched.json["mods"][0]["id"] == "reggy", "search heals and then finds the mod"
+
+
 def test_the_users_trust_settings_on_the_default_survive_init_and_the_trigger(env, monkeypatch: pytest.MonkeyPatch):
     """The default source's trust settings stay the user's: init and the re-apply trigger only add a missing row;
     ``registry defaults`` is the explicit reset to the shipped settings (Requirement 8.12, 11.3)."""

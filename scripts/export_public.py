@@ -114,7 +114,7 @@ PUBLIC_SET: tuple[str, ...] = (
 #: the license/notice files land with the in-flight licensing work. Once they
 #: are committed, move them into PUBLIC_SET so the export REFUSES to build
 #: without them — a public repository must not ship unlicensed.
-PUBLIC_SET_OPTIONAL: tuple[str, ...] = ("LICENSE", "NOTICE.md", "LICENSES")
+PUBLIC_SET_OPTIONAL: tuple[str, ...] = ("LICENSE", "NOTICE.md")
 
 #: Mods that must not ship publicly: patches of internal-only hosts, fan artwork.
 #: The exported ``mods/README.md`` must not name them at all.

@@ -44,9 +44,10 @@ if __name__ == "__main__":
 '''
 
 
-#: The legal files every distribution carries (Apache-2.0 §4: the themes.py port
-#: and the quoted anchors derive from KiroCrew — see NOTICE.md).
-NOTICE_FILES: tuple[str, ...] = ("LICENSE", "NOTICE.md", "LICENSES/Apache-2.0.txt")
+#: The legal files every distribution carries: the Apache-2.0 text (FloofyCrew's
+#: own license, and the license of the KiroCrew portions it derives from) and
+#: the NOTICE with both attributions (Apache-2.0 §4 — see NOTICE.md).
+NOTICE_FILES: tuple[str, ...] = ("LICENSE", "NOTICE.md")
 
 
 def notice_members(prefix: str = "") -> list[tuple[str, bytes]]:

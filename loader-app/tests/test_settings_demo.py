@@ -34,7 +34,7 @@ def test_the_mod_is_valid_and_declares_what_it_needs():
     assert code_kinds_of(MANIFEST) == {"python-hook"}, "the hook makes it land disabled (Requirement 11.7); the ui part alone would not"
     assert MANIFEST["network"] == {"hosts": [], "credentials": False}
     assert Range.parse(MANIFEST["dependsOn"]["floofycrew"]).contains(Version.parse(FRAMEWORK_VERSION)), "the mod's floor is the release that ships the ui part and ctx.routes"
-    assert (MOD_DIR / "LICENSE").read_text(encoding="utf-8").startswith("MIT License")
+    assert (MOD_DIR / "LICENSE").read_text(encoding="utf-8").lstrip().startswith("Apache License")
     listed = {f["path"] for f in MANIFEST["files"]}
     assert listed == {"README.md", "LICENSE", "hook/__init__.py", "ui/page.mjs", "ui/icon.svg"}
     page = (MOD_DIR / "ui" / "page.mjs").read_text(encoding="utf-8")
@@ -57,7 +57,7 @@ def test_install_enable_config_round_trip_and_the_echo_route(homes: Path):
     assert status == 200 and body["ok"], body
     state = home.runtime.state_dict()
     mod = state["mods"]["settings-demo"]
-    assert mod["active"] is True and mod["version"] == "1.0.0"
+    assert mod["active"] is True and mod["version"] == "1.0.1"
     ui_part = next(p for p in mod["parts"] if p["kind"] == "ui")
     assert ui_part["status"] == "active" and ui_part["entry"] == "ui/page.mjs" and ui_part["title"] == "Settings demo" and ui_part["icon"] == "ui/icon.svg"
     hook_part = next(p for p in mod["parts"] if p["kind"] == "python-hook")
@@ -75,7 +75,7 @@ def test_install_enable_config_round_trip_and_the_echo_route(homes: Path):
     # the echo route before anything is stored: defaults over an empty config
     status, _, raw = home.runtime.mod_routes.dispatch_sync("settings-demo", "GET", "echo", query={"probe": ["1"]})
     reply = json.loads(raw)
-    assert status == 200 and reply["mod"] == "settings-demo" and reply["version"] == "1.0.0" and reply["config"] == {} and reply["method"] == "GET"
+    assert status == 200 and reply["mod"] == "settings-demo" and reply["version"] == "1.0.1" and reply["config"] == {} and reply["method"] == "GET"
     assert reply["effective"] == {"greeting": "Hello from settings-demo", "notify": False} and reply["query"] == {"probe": ["1"]}
     assert reply["host"] == {"edition": "internal", "version": "0.7.0.5"}
 

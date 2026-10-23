@@ -11,6 +11,153 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.10 — 2026-10-23
+
+Kiro's modes work again on KiroCrew 0.8.0.9 and later. The host now reserves
+the engine's bundled mode ids and refuses a session whose agent carries one
+before anything reaches the engine, which is exactly the id kiro-spec-plan's
+four drop-in agents rely on to select Spec, Quick Spec, Bug Fix and Plan; every
+pick of them ended in "Rename this crewmate's template". kiro-spec-plan 0.2.0
+narrows that refusal to its four ids at the three seams a session start
+crosses, so the engine's own Spec orchestrator answers again, and reports each
+seam in its status. No other mod and no FloofyCrew code changes in this
+release.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.8.0.9, 0.9.0.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0 |
+
+### Mods
+
+- **kiro-spec-plan 0.2.0: Kiro's modes run again on KiroCrew 0.8.0.9 and
+  later.** The host now reserves the engine's bundled mode ids
+  (`KAS_RESERVED_AGENT_IDS`: `spec`, `quick-spec`, `bug-fix`, `plan`, …) and
+  refuses, before anything reaches the engine, a session whose agent carries
+  one — "Rename this crewmate's template: 'spec' is reserved for a built-in
+  agent …". Those ids are exactly what this mod's four drop-in agents rely on
+  to select Kiro's Spec, Quick Spec, Bug Fix and Plan modes, so every pick of
+  them failed. The gateway hook now narrows the host's refusals to those four
+  ids at the three seams a session start crosses (`replace` hooks on
+  `kas_agents.to_client_custom_agent`, `runtime.attach_kas_custom_agents` and
+  `KasHarness.activation_refusal`): the client-agent projection returns a
+  tool-less placeholder instead of raising, the wire attach drops that
+  placeholder so the engine receives no client agent under a bundled id and
+  `session/set_mode` selects the built-in, and the activation check admits the
+  engine's `origin: bundled` stamp for a mode id. Every other agent id keeps
+  the host's behaviour; a host that never refused these ids gets no hooks;
+  `GET status` and the mod's exports carry `bridge: {needed, seams: {project,
+  wire, activate}}`, each `ok` or `missing: <why>`, so a host that moves one of
+  those functions shows up as a named gap. Verified with a real `spec` session
+  on 0.8.0.9: the engine's own Spec orchestrator answers. The README explains
+  why the modes cannot be copied out of the engine as prompts.
+
+## 1.3.9 — 2026-10-22
+
+The mods declare the hosts the Forge has measured. All eleven first-party mods
+still said `kirocrew <0.9.0` while the compatibility matrix graded every one of
+them `tested` on 0.9.0.4 and 0.10.0.2, because the repair loop only touches a
+mod that fails; a FloofyCrew ≤ 1.3.6 host gates on the range before it reads
+the verdict and showed "nothing known to work here" for every mod. The release
+stage now widens a tested mod's declared range on every release, and this one
+ships the first run of it: eleven manifests at `<0.11.0`, each with a patch
+bump and its own tag. An internal host whose channel is unknown (a Mac bundle,
+`host internal 0.9.0.4 (channel unknown)`) can self-update again, a host that
+never recorded the edition's default registry source gets it on demand, and a
+mod archive release no longer hides the FloofyCrew release from public hosts.
+FloofyCrew is licensed under the Apache License 2.0 from this release.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.8.0.9, 0.9.0.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0 |
+
+### Added
+
+- **The Forge widens a tested mod's declared host range on every release**
+  (`forge/forge/widen.py`, the release stage's first commit; `python -m forge
+  widen` prints the plan by hand). All eleven first-party mods still declared
+  `kirocrew >=0.7.0 <0.9.0` while the compatibility matrix graded every one of
+  them `tested` on 0.9.0.4 and 0.10.0.2: the repair loop only touches a mod
+  that *fails*, so a passing mod's manifest moved only when a human edited it,
+  and a host on FloofyCrew ≤ 1.3.6 — which gates on the range before it reads
+  the verdict — showed "nothing known to work here" for every mod. Now, for
+  each `mods/<id>` whose current version the matrix grades `tested` on a
+  `loader: ok` host its range excludes, the `<` upper bound rises to the next
+  minor of the highest such host and the mod's patch version is bumped, so the
+  release ships a mod version that declares what the Forge measured, with its
+  own tag and link record. `strict` ranges are never widened; `||` sets and
+  bounds other than a single `<X.Y.Z` are reported for a human.
+- **`floofy new` declares the host it is scaffolded on**: the range is
+  `>=0.7.0 <X.(Y+1).0` of the running host (a mod made on 0.9.0.4 declares
+  `<0.10.0`), instead of the fixed `<0.9.0` the scaffold shipped.
+
+### Changed
+
+- **The eleven first-party mods declare the hosts the matrix has tested**:
+  `kirocrew <0.9.0` → `<0.11.0` (internal/stable 0.9.0.4 and internal/beta
+  0.10.0.2), each with a patch bump — `agent-backend-doctor` 0.2.2,
+  `agent-backend-router` 0.3.3, `agent-orchestrator` 0.2.5, `custom-themes`
+  1.0.3, `display-comfort` 1.0.1, `kiro-spec-plan` 0.1.1, `mochi-pet-zoom-fix`
+  1.0.1, `model-retry-policy` 0.2.1, `os-notify-bridge` 1.0.1,
+  `rimuru-branding` 2.0.1, `settings-demo` 1.0.1. The first run of the widening
+  above, applied by hand from the published matrix.
+
+- **FloofyCrew is licensed under the Apache License 2.0** (it was MIT through
+  1.3.8; releases already published stay as published). One license now covers
+  the whole tree: FloofyCrew's own code and the portions derived from KiroCrew
+  (the `themes.py` port, the quoted patch anchors) were already Apache-2.0, so
+  the "MIT except…" split and the separate `LICENSES/Apache-2.0.txt` are gone —
+  `LICENSE` is the Apache-2.0 text, and `NOTICE.md` carries FloofyCrew's own
+  NOTICE above the KiroCrew attribution it reproduces. The two files still ship
+  in every artifact (zipapp, wheel `dist-info/licenses/` + `License-File`,
+  Loader app tree, both release trees), pinned by the same tests. The eleven
+  first-party mods, `tools/throttle-injector` and the `examples/` manifests are
+  Apache-2.0 too, and `floofy new` now scaffolds an Apache-2.0 `LICENSE` stub
+  (the text ships as package data, `floofy_core/licenses/Apache-2.0.txt`, read
+  through `importlib.resources` so the zipapp scaffolds it as well) with
+  `"license": "Apache-2.0"` in the manifest. The public and internal edition
+  package trees drop their `LICENSES/` directory accordingly.
+
+### Fixed
+
+- **A host whose channel is unknown can self-update again.** `floofy
+  self-update`, the App's *Update & restart* and the dashboard notice judged a
+  release's `supports` list for `edition/channel` and required the channel, so
+  an internal install whose bundle `info.json` names none (a Mac bundle,
+  `host internal 0.9.0.4 (channel unknown)`) was refused 1.3.8 — which lists
+  0.9.0.4 under internal/stable — with `does not list your host 0.9.0.4
+  (internal/None) as supported`, and stayed on 1.3.1. An unknown channel now
+  matches any channel of the edition that lists the host version, the rule the
+  compatibility cache has always applied (the channels of a stamped build are
+  the same bytes); the message reads `internal/any channel`.
+- **A host that never recorded the edition's default registry source now gets
+  it on demand** (`floofy update`, `search`, `registry list`, `registry refresh`,
+  and the Loader step of `self-update`, which runs on the new release). The
+  default has been bundled since 1.3.6 but was recorded only by `floofy init`
+  and the hourly re-apply trigger; a public host installed as 1.3.1 and updated
+  by hand kept an empty store and answered `the registry cache is empty: no
+  registry cache yet (floofy registry add <url> …)` forever. The heal is the
+  same add-only step `init` runs: nothing changes once the default is recorded,
+  the user's trust settings are never touched, and `registry refresh` no longer
+  refuses an empty store when the edition ships a default.
+- **A mod archive release could hide the FloofyCrew release from public hosts**
+  (`floofy_core.selfupdate`). The public feed reads GitHub's `releases/latest`,
+  which is whichever release was created last; after the seven mod archives of
+  1.3.8 were published, hosts read `this is newer than the newest published
+  release (1.0.0)` (os-notify-bridge 1.0.0). Only `vX.Y.Z` / `floofycrew-vX.Y.Z`
+  counts as a FloofyCrew release now: when `latest` is anything else the reader
+  lists every release and takes the newest FloofyCrew-tagged, non-draft,
+  non-prerelease one; the plain `releases` list shape applies the same filter.
+
 ## 1.3.8 — 2026-10-21
 
 Public hosts can update again. Every GitHub release so far shipped an empty

@@ -82,7 +82,7 @@ def test_legal_notice_files_are_not_scanned(tmp_path: Path) -> None:
             "core/NOTICE.md": TOKEN.encode(),
             "core/COPYING": TOKEN.encode(),
             "core/LICENSE": TOKEN.encode(),
-            "core/LICENSES/Apache-2.0.txt": TOKEN.encode(),
+            "core/LICENSES/Apache-2.0.txt": TOKEN.encode(),  # a vendored third-party text, as a wheel's dist-info/licenses/ holds
             "core/dist-info/licenses/NOTICE.md": TOKEN.encode(),
             "core/dist-info/licenses/LICENSE": TOKEN.encode(),
             "core/licensing.py": TOKEN.encode(),

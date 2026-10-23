@@ -2,19 +2,19 @@
   "schema": 1,
   "id": "os-notify-bridge",
   "name": "OS notification bridge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Mirrors KiroCrew's in-app notifications to native OS banners: approval waits, cron reports, skill reviews and the rest of the feed reach the desktop even when the dashboard is in the background. Listens to the host's own notification fan-out (channel mutes keep their meaning), enriches banners from the feed API (title, body, deep link), and adds the settings surface the platform needs: a real permission button, a background-only policy, one switch per kind, and the host's hidden turn-complete flag surfaced as a switch. Unofficial; not part of KiroCrew.",
   "authors": [
     "Oscar Tseng"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "tags": [
     "notifications",
     "quality-of-life",
     "ui"
   ],
   "kirocrew": {
-    "version": ">=0.7.0 <0.9.0",
+    "version": ">=0.7.0 <0.11.0",
     "editions": [
       "internal",
       "external"
@@ -49,7 +49,7 @@
   "files": [
     {
       "path": "LICENSE",
-      "sha256": "b57d9b53507e9a8f736dc1598dbb8d3738c0cfe3c5eeb6c3eaacf208b7c6607c"
+      "sha256": "efbb38757df87b37a0ba908725830a90cded07b9842ce24e1635bb0763fa2a34"
     },
     {
       "path": "README.md",

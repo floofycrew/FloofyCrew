@@ -46,6 +46,7 @@ from floofy_core.selfupdate import (
     download_release,
     fetch_release,
     is_newer,
+    is_release_tag,
     notice_text,
     parse_release_notes,
     parse_sums,
@@ -120,10 +121,11 @@ class FakeRelease:
 class FakeReleaseServer:
     """Loopback HTTP serving a :class:`FakeRelease` as GitHub releases (``/gh/…``) and as a package's raw blobs (``/pkg/…``)."""
 
-    def __init__(self, release: FakeRelease, *, fail_with: int | None = None, tag_pushed: bool = True):
+    def __init__(self, release: FakeRelease, *, fail_with: int | None = None, tag_pushed: bool = True, latest_is_mod: str | None = None):
         self.release = release
         self.fail_with = fail_with
         self.tag_pushed = tag_pushed  # package shape: the assets live at the release tag; False = the tag is not on the remote yet
+        self.latest_is_mod = latest_is_mod  # GitHub shape: `releases/latest` answers with a mod archive release of this tag (created after the FloofyCrew one)
         self.requests: list[dict[str, Any]] = []
         self._server: ThreadingHTTPServer | None = None
 
@@ -140,14 +142,18 @@ class FakeReleaseServer:
                     return self._send(server.fail_with, b"nope", "text/plain")
                 path, _, query = self.path.partition("?")
                 release = server.release
+                document = {
+                    "tag_name": release.tag,
+                    "html_url": f"{server.base}/gh/releases/tag/{release.tag}",
+                    "body": release.public_notes,
+                    "assets": [{"name": name, "browser_download_url": f"{server.base}/gh/download/{release.tag}/{name}"} for name in release.files],
+                }
+                mod_document = {"tag_name": server.latest_is_mod, "html_url": f"{server.base}/gh/releases/tag/{server.latest_is_mod}", "body": "a mod archive release. sha256 abc.", "assets": [{"name": f"{server.latest_is_mod}.zip", "browser_download_url": f"{server.base}/gh/download/{server.latest_is_mod}/{server.latest_is_mod}.zip"}]}
                 if path == "/gh/api/releases/latest":
-                    document = {
-                        "tag_name": release.tag,
-                        "html_url": f"{server.base}/gh/releases/tag/{release.tag}",
-                        "body": release.public_notes,
-                        "assets": [{"name": name, "browser_download_url": f"{server.base}/gh/download/{release.tag}/{name}"} for name in release.files],
-                    }
-                    return self._send(200, json.dumps(document).encode(), "application/json")
+                    return self._send(200, json.dumps(mod_document if server.latest_is_mod else document).encode(), "application/json")
+                if path == "/gh/api/releases":  # the full list, newest first, as GitHub orders it; a draft and a prerelease never win
+                    listing = [mod_document, {"tag_name": "v99.0.0", "draft": True}, {"tag_name": "v98.0.0-rc.1", "prerelease": True}, document, {"tag_name": "v0.0.1", "html_url": "", "body": "", "assets": []}] if server.latest_is_mod else [document]
+                    return self._send(200, json.dumps(listing).encode(), "application/json")
                 if path.startswith(f"/gh/download/{release.tag}/"):
                     name = path.rsplit("/", 1)[1]
                     if name in release.files:
@@ -218,6 +224,36 @@ def test_parse_release_notes_of_both_renderers_and_sums_of_both_layouts() -> Non
     assert parse_sums(release.files["SHA256SUMS"].decode()) == release.sums
     assert parse_sums(release.internal_sums_text) == release.sums
     assert parse_release_notes("# floofycrew v1.2.3-rc.1 (public edition)\n")["version"] == "1.2.3-rc.1"
+
+
+def test_only_floofycrew_tags_are_release_tags() -> None:
+    """The FloofyCrew repository also publishes mod archives as releases (`custom-themes-1.0.2`); only `vX.Y.Z` / `floofycrew-vX.Y.Z` is a FloofyCrew release."""
+    for tag in ("v1.3.8", "floofycrew-v1.3.8", "v1.4.0-rc.1"):
+        assert is_release_tag(tag), tag
+    for tag in ("custom-themes-1.0.2", "os-notify-bridge-1.0.0", "loader-app-v1.3.8", "settings-demo-1.0.0", "1.3.8", "v1.3", "kirocrew-ide-0.18.4"):
+        assert not is_release_tag(tag), tag
+
+
+def test_a_mod_archive_release_as_github_latest_never_hides_the_floofycrew_release(tmp_path: Path) -> None:
+    """Seen on 2026-10-21: seven mod archive releases were created after v1.3.8, GitHub's `releases/latest` answered
+    `os-notify-bridge-1.0.0`, and every public host read "this is newer than the newest published release (1.0.0)".
+    The reader must fall back to the full list and take the newest FloofyCrew-tagged, non-draft, non-prerelease entry."""
+    release = FakeRelease(newer())
+    with FakeReleaseServer(release, latest_is_mod="os-notify-bridge-1.0.0") as server:
+        found = fetch_release(server.github_feed())
+        assert found.version == release.version and found.tag == release.tag, found
+        assert found.supports == SUPPORTS and found.sha256s == release.sums
+        assert found.assets["floofy.pyz"].endswith(f"/gh/download/{release.tag}/floofy.pyz"), "the assets come from the FloofyCrew release, not the mod one"
+        paths = [r["path"] for r in server.requests]
+        assert paths[0] == "/gh/api/releases/latest" and paths[1].startswith("/gh/api/releases?per_page="), paths
+        outcome = check(server.github_feed(), tmp_path / "cache.json", running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version=HOST)
+        assert outcome.status == "ok" and outcome.latest is not None and outcome.latest.version == release.version
+        assert notice_text(outcome.latest, running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version=HOST) is not None
+    # the plain `releases` list shape keeps working and applies the same filter
+    with FakeReleaseServer(release, latest_is_mod="custom-themes-1.0.2") as server:
+        feed = server.github_feed()
+        found = fetch_release(ReleaseFeed(feed.kind, feed.url[: -len("/latest")], feed.download, feed.notes, feed.label))
+        assert found.version == release.version
 
 
 # --- the check against both shapes -------------------------------------------------------------------------------------------
@@ -334,6 +370,25 @@ def test_notice_only_for_a_newer_release_that_supports_the_running_host() -> Non
     assert not supports_host(release, "external", "beta", HOST) and not supports_host(release, None, "beta", HOST) and not supports_host(None, "internal", "beta", HOST)
     text = notice_text(release, running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version=HOST)
     assert text and release.version in text and "https://example.test/notes" in text
+
+
+def test_a_host_with_an_unknown_channel_takes_any_channel_that_lists_its_version() -> None:
+    """An internal install whose info.json names no channel (a Mac bundle) must still see the update.
+
+    Observed 2026-10-22: a Mac on FloofyCrew 1.3.1 with ``host internal 0.9.0.4 (channel
+    unknown)`` was refused 1.3.8 — whose ``supports`` lists 0.9.0.4 under internal/stable —
+    because ``supports_host`` required a channel. The channels of a stamped build are the
+    same bytes, so an unknown channel matches any channel that lists the version.
+    """
+    release = Release(newer(), f"v{newer()}", SUPPORTS, "https://example.test/notes")
+    assert supports_host(release, "internal", None, HOST)
+    assert not supports_host(release, "internal", None, "0.7.0.4")
+    assert not supports_host(release, "external", None, HOST)
+    text = notice_text(release, running=FRAMEWORK_VERSION, edition="internal", channel=None, host_version=HOST)
+    assert text and release.version in text
+    assert up_to_date_reason(release, running=FRAMEWORK_VERSION, edition="internal", channel=None, host_version=HOST) is None
+    reason = up_to_date_reason(release, running=FRAMEWORK_VERSION, edition="internal", channel=None, host_version="0.7.0.4")
+    assert reason == f"{release.version} does not list host 0.7.0.4 (internal/any channel) as supported"
     assert notice_text(release, running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version="0.7.0.4") is None, "not listed as supported: silent"
     assert notice_text(release, running=FRAMEWORK_VERSION, edition="external", channel="stable", host_version=HOST) is None, "another edition's list does not count"
     assert notice_text(Release(FRAMEWORK_VERSION, "v", SUPPORTS), running=FRAMEWORK_VERSION, edition="internal", channel="beta", host_version=HOST) is None, "the same version is no update"

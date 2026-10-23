@@ -37,7 +37,7 @@ def test_the_mod_is_valid_and_declares_what_it_needs():
     assert code_kinds_of(MANIFEST) == {"spa"}, "no python-hook: the config route is the Loader's own"
     assert MANIFEST["network"] == {"hosts": [], "credentials": False}
     assert Range.parse(MANIFEST["dependsOn"]["floofycrew"]).contains(Version.parse(FRAMEWORK_VERSION))
-    assert (MOD_DIR / "LICENSE").read_text(encoding="utf-8").startswith("MIT License")
+    assert (MOD_DIR / "LICENSE").read_text(encoding="utf-8").lstrip().startswith("Apache License")
     listed = {f["path"] for f in MANIFEST["files"]}
     assert listed == {"README.md", "LICENSE", "spa/boot.css", "spa/boot.js", "spa/runtime.mjs", "ui/icon.svg", "ui/page.mjs"}
 
@@ -85,7 +85,7 @@ def test_install_enable_config_round_trip(homes: Path):
     home.runtime.reload()
     state = home.runtime.state_dict()
     mod = state["mods"]["display-comfort"]
-    assert mod["active"] is True and mod["version"] == "1.0.0"
+    assert mod["active"] is True and mod["version"] == "1.0.1"
     statuses = [(p["kind"], p["status"]) for p in mod["parts"]]
     assert statuses == [("ui", "active"), ("spa", "active"), ("spa", "active")]
     assert mod["routes"] == [], "no python-hook, no routes"

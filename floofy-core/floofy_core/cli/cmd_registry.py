@@ -44,7 +44,7 @@ from ..registry import IndexCache
 from ..registry_sources import STATUS_VERIFIED, TRUST_LEVELS, RefreshOutcome, Source, SourceStore, is_default_source, rebuild_merged
 from .context import CliContext, CliError
 
-__all__ = ["audit_cmd", "ensure_default_sources", "fetch_default_sources", "is_edition_default", "register", "registry", "say_default_sources", "which"]
+__all__ = ["audit_cmd", "ensure_default_sources", "fetch_default_sources", "heal_default_sources", "is_edition_default", "register", "registry", "say_default_sources", "which"]
 
 LOOSENING_WARNING = (
     "TRUST LOOSENED for {url}: its index will be used WITHOUT a verified signature. "
@@ -95,6 +95,9 @@ def registry(ctx: CliContext, args: argparse.Namespace) -> int:
     except InstallError as exc:
         raise CliError(str(exc)) from exc
     action = args.registry_action
+    if action in ("list", "refresh"):
+        # Requirement 8.12 on demand: a store without the edition's default (installed before it existed, trigger never ran) gets it here
+        heal_default_sources(ctx, store, why=f"floofy registry {action}", fetch=action == "list")
     if action == "list":
         return _list(ctx, store)
     if action == "add":
@@ -272,6 +275,27 @@ def fetch_default_sources(ctx: CliContext, store: SourceStore, keys: list[str], 
             sources=outcome.decisions(),
         )
     return outcome.to_dict()
+
+
+def heal_default_sources(ctx: CliContext, store: SourceStore, *, why: str, fetch: bool = True) -> dict[str, Any] | None:
+    """Record (and fetch) the edition's default source when the store has none of it — on the paths a user reaches.
+
+    ``floofy init`` and the re-apply trigger are the planned recorders, but a host that was
+    installed before the default existed, or whose trigger never ran (a 1.3.1 public
+    install updated by hand), keeps an empty store forever and every registry command
+    answers "the registry cache is empty". This is the same add-only step run on demand:
+    nothing changes when the default is already recorded; returns the record (with
+    ``fetched``) when something was added, ``None`` otherwise. Never raises.
+    """
+    rows = ctx.default_registry_sources()
+    if not rows or any(is_default_source(s, rows) for s in store.sources):
+        return None
+    record = ensure_default_sources(ctx, store, why=why)
+    if record["status"] != "recorded":
+        return None
+    fetched = fetch_default_sources(ctx, store, record["pending"], why=why) if fetch and record["pending"] and not ctx.offline else None
+    say_default_sources(ctx, record, fetched)
+    return {**record, "fetched": fetched}
 
 
 def _cache_usable(ctx: CliContext, source: Source) -> bool:

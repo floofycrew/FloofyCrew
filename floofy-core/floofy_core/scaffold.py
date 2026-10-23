@@ -1,7 +1,7 @@
 """``floofy new <kind>`` — scaffold a valid mod (Requirement 14.1).
 
 Every scaffold is a directory with a schema-valid ``floofy.json`` (``files[]``
-hashed), a ``README.md``, an MIT ``LICENSE`` stub, a ``tests/smoke_test.py``
+hashed), a ``README.md``, an Apache-2.0 ``LICENSE`` stub, a ``tests/smoke_test.py``
 that runs ``floofy validate`` on the mod, and a GitHub Actions workflow
 (``.github/workflows/floofy-validate.yml``) for the public registry's submission
 checks (Requirement 8.7). The kind-specific part skeletons mirror
@@ -16,35 +16,31 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .resources import read_package_text
 from .validator import UNSHIPPED_DIRS
 
-__all__ = ["KINDS", "refresh_files", "scaffold"]
+__all__ = ["KINDS", "LICENSE_ID", "license_text", "refresh_files", "scaffold"]
 
 KINDS = ("theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch", "ui")
 _ID_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 
-LICENSE = """MIT License
+#: SPDX identifier of the scaffold's license stub: the same license as FloofyCrew.
+LICENSE_ID = "Apache-2.0"
+_LICENSE_PLACEHOLDER = "Copyright [yyyy] [name of copyright owner]"
+_LICENSE_FILE = Path(__file__).resolve().parent / "licenses" / "Apache-2.0.txt"
 
-Copyright (c) {year} {author}
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+def license_text(year: int, author: str) -> str:
+    """The Apache-2.0 text with the appendix copyright line filled in for ``author``.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+    The license text ships as package data (``floofy_core/licenses/``) and is read
+    through ``importlib.resources``, so a checkout, a wheel install and the zipapp
+    scaffold the same file.
+    """
+    text = read_package_text(f"{__package__}.licenses", _LICENSE_FILE.name, fallback=_LICENSE_FILE)
+    assert _LICENSE_PLACEHOLDER in text, "the bundled Apache-2.0 text lost its appendix placeholder"
+    return text.replace(_LICENSE_PLACEHOLDER, f"Copyright {year} {author}")
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
 
 README = """# {name}
 
@@ -278,7 +274,7 @@ def scaffold(kind: str, directory: Path, *, mod_id: str | None = None, name: str
     from .kinds import SEAMS  # noqa: PLC0415
 
     files["README.md"] = README.format(name=name, kind=kind, seam=SEAMS.get(kind, kind))
-    files["LICENSE"] = LICENSE.format(year=year, author=author)
+    files["LICENSE"] = license_text(year, author)
     files["tests/smoke_test.py"] = SMOKE_TEST
     files[".github/workflows/floofy-validate.yml"] = WORKFLOW
     for rel, text in files.items():
@@ -292,7 +288,7 @@ def scaffold(kind: str, directory: Path, *, mod_id: str | None = None, name: str
         "version": "0.1.0",
         "description": f"{name}: a {kind} mod scaffolded by `floofy new` (edit me).",
         "authors": [author],
-        "license": "MIT",
+        "license": LICENSE_ID,
         "tags": [kind],
         "kirocrew": {"version": host_range, "editions": ["internal", "external"], "strict": False},
         "dependsOn": {"floofycrew": framework_range},
