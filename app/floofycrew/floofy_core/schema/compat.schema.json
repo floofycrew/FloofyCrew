@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://floofycrew.dev/schema/compat-1.json",
+  "title": "FloofyCrew compatibility matrix (compat.json, schema 1)",
+  "description": "Rows keyed by edition x channel x hostVersion with the framework verdicts and one verdict per mod@version (Requirement 9.1). Published beside index.json and signed the same way (compat.json.sig).",
+  "type": "object",
+  "required": ["schema", "rows"],
+  "properties": {
+    "schema": { "const": 1 },
+    "source": { "type": "string", "minLength": 1 },
+    "generatedAt": { "$ref": "#/$defs/timestamp" },
+    "rows": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/row" }
+    }
+  },
+  "patternProperties": { "^x-": {} },
+  "additionalProperties": false,
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "hostVersion": {
+      "description": "Every shape a KiroCrew host prints (floofy_core.semver.HostVersion): X.Y.Z, X.Y.Z.N, X.Y.ZrcN, X.Y.Z.devN, X.Y.Z-insider.N.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+((a|b|rc)[0-9]+)?(\\.[0-9]+)?(\\.dev[0-9]+)?(-[0-9A-Za-z][0-9A-Za-z.-]*)?$"
+    },
+    "verdict": { "type": "string", "enum": ["tested", "expected", "broken"] },
+    "cell": {
+      "description": "A mod@version key.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{1,63}@(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "count": {
+      "type": "object",
+      "required": ["matched", "total"],
+      "properties": {
+        "matched": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "missed": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "framework": {
+      "type": "object",
+      "required": ["loader"],
+      "properties": {
+        "loader": { "type": "string", "enum": ["ok", "degraded", "broken"] },
+        "spaFingerprints": { "$ref": "#/$defs/count" },
+        "pythonAnchors": { "$ref": "#/$defs/count" },
+        "shimVersion": { "type": ["string", "null"] },
+        "floofycrew": {
+          "description": "The FloofyCrew release the row was produced with.",
+          "type": "string"
+        }
+      },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    },
+    "modVerdict": {
+      "anyOf": [
+        { "$ref": "#/$defs/verdict" },
+        {
+          "type": "object",
+          "required": ["verdict"],
+          "properties": {
+            "verdict": { "$ref": "#/$defs/verdict" },
+            "run": { "type": ["string", "null"], "description": "A link to the Forge run that produced the verdict." },
+            "detail": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "override": {
+      "type": "object",
+      "required": ["cell", "verdict", "reason", "by"],
+      "properties": {
+        "cell": { "$ref": "#/$defs/cell" },
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "reason": { "type": "string", "minLength": 1 },
+        "by": { "type": "string", "minLength": 1 },
+        "at": { "$ref": "#/$defs/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "row": {
+      "type": "object",
+      "required": ["edition", "channel", "hostVersion", "framework", "mods"],
+      "properties": {
+        "edition": { "type": "string", "enum": ["internal", "external"] },
+        "channel": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" },
+        "hostVersion": { "$ref": "#/$defs/hostVersion" },
+        "framework": { "$ref": "#/$defs/framework" },
+        "mods": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/cell" },
+          "additionalProperties": { "$ref": "#/$defs/modVerdict" }
+        },
+        "overrides": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/override" }
+        },
+        "run": { "type": ["string", "null"] },
+        "checkedAt": { "$ref": "#/$defs/timestamp" }
+      },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    }
+  }
+}
