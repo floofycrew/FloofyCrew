@@ -125,7 +125,7 @@ def harness():
     guard = ShellGuard(payload, gw.data_home)
     FloofyPaths(gw.data_home).ensure()
     install_mod(gw, CUSTOM_THEMES_DIR)  # the first-frame sheet + the reset guard every custom theme needs
-    install_mod(gw, RIMURU_DIR)  # a pure theme pack on top of it (2.0.0)
+    install_mod(gw, RIMURU_DIR)  # a pure theme pack on top of it
     write_test_mod(gw, "spa-import-fail", {"spa/main.js": 'import "./missing.js";\nwindow.__importFail = 1;\n'}, [{"kind": "spa", "side": "spa", "path": "spa/main.js"}])
     write_test_mod(gw, "spa-activate-fail", {"spa/main.js": 'export function activate(ctx) {\n  ctx.log.info("about to explode");\n  throw new Error("activate exploded on purpose");\n}\nexport function deactivate() { window.__activateFailDeactivated = 1; }\n'}, [{"kind": "spa", "side": "spa", "path": "spa/main.js"}])
     write_test_mod(
@@ -357,7 +357,10 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         head = page.inner_text('[data-testid="floofycrew-mod-rows-head"]')
         assert "Host compat · source tier" in head and "Actions" in head and "Parts (seam)" in head, head
         compact = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
-        assert "rimuru-branding" in compact and "2.0.0" in compact and "theme/gateway" not in compact and "part(s)" in compact, f"one row: switch | name | id · version | compat · tier | actions | parts collapsed to a count: {compact!r}"
+        # The version shown is whatever the tree's manifest says today, not a literal that
+        # goes stale on the next bump (2.0.0 was hard-coded while the mod sat at 2.0.1).
+        rimuru_version = json.loads((RIMURU_DIR / "floofy.json").read_text(encoding="utf-8"))["version"]
+        assert "rimuru-branding" in compact and rimuru_version in compact and "theme/gateway" not in compact and "part(s)" in compact, f"one row: switch | name | id · version | compat · tier | actions | parts collapsed to a count: {compact!r}"
         assert "Settings" not in compact and "Enable" not in compact and "Disable" not in compact, f"no Settings panel, no Enable/Disable button — the switch is the on/off control: {compact!r}"
         switch = page.locator('[data-testid="floofycrew-toggle-rimuru-branding"]')
         assert switch.get_attribute("role") == "switch" and switch.get_attribute("aria-checked") == "true", "an active mod's switch is on"
@@ -365,7 +368,8 @@ def test_5_manager_page_renders_and_toggles_a_mod(harness: Harness):
         row = page.inner_text('[data-testid="floofycrew-mod-row-rimuru-branding"]')
         assert "theme/gateway" in row and "modifies payload files" not in row, row
         themes_row = page.inner_text('[data-testid="floofycrew-mod-row-custom-themes"]')
-        assert "1.0.2" in themes_row and "modifies payload files" in themes_row, f"the payload warning stays visible on the collapsed parts summary: {themes_row!r}"
+        themes_version = json.loads((CUSTOM_THEMES_DIR / "floofy.json").read_text(encoding="utf-8"))["version"]
+        assert themes_version in themes_row and "modifies payload files" in themes_row, f"the payload warning stays visible on the collapsed parts summary: {themes_row!r}"
         assert page.inner_text('[data-testid="floofycrew-compat-rimuru-branding"]') == "in-range"
         assert page.inner_text('[data-testid="floofycrew-tier-rimuru-branding"]') == "tier: unlisted", "copied in without a registry record: the source tier badge says so (Requirement 8.11)"
         assert "acknowledged" in page.inner_text('[data-testid="floofycrew-consent"]')
@@ -923,11 +927,12 @@ def test_6_manager_app_smoke(harness: Harness):
         page.click('[data-testid="floofycrew-search-submit"]')
         page.wait_for_selector('[data-testid="floofycrew-hit-settings-demo"]', timeout=60000)
         assert "tier: tested" in page.inner_text('[data-testid="floofycrew-hit-tier-settings-demo"]')
-        assert "works here: 1.0.0 (tested)" in page.inner_text('[data-testid="floofycrew-hit-compat-settings-demo"]')
+        demo_version = json.loads((SETTINGS_DEMO_DIR / "floofy.json").read_text(encoding="utf-8"))["version"]
+        assert f"works here: {demo_version} (tested)" in page.inner_text('[data-testid="floofycrew-hit-compat-settings-demo"]')
         page.click('[data-testid="floofycrew-hit-install-settings-demo"]')
         page.wait_for_selector('[data-testid="floofycrew-yesno-modal"]', timeout=90000)
         disclosure = page.inner_text('[data-testid="floofycrew-disclosure"]')
-        assert "settings-demo 1.0.0" in disclosure and "ui/spa" in disclosure and "python-hook/gateway" in disclosure, disclosure
+        assert f"settings-demo {demo_version}" in disclosure and "ui/spa" in disclosure and "python-hook/gateway" in disclosure, disclosure
         assert "no remote hosts declared" in page.inner_text('[data-testid="floofycrew-disclosure-network"]')
         assert "installs the mod enabled" in disclosure, "the disclosure says the confirmed install lands enabled (Requirement 11.7)"
         assert page.is_checked('[data-testid="floofycrew-staging-staged"]'), "staged is the default (Requirement 16.5)"
@@ -939,9 +944,9 @@ def test_6_manager_app_smoke(harness: Harness):
         assert (data_home / "mods" / "settings-demo" / "floofy.json").is_file(), f"apply now did not land the mod; output: {page.inner_text('[data-testid=\"floofycrew-output\"]')!r}"
         assert not (data_home / "pending" / "settings-demo").exists()
         source = json.loads((data_home / "mods" / "settings-demo" / ".floofy" / "source.json").read_text(encoding="utf-8"))
-        assert source["source"] == "registry" and source["ref"] == "settings-demo@1.0.0" and source["tier"] == "listed", source  # `tested` is what the matrix row lifts it to
+        assert source["source"] == "registry" and source["ref"] == f"settings-demo@{demo_version}" and source["tier"] == "listed", source  # `tested` is what the matrix row lifts it to
         install_rows = [r for r in _audit_rows(harness) if r["op"] == "install" and r["mod"] == "settings-demo"]
-        assert install_rows and install_rows[-1]["actor"] == "app" and install_rows[-1]["tier"] == "listed" and install_rows[-1]["source"]["ref"] == "settings-demo@1.0.0", install_rows[-1]
+        assert install_rows and install_rows[-1]["actor"] == "app" and install_rows[-1]["tier"] == "listed" and install_rows[-1]["source"]["ref"] == f"settings-demo@{demo_version}", install_rows[-1]
         state = client.get(f"{API}/state").json()
         assert state["mods"]["settings-demo"]["active"] is True, "a confirmed install lands enabled and active (Requirement 11.7)"
 
