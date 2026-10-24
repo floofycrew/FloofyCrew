@@ -27,12 +27,26 @@ Two jobs, then:
      id it instead returns a minimal, tool-less entry so the session start keeps
      going (the host derives "there is an agent to activate" from that list
      being non-empty).
-   * ``runtime.attach_kas_custom_agents`` is what puts that list on the wire.
-     The mode entry is dropped there, so the engine receives NO client agent
-     under a bundled id -- ``session/set_mode`` then selects the built-in, which
-     is what the engine does for a bundled id regardless of its registry.
+   * ``attach_kas_custom_agents`` is what puts that list on the wire. It is one
+     function reached through two module bindings -- ``_dispatch`` (its home,
+     where ``build_session_new_params`` calls it for ``session/new``) and
+     ``runtime`` (the import used for the MCP-readiness params and
+     ``session/load``) -- and both are hooked. The mode entry is dropped there,
+     so the engine receives NO client agent under a bundled id --
+     ``session/set_mode`` then selects the built-in, which is what the engine
+     does for a bundled id regardless of its registry. Hooking only the
+     ``runtime`` binding (0.2.0) left the entry on ``session/new``: the engine
+     registered it as a ``(client)`` agent beside its own and listed it as a
+     delegation target, and the orchestrator's first reply quoted its prompt.
    * ``KasHarness.activation_refusal`` refuses an advertised mode stamped
      ``origin: bundled``. For a mode id that stamp is the expected one.
+   * ``ContextBuilder._resolve_agent_prompt`` puts every custom agent's prompt
+     in the turn as an ``[AGENT SYSTEM PROMPT]`` block, on any backend. For a
+     mode id whose session runs on KAS (the Agent Backend Router's record when
+     it is active, the host's configured backend otherwise) the block is empty:
+     the engine runs the built-in mode, and the handle's own text -- "if you
+     are reading this, KiroCrew is not on KAS" -- would be repeated to the user
+     as a false note about the backend.
 
    Every other agent id passes through untouched, and a host without a given
    seam (an older KiroCrew that never refused, a newer one that moved the
@@ -52,15 +66,45 @@ ENABLE_HINT = "kirocrew config set agent.acp_backend kas"
 RESERVED_IDS_TARGET = "kiro_crew.agent_files"
 RESERVED_IDS_ATTR = "KAS_RESERVED_AGENT_IDS"
 
-#: The three seams, in the order a session start crosses them.
+#: The seams, in the order a session start crosses them. The wire seam is ONE
+#: function under TWO names: ``attach_kas_custom_agents`` is defined in
+#: ``_dispatch`` and called there by ``build_session_new_params`` (the
+#: ``session/new`` request), and ``runtime`` imports its own binding for the
+#: MCP-readiness params and ``session/load``. A replace hook rebinds one module
+#: attribute, so both must be hooked or the placeholder still travels on
+#: ``session/new`` (measured 2026-10-24: the engine then lists it as a
+#: ``(client)`` delegation target and the model surfaces its prompt).
 SEAM_PROJECT = "kiro_crew.acp.kas_agents:to_client_custom_agent"
-SEAM_WIRE = "kiro_crew.acp.runtime:attach_kas_custom_agents"
+SEAM_WIRE = "kiro_crew.acp._dispatch:attach_kas_custom_agents"
+SEAM_WIRE_RUNTIME = "kiro_crew.acp.runtime:attach_kas_custom_agents"
 SEAM_ACTIVATE = "kiro_crew.acp.harness.kas:KasHarness.activation_refusal"
-SEAMS = {"project": SEAM_PROJECT, "wire": SEAM_WIRE, "activate": SEAM_ACTIVATE}
+#: The host puts every custom agent's prompt in the turn as an ``[AGENT SYSTEM
+#: PROMPT]`` block, whatever backend the session runs on. For a mode id on KAS
+#: the engine runs the built-in mode and that block would hand the model the
+#: handle's "if you are reading this, KiroCrew is not on KAS" text -- which it
+#: then repeats to the user (measured 2026-10-24: "Kiro Spec & Plan runs
+#: natively only on the KAS backend ... I'll continue regardless", on a session
+#: the router had pinned to KAS). Emptied for a mode id when the session runs
+#: on KAS; kept otherwise, where it tells the truth.
+SEAM_PROMPT = "kiro_crew.context:ContextBuilder._resolve_agent_prompt"
+SEAMS = {"project": SEAM_PROJECT, "wire": SEAM_WIRE, "wire_runtime": SEAM_WIRE_RUNTIME, "activate": SEAM_ACTIVATE,
+         "prompt": SEAM_PROMPT}
+#: The seams a working bridge cannot do without: ``project`` lets the session
+#: start, ``activate`` lets the engine's bundled stamp through. Either wire
+#: binding missing degrades to "the handle travels", which the log names; the
+#: prompt seam missing degrades to "the handle text is in the turn".
+_REQUIRED_SEAMS = ("project", "activate")
+
+#: Where a session actually runs, when the Agent Backend Router is active: its
+#: ``session_backend(key)`` reads the construction-time record, which exists
+#: before the first prompt is built and follows a failover. Without it the
+#: host's configured backend is the answer (the host picks it once per session).
+ROUTER_MODULE = "floofy_mods.agent-backend-router.hook"
 
 #: Prompt of the placeholder entry when the spec carries none. Never reaches the
-#: engine on a host with the wire seam; on one without it, the entry goes out as
-#: a tool-less client agent the engine ignores for a bundled id.
+#: engine on a host with both wire seams; on one without them, the entry goes
+#: out as a tool-less client agent, and the engine lists it beside its own
+#: agents as a ``(client)`` delegation target the orchestrator may talk to.
 _HANDLE_PROMPT = "Handle for a Kiro built-in mode (Kiro Spec & Plan)."
 
 _ctx = None
@@ -166,7 +210,41 @@ def activation(call_next, harness, agent, resp, *args, **kwargs):
     return call_next(harness, agent, resp, *args, **kwargs)
 
 
-_HOOKS = {"project": project, "wire": wire, "activate": activation}
+def session_runs_on_kas(session_key) -> bool:
+    """Whether *session_key*'s provider runs on KAS: the router's record when it has one, else the host config.
+
+    The router's answer is per session (a pin, a failover re-construction); the
+    config is what the host uses for every session the router did not build.
+    """
+    import sys  # noqa: PLC0415
+
+    router = sys.modules.get(ROUTER_MODULE)
+    if router is not None and hasattr(router, "session_backend"):
+        try:
+            backend = router.session_backend(session_key or "")
+        except Exception:  # noqa: BLE001 - another mod's bug must not decide this
+            backend = None
+        if isinstance(backend, str) and backend:
+            return backend == KAS_BACKEND
+    if _ctx is not None:
+        return _read_backend(_ctx.host.host_home) == KAS_BACKEND
+    return False
+
+
+def prompt(call_next, builder, agent, *args, **kwargs):
+    """``ContextBuilder._resolve_agent_prompt``: no in-band handle text for a mode id running on KAS.
+
+    The engine runs the built-in mode there and carries its own instructions; the
+    handle's prompt exists only to explain the situation on another backend,
+    where ``call_next`` still delivers it. Both callers -- the session start and
+    the post-compaction re-injection -- pass ``session_key`` by keyword.
+    """
+    if is_mode(agent) and session_runs_on_kas(kwargs.get("session_key")):
+        return ""
+    return call_next(builder, agent, *args, **kwargs)
+
+
+_HOOKS = {"project": project, "wire": wire, "wire_runtime": wire, "activate": activation, "prompt": prompt}
 
 
 def _host_reserves_modes() -> bool:
@@ -208,9 +286,15 @@ def install_bridge(ctx) -> dict:
     if len(taken) == len(SEAMS):
         ctx.log.info("Kiro Spec & Plan: activation bridge installed — %s select Kiro's built-in modes on KAS",
                      ", ".join(MODES))
-    elif "project" in taken and "activate" in taken:
-        ctx.log.warning("Kiro Spec & Plan: bridge installed without the wire seam; the mode handle travels as a "
-                        "tool-less client agent the engine ignores")
+    elif all(n in taken for n in _REQUIRED_SEAMS):
+        missing_wire = [n for n in ("wire", "wire_runtime") if n not in taken]
+        if missing_wire:
+            ctx.log.warning("Kiro Spec & Plan: bridge installed without the wire seam (%s); the mode handle travels as a "
+                            "tool-less client agent the engine lists as a (client) delegation target",
+                            ", ".join(SEAMS[n] for n in missing_wire))
+        if "prompt" not in taken:
+            ctx.log.warning("Kiro Spec & Plan: bridge installed without the prompt seam (%s); the mode handle's prompt "
+                            "is injected in-band and the model may repeat its 'not on KAS' note", SEAM_PROMPT)
     else:
         ctx.log.warning("Kiro Spec & Plan: bridge incomplete (%s); the host will refuse the mode ids",
                         ", ".join("%s=%s" % kv for kv in _bridge["seams"].items()))

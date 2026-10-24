@@ -47,10 +47,15 @@ class Ctx:
 
 
 def _host(reserved):
-    """Stand in for the host's ``kiro_crew.agent_files`` with the given reserved set (None = no such host)."""
+    """Stand in for the host's ``kiro_crew.agent_files`` with the given reserved set.
+
+    ``None`` = no such host: the names are pinned to ``None`` in ``sys.modules``, which
+    makes their import raise, so the test says the same thing under an interpreter that
+    has the real KiroCrew installed as under one that does not."""
     for name in ("kiro_crew", "kiro_crew.agent_files"):
         sys.modules.pop(name, None)
     if reserved is None:
+        sys.modules["kiro_crew.agent_files"] = None
         return
     pkg = types.ModuleType("kiro_crew")
     pkg.__path__ = []
@@ -103,17 +108,21 @@ def test_bridge_registers_on_a_reserving_host(hook):
         ctx = Ctx(home, Hooks())
         hook.activate(ctx)
         assert set(ctx.hooks.replaced) == set(hook.SEAMS.values()), ctx.hooks.replaced
-        assert ctx.state["bridge"] == {"needed": True, "seams": {"project": "ok", "wire": "ok", "activate": "ok"}}, ctx.state["bridge"]
+        assert ctx.state["bridge"] == {"needed": True, "seams": {"project": "ok", "wire": "ok", "wire_runtime": "ok", "activate": "ok", "prompt": "ok"}}, ctx.state["bridge"]
+        # One function, two bindings: both wire seams run the same hook.
+        assert ctx.hooks.replaced[hook.SEAM_WIRE] is ctx.hooks.replaced[hook.SEAM_WIRE_RUNTIME] is hook.wire
         assert any("activation bridge installed" in msg for _, msg in ctx.logged), ctx.logged
         assert hook._status(None)["bridge"]["seams"]["wire"] == "ok"
         hook.deactivate(ctx)
 
-        # A host that moved one seam: the other two still take, status names the gap, no exception escapes.
+        # A host that moved one wire binding: the rest still take, status names the gap, the
+        # warning names the binding, no exception escapes.
         ctx = Ctx(home, Hooks(missing=[hook.SEAM_WIRE]))
         hook.activate(ctx)
         seams = ctx.state["bridge"]["seams"]
-        assert seams["project"] == "ok" and seams["activate"] == "ok" and seams["wire"].startswith("missing:"), seams
-        assert any("without the wire seam" in msg for level, msg in ctx.logged if level == "warning"), ctx.logged
+        assert seams["project"] == "ok" and seams["activate"] == "ok" and seams["wire_runtime"] == "ok" and seams["wire"].startswith("missing:"), seams
+        warned = [msg for level, msg in ctx.logged if level == "warning" and "without the wire seam" in msg]
+        assert warned and hook.SEAM_WIRE in warned[0] and hook.SEAM_WIRE_RUNTIME not in warned[0], ctx.logged
         hook.deactivate(ctx)
 
         # A loader without ctx.hooks: reported, never raised.
@@ -179,13 +188,108 @@ def test_seam_behaviour(hook):
     assert hook.is_mode(None) is False and hook.is_mode("Spec") is False and hook.is_mode("spec") is True
 
 
+def test_wire_covers_session_new_on_the_real_host(hook):
+    """Regression for 0.2.0: ``session/new`` params are built in ``_dispatch``, which calls its OWN
+    binding of ``attach_kas_custom_agents``; hooking only ``runtime``'s left the placeholder on
+    the wire. Runs against the installed host when importable, else is skipped (the stub host
+    the other tests build has no ``acp`` package)."""
+    for name in [n for n in sys.modules if n == "kiro_crew" or n.startswith("kiro_crew.")]:
+        sys.modules.pop(name, None)
+    try:
+        from kiro_crew.acp import _dispatch, runtime  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001 - not a KiroCrew interpreter
+        print("  (session/new regression skipped: %s)" % exc)
+        return
+    original = _dispatch.attach_kas_custom_agents
+    assert runtime.attach_kas_custom_agents is original, "the host no longer imports the function into runtime; re-measure the seams"
+    placeholder = {"id": "spec", "prompt": "HANDLE", "tools": []}
+    saved = (_dispatch.attach_kas_custom_agents, runtime.attach_kas_custom_agents)
+    try:
+        # What the loader's replace() does for each target: rebind that module's attribute.
+        for module, target in ((_dispatch, hook.SEAM_WIRE), (runtime, hook.SEAM_WIRE_RUNTIME)):
+            assert target.split(":")[0] == module.__name__ and target.split(":")[1] == "attach_kas_custom_agents", target
+            setattr(module, "attach_kas_custom_agents", lambda params, agents, *a, **k: hook.wire(original, params, agents, *a, **k))
+        params = _dispatch.build_session_new_params("/tmp", mcp_servers=[], kas_custom_agents=[placeholder])
+        assert "_meta" not in params, params
+        params = _dispatch.build_session_new_params("/tmp", mcp_servers=[], kas_custom_agents=[placeholder, {"id": "o3r_default", "prompt": "p", "tools": []}])
+        assert [a["id"] for a in params["_meta"]["kiro"]["customAgents"]] == ["o3r_default"], params
+        load_params = {"mcpServers": []}
+        runtime.attach_kas_custom_agents(load_params, [placeholder])
+        assert "_meta" not in load_params, load_params
+    finally:
+        _dispatch.attach_kas_custom_agents, runtime.attach_kas_custom_agents = saved
+
+
+def test_prompt_seam_keeps_the_handle_text_out_of_a_kas_session(hook):
+    """The in-band [AGENT SYSTEM PROMPT] block is empty for a mode id whose session runs on KAS; kept otherwise."""
+    HANDLE = "This agent is a handle ... KiroCrew is not running on the KAS backend ..."
+    calls = []
+
+    def resolve(builder, agent, *a, **k):
+        calls.append((agent, k.get("session_key")))
+        return HANDLE if agent in MODES else "persona of %s" % agent
+
+    builder = object()
+    with tempfile.TemporaryDirectory() as home:
+        json.dump({"agent": {"acp_backend": "kas"}}, open(os.path.join(home, "config.json"), "w"))
+        _host(["spec", "quick-spec", "bug-fix", "plan"])
+        ctx = Ctx(home, Hooks())
+        hook.activate(ctx)
+        try:
+            # Router active: its per-session answer decides, config does not.
+            router = types.ModuleType("abr_stub")
+            answers = {"dashboard:on-kas": "kas", "dashboard:on-kiro": "kiro", "dashboard:unknown": None}
+            router.session_backend = lambda key: answers.get(key)
+            sys.modules[hook.ROUTER_MODULE] = router
+            assert hook.prompt(resolve, builder, "spec", project=None, mode="", session_key="dashboard:on-kas", is_cc=False, private_owner=False, session_start=True) == ""
+            assert calls == [], "call_next must not run for a KAS mode session (its read would be wasted and its text leaks)"
+            assert hook.prompt(resolve, builder, "plan", project=None, mode="", session_key="dashboard:on-kiro", is_cc=False, private_owner=False, session_start=True) == HANDLE
+            # The router never built this one (member DM, older key): config says kas -> empty.
+            assert hook.prompt(resolve, builder, "quick-spec", project=None, mode="", session_key="dashboard:unknown", is_cc=False, private_owner=False, session_start=False) == ""
+            # A router that raises is not a verdict: fall through to config.
+            router.session_backend = lambda key: 1 / 0
+            assert hook.prompt(resolve, builder, "bug-fix", project=None, mode="", session_key="dashboard:x", is_cc=False, private_owner=False, session_start=True) == ""
+            # Any other agent passes straight through, on KAS too.
+            assert hook.prompt(resolve, builder, "o3r_default", project=None, mode="", session_key="dashboard:on-kas", is_cc=False, private_owner=False, session_start=True) == "persona of o3r_default"
+            assert hook.prompt(resolve, builder, "", project=None, mode="", session_key="dashboard:on-kas", is_cc=False, private_owner=False, session_start=True) == "persona of "
+            sys.modules.pop(hook.ROUTER_MODULE, None)
+            # No router: the host's configured backend decides.
+            assert hook.prompt(resolve, builder, "spec", project=None, mode="", session_key="dashboard:any", is_cc=False, private_owner=False, session_start=True) == ""
+            json.dump({"agent": {"acp_backend": ""}}, open(os.path.join(home, "config.json"), "w"))
+            assert hook.prompt(resolve, builder, "spec", project=None, mode="", session_key="dashboard:any", is_cc=False, private_owner=False, session_start=True) == HANDLE
+        finally:
+            sys.modules.pop(hook.ROUTER_MODULE, None)
+            hook.deactivate(ctx)
+            _host(None)
+    # Deactivated (no ctx) and no router: never empties, the host's own behaviour.
+    assert hook.prompt(resolve, builder, "spec", project=None, mode="", session_key="dashboard:any", is_cc=False, private_owner=False, session_start=True) == HANDLE
+
+
+def test_prompt_seam_matches_the_real_host_signature(hook):
+    """The host passes session_key by keyword to _resolve_agent_prompt; a rename there must fail here, not in production."""
+    try:
+        import inspect  # noqa: PLC0415
+        from kiro_crew.context import ContextBuilder  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        print("  (signature check skipped: %s)" % exc)
+        return
+    params = inspect.signature(ContextBuilder._resolve_agent_prompt).parameters
+    assert "session_key" in params and list(params)[:2] == ["self", "agent"], list(params)
+    target_module, target_attr = hook.SEAM_PROMPT.split(":")
+    assert target_module == "kiro_crew.context" and target_attr == "ContextBuilder._resolve_agent_prompt"
+
+
 def main():
     hook = _load()
     test_verdict_and_lifecycle(hook)
     test_bridge_registers_on_a_reserving_host(hook)
     test_seam_behaviour(hook)
+    test_wire_covers_session_new_on_the_real_host(hook)
+    test_prompt_seam_keeps_the_handle_text_out_of_a_kas_session(hook)
+    test_prompt_seam_matches_the_real_host_signature(hook)
     print("kiro-spec-plan hook OK: verdict from config, warning when off, read-only; "
-          "bridge narrows the three reserved-id seams to the four mode ids")
+          "bridge narrows the reserved-id seams (both wire bindings) to the four mode ids; "
+          "no in-band handle prompt on KAS")
 
 
 if __name__ == "__main__":
