@@ -11,6 +11,69 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.11 — 2026-10-24
+
+A Spec session no longer opens with a false note about its backend. 1.3.10's
+kiro-spec-plan bridge let Kiro's modes start on KiroCrew 0.8.0.9, but the mode
+handle's own prompt still reached the model — as a `(client)` agent on
+`session/new`, and in the turn's `[AGENT SYSTEM PROMPT]` block — and the Spec
+orchestrator read it back as "Kiro Spec & Plan runs natively only on the KAS
+backend … I'll continue regardless", on a session the router had pinned to KAS
+all along. kiro-spec-plan 0.2.1 hooks both bindings of the wire function and
+empties that block for a mode id whose session runs on KAS; it asks the Agent
+Backend Router where the session runs, which 0.3.4 answers with a new
+`session_backend(key)` read from its per-session launch record. No FloofyCrew
+code changes; repository housekeeping under `tools/` and `.kiro/`.
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.8.0.9, 0.9.0.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0 |
+
+### Mods
+
+- **kiro-spec-plan 0.2.1: a Spec session on KAS no longer opens with a false
+  "runs natively only on the KAS backend" note.** 0.2.0's bridge let the
+  session start, but the mode handle's own prompt still reached the model two
+  ways and the engine's Spec orchestrator read it back to the user as its first
+  line — on a session the Agent Backend Router had pinned to KAS, so the
+  backend never moved; the note was wrong. (1) `attach_kas_custom_agents` is one
+  function under two module bindings; the bridge hooked only `runtime`'s, while
+  `_dispatch`'s own binding builds `session/new`, so the tool-less placeholder
+  still went out and the engine listed it as a `(client)` delegation target.
+  Both bindings are hooked (seams `wire` and `wire_runtime`). (2) The host puts
+  every custom agent's prompt into the turn as an `[AGENT SYSTEM PROMPT]`
+  block whatever the backend; a new seam on
+  `ContextBuilder._resolve_agent_prompt` leaves it empty for a mode id whose
+  session runs on KAS and keeps it elsewhere, where it is true. Where a session
+  runs is asked of the Agent Backend Router when active (its per-session
+  record, so a pin or a failover reads right), else of the host's configured
+  backend. The partial-install warnings name whichever seam a host moves;
+  `bridge.seams` now lists `project, wire, wire_runtime, activate, prompt`.
+  Verified live: a `spec` session on 0.8.0.9 sees no block, no handle text, no
+  `(client)` row, and answers as the Spec orchestrator. Recommends
+  `agent-backend-router >=0.3.4`.
+- **agent-backend-router 0.3.4: `session_backend(session_key)` for other
+  mods.** The backend name (`kiro`, `kas`, `claude`, `codex`) a session's
+  current provider was built on, read from the construction-time launch record
+  so it is right before the first prompt is built and follows a failover;
+  `None` for a key the router never built, which the caller answers from the
+  host config. kiro-spec-plan is the first user. No routing change.
+
+### Tooling
+
+- The release, test-box and Spec-run helper scripts under `tools/` are tracked;
+  the code-workspace points at the checkout itself; the `.kiro/agents` and
+  `.kiro/settings/cli.json` files KiroCrew rewrites are untracked, with their
+  sources kept under the edition adapter and `tools/kiro-workspace-sync.sh` to
+  materialise them. The public-first pathway spec (requirements, owner
+  decisions D-1 to D-4, Forge cron management, Requirement 7) is recorded
+  under `.kiro/specs/public-first-pathway/`.
+
 ## 1.3.10 — 2026-10-23
 
 Kiro's modes work again on KiroCrew 0.8.0.9 and later. The host now reserves

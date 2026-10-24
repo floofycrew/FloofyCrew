@@ -78,3 +78,26 @@ commit's, and every commit a push would publish (`@{upstream}..HEAD`), must be
 the public one; the review refuses otherwise. A model pass is never proof, and
 findings are printed for a human to judge, never auto-fixed. The review record
 lands in the clone's `.git/floofycrew-ai-review.json` (never pushed).
+
+## The public mod records
+
+Public users install mods from the public registry, whose records point at
+archive assets on this repository's GitHub releases (one release per mod
+version, tagged `<id>-<version>`). `packaging/internal/seed_public_records.py`
+(internal-only, never exported) writes the records for a release:
+
+```bash
+python packaging/internal/seed_public_records.py --export <public-clone> --registry <registry-clone>
+# one JSON line per mod: id, version, tag, archive path, sha256 — versions already recorded are skipped
+```
+
+It covers the first-party mods under `mods/` of the **public export** (never the
+internal source) and the mods that ship from their own public repository
+(`EXTRA_MODS`, today the KiroCrew IDE at `kirocrew-ide`, read from the committed
+tree of its clone next to the export; `--extra <id>=<path>` for another
+location). Then, per line: `registry_tools validate-submission <archive>
+--registry <registry-clone> --tag <tag>`, `gh release create <tag> <archive>
+--target <export commit> --latest=false`, and finally `registry_tools build
+<registry-clone> --sign <public key> --app-registry --floofycrew <version>` plus
+`registry_tools readme`. A curator-edited `mods/<id>/mod.json` is never
+overwritten by the seed.

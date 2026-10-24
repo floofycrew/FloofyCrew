@@ -13,3 +13,11 @@ dist/
 branding/.cache/
 packageInfo
 mods/*/.floofy/
+# Rewritten in place by the host whenever a session opens on this checkout (agent-spec
+# injections and upgrade stamps, effort defaults, skill-discovery overlays). The internal
+# edition keeps the sources under its adapter and materializes them with a sync script.
+.kiro/agents/
+.kiro/settings/cli.json
+.kiro/settings/*.lock
+# Written by the Spec executor while tasks run (pbtResults, executionHistory)
+.kiro/specs/*/tasks.meta.json
