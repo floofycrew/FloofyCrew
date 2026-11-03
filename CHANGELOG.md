@@ -11,6 +11,20 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **agent-backend-router 0.3.6: a backend that answers on another model is
+  caught and excluded.** Declaring `global.anthropic.claude-fable-5-1[1m]` as
+  served by Claude Code (a `served_overrides` test on the author's host) routed
+  `claude-fable-5.1` sessions there, and Claude Code answered — on Opus 5.5,
+  after the one-line notice `Model "…" is restricted by your organization's
+  settings. Using claude-opus-5-5 instead.` (template verbatim in the
+  claude-agent-sdk binary; the tier-fallback `<id> not available — using
+  <other>` is the second shape). The router now reads the head of every turn's
+  text for these notices, scoped to the wire id the session was handed; a hit
+  records the turn as a `model_substituted` failure of that backend, marks the
+  session `substituted` in its diagnostics, and excludes the (backend, wire id)
+  pair from the routing decision, failover candidates and the page's checker
+  until cleared on the page (per pair or all; `substitutions/clear` route).
+  The ledger lives in the router's state file and survives restarts.
 - **agent-backend-router 0.3.5: kiro-cli and KAS are no longer interchangeable,
   and the context window is no longer model identity.** On a KAS-configured
   host the router round-robined sessions onto kiro-cli (same `acp` namespace,
