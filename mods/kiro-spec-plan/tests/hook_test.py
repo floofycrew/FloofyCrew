@@ -46,13 +46,24 @@ class Ctx:
             self.hooks = hooks
 
 
-def _host(reserved):
+#: The modules a 0.11 host binds ``kas_wire_agent_id`` / ``attach_kas_custom_agents`` into.
+HOST_011_MODULES = {
+    "kiro_crew.acp._dispatch": ("kas_wire_agent_id", "attach_kas_custom_agents"),
+    "kiro_crew.acp.kas_agents": ("kas_wire_agent_id",),
+    "kiro_crew.acp.runtime": ("kas_wire_agent_id", "attach_kas_custom_agents"),
+    "kiro_crew.acp.runtime_session_create": ("kas_wire_agent_id", "attach_kas_custom_agents"),
+    "kiro_crew.acp.runtime_session_load": ("kas_wire_agent_id", "attach_kas_custom_agents"),
+}
+
+
+def _host(reserved, renames=False):
     """Stand in for the host's ``kiro_crew.agent_files`` with the given reserved set.
 
     ``None`` = no such host: the names are pinned to ``None`` in ``sys.modules``, which
     makes their import raise, so the test says the same thing under an interpreter that
-    has the real KiroCrew installed as under one that does not."""
-    for name in ("kiro_crew", "kiro_crew.agent_files"):
+    has the real KiroCrew installed as under one that does not. ``renames`` adds the 0.11
+    shape: ``kas_wire_agent_id`` in ``agent_files`` and every module that imports it."""
+    for name in [n for n in list(sys.modules) if n == "kiro_crew" or n.startswith("kiro_crew.")]:
         sys.modules.pop(name, None)
     if reserved is None:
         sys.modules["kiro_crew.agent_files"] = None
@@ -64,6 +75,23 @@ def _host(reserved):
     pkg.agent_files = mod
     sys.modules["kiro_crew"] = pkg
     sys.modules["kiro_crew.agent_files"] = mod
+    if not renames:
+        return
+
+    def kas_wire_agent_id(agent_id):
+        return agent_id + "-crewmate" if agent_id in mod.KAS_RESERVED_AGENT_IDS else agent_id
+
+    mod.kas_wire_agent_id = kas_wire_agent_id
+    acp = types.ModuleType("kiro_crew.acp")
+    acp.__path__ = []
+    sys.modules["kiro_crew.acp"] = acp
+    pkg.acp = acp
+    for name, attrs in HOST_011_MODULES.items():
+        sub = types.ModuleType(name)
+        for attr in attrs:
+            setattr(sub, attr, kas_wire_agent_id if attr == "kas_wire_agent_id" else (lambda params, agents: None))
+        sys.modules[name] = sub
+        setattr(acp, name.rsplit(".", 1)[1], sub)
 
 
 def test_verdict_and_lifecycle(hook):
@@ -107,13 +135,48 @@ def test_bridge_registers_on_a_reserving_host(hook):
         _host(["default", "vibe", "spec", "quick-spec", "bug-fix", "plan", "autonomous"])
         ctx = Ctx(home, Hooks())
         hook.activate(ctx)
-        assert set(ctx.hooks.replaced) == set(hook.SEAMS.values()), ctx.hooks.replaced
-        assert ctx.state["bridge"] == {"needed": True, "seams": {"project": "ok", "wire": "ok", "wire_runtime": "ok", "activate": "ok", "prompt": "ok"}}, ctx.state["bridge"]
+        # The stub host is a 0.8-0.10 shape: it has the five original seams and none of the
+        # 0.11 bindings (no acp.runtime_session_* modules, no kas_wire_agent_id), which read
+        # ``absent`` -- a host-version fact, not a gap -- and are never passed to replace().
+        original = {hook.SEAM_PROJECT, hook.SEAM_WIRE, hook.SEAM_WIRE_RUNTIME, hook.SEAM_ACTIVATE, hook.SEAM_PROMPT}
+        assert set(ctx.hooks.replaced) == original, ctx.hooks.replaced
+        seams = ctx.state["bridge"]["seams"]
+        assert ctx.state["bridge"]["needed"] is True
+        assert {n: s for n, s in seams.items() if n not in hook._HOST_SHAPED_SEAMS} == {"project": "ok", "wire": "ok", "wire_runtime": "ok", "activate": "ok", "prompt": "ok"}, seams
+        assert set(seams) == set(hook.SEAMS) and all(seams[n] == "absent" for n in hook._HOST_SHAPED_SEAMS), seams
         # One function, two bindings: both wire seams run the same hook.
         assert ctx.hooks.replaced[hook.SEAM_WIRE] is ctx.hooks.replaced[hook.SEAM_WIRE_RUNTIME] is hook.wire
-        assert any("activation bridge installed" in msg for _, msg in ctx.logged), ctx.logged
+        installed = [msg for level, msg in ctx.logged if "activation bridge installed" in msg]
+        assert installed and "pinned" not in installed[0], ctx.logged
+        assert not any(level == "warning" for level, _ in ctx.logged), ctx.logged
         assert hook._status(None)["bridge"]["seams"]["wire"] == "ok"
         hook.deactivate(ctx)
+
+        # A 0.11-shaped host: it binds kas_wire_agent_id in six modules and
+        # attach_kas_custom_agents in four; every binding is hooked and the log says so.
+        _host(["default", "vibe", "spec", "quick-spec", "bug-fix", "plan", "autonomous"], renames=True)
+        ctx = Ctx(home, Hooks())
+        hook.activate(ctx)
+        assert set(ctx.hooks.replaced) == set(hook.SEAMS.values()), set(hook.SEAMS.values()) - set(ctx.hooks.replaced)
+        assert set(ctx.state["bridge"]["seams"].values()) == {"ok"}, ctx.state["bridge"]
+        for name in hook._WIRE_ID_SEAMS:
+            assert ctx.hooks.replaced[hook.SEAMS[name]] is hook.wire_id
+        for name in hook._WIRE_SEAMS:
+            assert ctx.hooks.replaced[hook.SEAMS[name]] is hook.wire
+        installed = [msg for level, msg in ctx.logged if "activation bridge installed" in msg]
+        assert installed and "pinned to the bundled ids" in installed[0], ctx.logged
+        hook.deactivate(ctx)
+
+        # The same host with the create-path wire-id binding gone: the bridge is reported
+        # incomplete for the 0.11 refusal by name, not as "installed".
+        ctx = Ctx(home, Hooks(missing=[hook.SEAM_WIRE_ID_CREATE]))
+        hook.activate(ctx)
+        assert ctx.state["bridge"]["seams"]["wire_id_create"].startswith("missing:"), ctx.state["bridge"]
+        warned = [msg for level, msg in ctx.logged if level == "warning" and "without the wire-id seam" in msg]
+        assert warned and hook.SEAM_WIRE_ID_CREATE in warned[0] and "is not available on this session" in warned[0], ctx.logged
+        assert not any("activation bridge installed" in msg for _, msg in ctx.logged), ctx.logged
+        hook.deactivate(ctx)
+        _host(["default", "vibe", "spec", "quick-spec", "bug-fix", "plan", "autonomous"])
 
         # A host that moved one wire binding: the rest still take, status names the gap, the
         # warning names the binding, no exception escapes.
@@ -187,6 +250,21 @@ def test_seam_behaviour(hook):
     assert hook.activation(refusal, harness, "", resp).endswith("is reserved")
     assert hook.is_mode(None) is False and hook.is_mode("Spec") is False and hook.is_mode("spec") is True
 
+    # wire_id: a mode id is its own wire id; every other id keeps the host's alias, arguments intact.
+    seen = []
+
+    def host_wire_id(agent_id, *a, **k):
+        seen.append((agent_id, a, k))
+        return agent_id + "-crewmate"
+
+    for mode in MODES:
+        assert hook.wire_id(host_wire_id, mode) == mode
+    assert not seen, "the host rename must not run for a mode id"
+    assert hook.wire_id(host_wire_id, "default") == "default-crewmate"
+    assert hook.wire_id(host_wire_id, "vibe", 1, flag=True) == "vibe-crewmate" and seen[-1] == ("vibe", (1,), {"flag": True})
+    assert hook.wire_id(host_wire_id, "o3r_default") == "o3r_default-crewmate"
+    assert hook.wire_id(host_wire_id, "Spec") == "Spec-crewmate", "case matters: only the exact mode id is pinned"
+
 
 def test_wire_covers_session_new_on_the_real_host(hook):
     """Regression for 0.2.0: ``session/new`` params are built in ``_dispatch``, which calls its OWN
@@ -218,6 +296,56 @@ def test_wire_covers_session_new_on_the_real_host(hook):
         assert "_meta" not in load_params, load_params
     finally:
         _dispatch.attach_kas_custom_agents, runtime.attach_kas_custom_agents = saved
+
+
+def test_wire_id_pins_mode_ids_on_the_real_host(hook):
+    """Regression for 0.2.1 on KiroCrew 0.11.1.5: the host renames a reserved id to
+    ``<id>-crewmate`` on every wire crossing (``kas_wire_agent_id``), the bridge strips the
+    mode entry, so the host looked for ``spec-crewmate`` in the advertised modes and
+    refused ("Agent mode 'spec' is not available on this session"). With the seam on
+    every binding, a mode id crosses as itself and the batch inverse still maps back.
+    Skipped on an interpreter without a renaming host."""
+    for name in [n for n in sys.modules if n == "kiro_crew" or n.startswith("kiro_crew.")]:
+        sys.modules.pop(name, None)
+    try:
+        from kiro_crew import agent_files  # noqa: PLC0415
+        from kiro_crew.acp import _dispatch, kas_agents, runtime, runtime_session_create, runtime_session_load  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001 - not a KiroCrew interpreter, or one before 0.11
+        print("  (wire-id regression skipped: %s)" % exc)
+        return
+    if not hasattr(agent_files, "kas_wire_agent_id"):
+        print("  (wire-id regression skipped: this host does not rename reserved ids)")
+        return
+    original = agent_files.kas_wire_agent_id
+    assert original("spec") == "spec-crewmate" and original("o3r_default") == "o3r_default", "re-measure the host's rename"
+    bindings = {m: m.kas_wire_agent_id for m in (agent_files, _dispatch, kas_agents, runtime, runtime_session_create, runtime_session_load)}
+    assert all(fn is original for fn in bindings.values()), "the host no longer imports the function by name everywhere; re-measure the seams"
+    for name in hook._WIRE_ID_SEAMS:
+        assert hook._host_has(hook.SEAMS[name]), hook.SEAMS[name]
+    assert hook._host_has(hook.SEAM_WIRE_CREATE) and hook._host_has(hook.SEAM_WIRE_LOAD)
+    try:
+        # What the loader's replace() does for each wire-id target: rebind that module's attribute.
+        for module in bindings:
+            module.kas_wire_agent_id = lambda agent_id, *a, **k: hook.wire_id(original, agent_id, *a, **k)
+        # The two start paths derive the set_mode id from their own binding.
+        assert runtime_session_create.kas_wire_agent_id("spec") == "spec"
+        assert runtime_session_load.kas_wire_agent_id("plan") == "plan"
+        assert runtime_session_create.kas_wire_agent_id("default") == "default-crewmate"
+        # The batch rename (not stripped here, to see the rename alone) sends a mode id as itself and
+        # a reserved crewmate id under its alias; the inverse maps both back.
+        params = {}
+        _dispatch.attach_kas_custom_agents(params, [{"id": "spec", "prompt": "x", "tools": []}, {"id": "vibe", "prompt": "y", "tools": []}])
+        sent = [a["id"] for a in params["_meta"]["kiro"]["customAgents"]]
+        assert sent == ["spec", "vibe-crewmate"], sent
+        batch = [{"id": "spec"}, {"id": "vibe"}]
+        assert _dispatch.kas_crew_agent_id(batch, "spec") == "spec" and _dispatch.kas_crew_agent_id(batch, "vibe-crewmate") == "vibe"
+        # With the wire seam too (the real install), the mode entry never goes out at all.
+        params = {}
+        hook.wire(_dispatch.attach_kas_custom_agents, params, [{"id": "spec", "prompt": "x", "tools": []}])
+        assert "_meta" not in params, params
+    finally:
+        for module, fn in bindings.items():
+            module.kas_wire_agent_id = fn
 
 
 def test_prompt_seam_keeps_the_handle_text_out_of_a_kas_session(hook):
@@ -267,6 +395,8 @@ def test_prompt_seam_keeps_the_handle_text_out_of_a_kas_session(hook):
 
 def test_prompt_seam_matches_the_real_host_signature(hook):
     """The host passes session_key by keyword to _resolve_agent_prompt; a rename there must fail here, not in production."""
+    for name in [n for n in sys.modules if n == "kiro_crew" or n.startswith("kiro_crew.")]:
+        sys.modules.pop(name, None)  # the stub host an earlier test installed
     try:
         import inspect  # noqa: PLC0415
         from kiro_crew.context import ContextBuilder  # noqa: PLC0415
@@ -285,11 +415,12 @@ def main():
     test_bridge_registers_on_a_reserving_host(hook)
     test_seam_behaviour(hook)
     test_wire_covers_session_new_on_the_real_host(hook)
+    test_wire_id_pins_mode_ids_on_the_real_host(hook)
     test_prompt_seam_keeps_the_handle_text_out_of_a_kas_session(hook)
     test_prompt_seam_matches_the_real_host_signature(hook)
     print("kiro-spec-plan hook OK: verdict from config, warning when off, read-only; "
-          "bridge narrows the reserved-id seams (both wire bindings) to the four mode ids; "
-          "no in-band handle prompt on KAS")
+          "bridge narrows the reserved-id seams (every wire binding) to the four mode ids and pins their "
+          "wire id to the bundled id on a 0.11 host; no in-band handle prompt on KAS")
 
 
 if __name__ == "__main__":

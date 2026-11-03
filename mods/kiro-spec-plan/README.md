@@ -51,6 +51,28 @@ ids, at the places a session start crosses them:
   runs natively only on the KAS backend …") while running on KAS all along;
 - `KasHarness.activation_refusal` refuses an advertised mode stamped
   `origin: bundled`; for a mode id that stamp is the expected one;
+- `kas_wire_agent_id` (KiroCrew 0.11 and later) is the host's newer answer to
+  the same collision: instead of refusing a reserved id it renames it on the
+  wire, so a crewmate called `spec` registers and activates as `spec-crewmate`
+  and runs unchanged beside the built-in. For a mode id that is the wrong
+  outcome twice over: the bridge strips the entry, so nothing registers under
+  the alias, and the host then looks for `spec-crewmate` in the advertised
+  modes, finds nothing, and refuses the start with "Agent mode 'spec' is not
+  available on this session (advertised modes: [… 'spec' …]); its
+  ~/.kiro/agents/spec.json is likely missing" (the file is there; the id it
+  looked for was the alias). And had the entry travelled, the engine would
+  have registered the handle as a `client` agent and run *it*, not Spec
+  (measured on kiro-cli 3.0.0). So for a mode id the function answers the id
+  itself: `session/set_mode` names the bundled mode, the advertised-id check
+  finds it, and `activation_refusal` above admits its `bundled` stamp. The
+  function is imported by name into six host modules (`agent_files`, its
+  home; `acp._dispatch`, the batch rename and its inverse; `acp.kas_agents`,
+  the registered-entry lookups; `acp.runtime`, `acp.runtime_session_create`
+  and `acp.runtime_session_load`, where the two start paths derive the
+  `set_mode` id), and every binding is pinned, so no path can look for the
+  alias while another sends the bare id. 0.11 also split the wire function's
+  callers into `runtime_session_create` / `runtime_session_load`, each with
+  its own binding of `attach_kas_custom_agents`; both are stripped too;
 - `ContextBuilder._resolve_agent_prompt` is where the host puts every custom
   agent's prompt into the turn as an `[AGENT SYSTEM PROMPT]` block, on any
   backend. For a mode id whose session runs on KAS the block is left empty: the
@@ -65,11 +87,16 @@ ids, at the places a session start crosses them:
   prompt stays, where it tells the truth.
 
 Every other agent id passes through untouched, so the host's protection for
-real crewmates stays whole. On a host that never refused these ids (KiroCrew
-before 0.8.0.9) nothing is hooked. `GET status` (and the mod's exports) carry
-`bridge: {needed, seams: {project, wire, wire_runtime, activate, prompt}}`,
-each seam `ok` or `missing: <why>`, so a host that moves one of those functions
-shows up as a named gap rather than a mystery refusal.
+real crewmates stays whole (a crewmate named `vibe` still travels as
+`vibe-crewmate`). On a host that never refused these ids (KiroCrew before
+0.8.0.9) nothing is hooked. `GET status` (and the mod's exports) carry
+`bridge: {needed, seams: {project, wire, wire_runtime, wire_create, wire_load,
+activate, prompt, wire_id_files, wire_id_dispatch, wire_id_agents,
+wire_id_runtime, wire_id_create, wire_id_load}}`, each seam `ok`, `absent`
+(this host has no such binding: the 0.11 ones on a 0.8–0.10 host) or
+`missing: <why>` (the host has it and the loader could not replace it), so a
+host that moves one of those functions shows up as a named gap rather than a
+mystery refusal.
 
 Why not copy the modes out instead: the Spec / Quick Spec / Bug Fix / Plan
 workflows are not prompts you can paste into a crew agent. In the engine bundle
@@ -88,7 +115,7 @@ only faithful route is activating its built-in modes.
 - a gateway hook that reads `agent.acp_backend` (read-only) and publishes the
   verdict (`kas`, `backend`, `hint`, `bridge`) as the mod's exports, plus `GET
   status`; on KiroCrew 0.8.0.9+ it also installs the activation bridge above
-  (three `replace` hooks, scoped to the four mode ids);
+  (`replace` hooks on the seams the host has, scoped to the four mode ids);
 - a dashboard part that badges the four rows in the agent selector
   ("Kiro mode", or "needs KAS" with the fix in its tooltip).
 

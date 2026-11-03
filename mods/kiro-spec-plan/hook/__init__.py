@@ -40,6 +40,19 @@ Two jobs, then:
      delegation target, and the orchestrator's first reply quoted its prompt.
    * ``KasHarness.activation_refusal`` refuses an advertised mode stamped
      ``origin: bundled``. For a mode id that stamp is the expected one.
+   * ``kas_wire_agent_id`` (KiroCrew 0.11+) renames a reserved id on its way to
+     the engine -- ``spec`` registers and activates as ``spec-crewmate`` -- so
+     a crewmate of that name runs unchanged beside the built-in. With the entry
+     stripped by the wire seam above nothing registers under that alias, and
+     the host then refuses the start ("Agent mode 'spec' is not available on
+     this session ... its ~/.kiro/agents/spec.json is likely missing", with
+     ``spec`` right there in the advertised list: the id it looked for was the
+     alias). For a mode id the function answers the id itself, so ``set_mode``
+     names the bundled mode and the advertised-id check finds it. Measured on
+     kiro-cli 3.0.0 (2026-11-03): the alias WOULD register as a ``client``
+     agent, which is exactly the handle-not-the-mode outcome this mod exists to
+     avoid. The function is imported by name into six host modules; each
+     binding is a seam.
    * ``ContextBuilder._resolve_agent_prompt`` puts every custom agent's prompt
      in the turn as an ``[AGENT SYSTEM PROMPT]`` block, on any backend. For a
      mode id whose session runs on KAS (the Agent Backend Router's record when
@@ -50,7 +63,9 @@ Two jobs, then:
 
    Every other agent id passes through untouched, and a host without a given
    seam (an older KiroCrew that never refused, a newer one that moved the
-   function) is reported in ``status`` rather than guessed at.
+   function) is reported in ``status`` rather than guessed at: a binding the
+   host does not have at all reads ``absent`` (nothing to pin there), one it
+   has but the loader could not replace reads ``missing: <why>``.
 """
 from __future__ import annotations
 
@@ -77,7 +92,25 @@ RESERVED_IDS_ATTR = "KAS_RESERVED_AGENT_IDS"
 SEAM_PROJECT = "kiro_crew.acp.kas_agents:to_client_custom_agent"
 SEAM_WIRE = "kiro_crew.acp._dispatch:attach_kas_custom_agents"
 SEAM_WIRE_RUNTIME = "kiro_crew.acp.runtime:attach_kas_custom_agents"
+#: KiroCrew 0.11 split ``runtime`` into per-path modules, each importing its own
+#: binding: ``runtime_session_create`` (the MCP-readiness params) and
+#: ``runtime_session_load`` (the ``session/load`` request). Absent on older hosts.
+SEAM_WIRE_CREATE = "kiro_crew.acp.runtime_session_create:attach_kas_custom_agents"
+SEAM_WIRE_LOAD = "kiro_crew.acp.runtime_session_load:attach_kas_custom_agents"
 SEAM_ACTIVATE = "kiro_crew.acp.harness.kas:KasHarness.activation_refusal"
+#: ``kas_wire_agent_id`` (KiroCrew 0.11+): the id a reserved agent crosses the
+#: wire under. Defined in ``agent_files`` and imported by name wherever the id
+#: is renamed, compared or sent: the ``customAgents`` batch and its inverse
+#: (``_dispatch``), the registered-entry lookups (``kas_agents``), and the two
+#: session-start paths that derive the ``set_mode`` id (``runtime_session_create``,
+#: ``runtime_session_load``; ``runtime`` keeps a binding too). Every binding is
+#: pinned, so no path can look for ``spec-crewmate`` while another sends ``spec``.
+SEAM_WIRE_ID_FILES = "kiro_crew.agent_files:kas_wire_agent_id"
+SEAM_WIRE_ID_DISPATCH = "kiro_crew.acp._dispatch:kas_wire_agent_id"
+SEAM_WIRE_ID_AGENTS = "kiro_crew.acp.kas_agents:kas_wire_agent_id"
+SEAM_WIRE_ID_RUNTIME = "kiro_crew.acp.runtime:kas_wire_agent_id"
+SEAM_WIRE_ID_CREATE = "kiro_crew.acp.runtime_session_create:kas_wire_agent_id"
+SEAM_WIRE_ID_LOAD = "kiro_crew.acp.runtime_session_load:kas_wire_agent_id"
 #: The host puts every custom agent's prompt in the turn as an ``[AGENT SYSTEM
 #: PROMPT]`` block, whatever backend the session runs on. For a mode id on KAS
 #: the engine runs the built-in mode and that block would hand the model the
@@ -88,7 +121,27 @@ SEAM_ACTIVATE = "kiro_crew.acp.harness.kas:KasHarness.activation_refusal"
 #: on KAS; kept otherwise, where it tells the truth.
 SEAM_PROMPT = "kiro_crew.context:ContextBuilder._resolve_agent_prompt"
 SEAMS = {"project": SEAM_PROJECT, "wire": SEAM_WIRE, "wire_runtime": SEAM_WIRE_RUNTIME, "activate": SEAM_ACTIVATE,
-         "prompt": SEAM_PROMPT}
+         "prompt": SEAM_PROMPT,
+         "wire_create": SEAM_WIRE_CREATE, "wire_load": SEAM_WIRE_LOAD,
+         "wire_id_files": SEAM_WIRE_ID_FILES, "wire_id_dispatch": SEAM_WIRE_ID_DISPATCH,
+         "wire_id_agents": SEAM_WIRE_ID_AGENTS, "wire_id_runtime": SEAM_WIRE_ID_RUNTIME,
+         "wire_id_create": SEAM_WIRE_ID_CREATE, "wire_id_load": SEAM_WIRE_ID_LOAD}
+#: The seams a host may lack by VERSION rather than by having moved something:
+#: a host without the module or the attribute reads ``absent`` and raises no
+#: warning. The five original seams keep their 0.2.x meaning (``missing`` warns).
+_HOST_SHAPED_SEAMS = ("wire_create", "wire_load", "wire_id_files", "wire_id_dispatch", "wire_id_agents",
+                      "wire_id_runtime", "wire_id_create", "wire_id_load")
+#: The wire-strip seams, in the status order; any one ``missing`` means the
+#: handle travels on that path.
+_WIRE_SEAMS = ("wire", "wire_runtime", "wire_create", "wire_load")
+#: The wire-id seams. On a host that has ``kas_wire_agent_id`` at all, the two
+#: start paths (create, load) and the batch rename (dispatch) decide what
+#: ``set_mode`` names and what the advertised-id check looks for: any of those
+#: three ``missing`` and the host looks for the alias while the wire carries
+#: nothing under it, which is the 0.11.1.5 refusal this seam exists for.
+_WIRE_ID_SEAMS = ("wire_id_files", "wire_id_dispatch", "wire_id_agents", "wire_id_runtime", "wire_id_create",
+                  "wire_id_load")
+_WIRE_ID_REQUIRED = ("wire_id_dispatch", "wire_id_create", "wire_id_load")
 #: The seams a working bridge cannot do without: ``project`` lets the session
 #: start, ``activate`` lets the engine's bundled stamp through. Either wire
 #: binding missing degrades to "the handle travels", which the log names; the
@@ -210,6 +263,23 @@ def activation(call_next, harness, agent, resp, *args, **kwargs):
     return call_next(harness, agent, resp, *args, **kwargs)
 
 
+def wire_id(call_next, agent_id, *args, **kwargs):
+    """``kas_wire_agent_id``: a mode id crosses the wire as itself, the engine's bundled id.
+
+    The host's answer for a reserved id is ``<id>-crewmate``, the alias a crewmate
+    of that name registers and activates under so it is not shadowed by the
+    built-in. A mode id is not a crewmate: the wire seam keeps its entry off the
+    batch, so nothing registers under the alias, and the alias would then be what
+    ``set_mode`` names and what the advertised-id check looks for -- absent on
+    both counts. Pinned to the id itself, ``set_mode`` selects the bundled mode
+    (advertised, stamped ``bundled``, which ``activation`` admits). Every other
+    id keeps the host's answer.
+    """
+    if is_mode(agent_id):
+        return agent_id
+    return call_next(agent_id, *args, **kwargs)
+
+
 def session_runs_on_kas(session_key) -> bool:
     """Whether *session_key*'s provider runs on KAS: the router's record when it has one, else the host config.
 
@@ -244,7 +314,30 @@ def prompt(call_next, builder, agent, *args, **kwargs):
     return call_next(builder, agent, *args, **kwargs)
 
 
-_HOOKS = {"project": project, "wire": wire, "wire_runtime": wire, "activate": activation, "prompt": prompt}
+_HOOKS = {"project": project, "wire": wire, "wire_runtime": wire, "wire_create": wire, "wire_load": wire,
+          "activate": activation, "prompt": prompt}
+_HOOKS.update({name: wire_id for name in _WIRE_ID_SEAMS})
+
+
+def _host_has(target) -> bool:
+    """Whether the host binds ``module:attr`` at all (a host-shaped seam's presence test).
+
+    ``module:Class.attr`` resolves the class first. Import failure or a missing
+    attribute both answer False; nothing else is caught, so a host module that
+    raises on import stays visible as a ``missing`` seam rather than an ``absent``
+    one.
+    """
+    module_name, _, attr = str(target).partition(":")
+    try:
+        module = __import__(module_name, fromlist=[attr.split(".")[0]])
+    except ImportError:
+        return False
+    obj = module
+    for part in attr.split("."):
+        if not hasattr(obj, part):
+            return False
+        obj = getattr(obj, part)
+    return True
 
 
 def _host_reserves_modes() -> bool:
@@ -276,6 +369,9 @@ def install_bridge(ctx) -> dict:
                         "Spec/Quick Spec/Bug Fix/Plan will be refused at session start")
         return dict(_bridge, seams=dict(_bridge["seams"]))
     for name, target in SEAMS.items():
+        if name in _HOST_SHAPED_SEAMS and not _host_has(target):
+            _bridge["seams"][name] = "absent"
+            continue
         try:
             hooks.replace(target, _HOOKS[name])
             _bridge["seams"][name] = "ok"
@@ -283,15 +379,26 @@ def install_bridge(ctx) -> dict:
             _bridge["seams"][name] = "missing: %s" % (exc,)
             ctx.log.warning("Kiro Spec & Plan: seam %s not found on this host (%s)", target, exc)
     taken = [n for n, s in _bridge["seams"].items() if s == "ok"]
-    if len(taken) == len(SEAMS):
-        ctx.log.info("Kiro Spec & Plan: activation bridge installed — %s select Kiro's built-in modes on KAS",
-                     ", ".join(MODES))
+    absent = [n for n, s in _bridge["seams"].items() if s == "absent"]
+    # A host that renames reserved ids on the wire needs the pin on the bindings
+    # that decide the set_mode id; one without the function has nothing to pin.
+    renames = "wire_id_files" not in absent
+    if len(taken) + len(absent) == len(SEAMS) and (not renames or all(n in taken for n in _WIRE_ID_REQUIRED)):
+        ctx.log.info("Kiro Spec & Plan: activation bridge installed — %s select Kiro's built-in modes on KAS%s",
+                     ", ".join(MODES),
+                     " (reserved ids pinned to the bundled ids on the wire)" if renames else "")
     elif all(n in taken for n in _REQUIRED_SEAMS):
-        missing_wire = [n for n in ("wire", "wire_runtime") if n not in taken]
+        missing_wire = [n for n in _WIRE_SEAMS if n not in taken and n not in absent]
         if missing_wire:
             ctx.log.warning("Kiro Spec & Plan: bridge installed without the wire seam (%s); the mode handle travels as a "
                             "tool-less client agent the engine lists as a (client) delegation target",
                             ", ".join(SEAMS[n] for n in missing_wire))
+        missing_id = [n for n in _WIRE_ID_SEAMS if n not in taken and n not in absent]
+        if renames and missing_id:
+            ctx.log.warning("Kiro Spec & Plan: bridge installed without the wire-id seam (%s); the host looks for the "
+                            "mode under its crewmate alias, which nothing registers, and refuses the start "
+                            "(\"Agent mode 'spec' is not available on this session\")",
+                            ", ".join(SEAMS[n] for n in missing_id))
         if "prompt" not in taken:
             ctx.log.warning("Kiro Spec & Plan: bridge installed without the prompt seam (%s); the mode handle's prompt "
                             "is injected in-band and the model may repeat its 'not on KAS' note", SEAM_PROMPT)
