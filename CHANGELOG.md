@@ -11,6 +11,27 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+- **agent-backend-router 0.3.5: kiro-cli and KAS are no longer interchangeable,
+  and the context window is no longer model identity.** On a KAS-configured
+  host the router round-robined sessions onto kiro-cli (same `acp` namespace,
+  same list), where an agent whose tool grants exceed kiro-cli's governance
+  ceiling fails to start — every such route in the live log ended in that
+  error. The two are different engines (v2 / v3: governance, modes, session
+  stores), so a session configured for one is never moved to the other; the
+  eligibility row says so, and `kiro_kas_interchangeable` (off) switches the
+  fence off. Pins are untouched and a session arriving from another namespace
+  may land on either engine. Separately, Claude Code had never received a
+  session: the models in use were `claude-fable-5.1` (Claude Code lists only the
+  alias `fable`, which the host's own table says is Fable 5) and
+  `claude-sonnet-5`, which Claude Code lists bare — its standard-window
+  spelling — while kiro's is 1M, and the window was part of identity. It no
+  longer is: same base name = same model, the window-matching spelling is
+  preferred when a backend lists both, and a difference is stated in the reason
+  ("standard window spelling; the session's model is 1M on kas — same model,
+  different context window"). `window_strict` (off) restores the old rule. The
+  page gains both switches and a "configured on" selector in the eligibility
+  checker; the `eligible` route takes an optional `requested`.
+
 ## 1.3.11 — 2026-10-24
 
 A Spec session no longer opens with a false note about its backend. 1.3.10's
