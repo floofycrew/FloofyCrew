@@ -12,6 +12,7 @@
 | ``app-registry REPO [--out app-registry.json]`` | the KiroCrew-compatible ``app-registry.json`` for the app-kind mods of ``index.json`` (task 7.4) |
 | ``record REPO ID [--repo URL] [--path DIR] [--ref BRANCH] [--source CHECKOUT [--source-ref COMMITISH]] [--contact ALIAS] [--refresh] [--json]`` | make (or ``--refresh``) the link record of a mod from its repository: read the mod under ``DIR`` (default ``mods/ID``) on ``BRANCH`` (default the repository's default branch) — or from a local checkout — and pin the **commit** it was read at; no tag is involved (Requirement 8.9). Follow with ``build --sign`` and ``readme`` |
 | ``readme REPO [--check]`` | rewrite the README's mod table (between ``<!-- mods:begin -->`` / ``<!-- mods:end -->``) from ``index.json``; ``--check`` fails when the committed table is stale (Requirement 8.10) |
+| ``stamp REPO [--floofycrew VERSION] [--sign KEY] [--no-app-registry] [--commit]`` | stamp a FloofyCrew release into the registry: ``build --floofycrew VERSION --app-registry [--sign KEY]`` plus the README table, as one step, for a **hand-cut** public release (run from the public clone: ``VERSION`` defaults to that clone's ``floofy_core.__version__``); ``--commit`` makes the ``chore(index): Stamp floofycrew VERSION`` commit in the registry clone and never pushes. The Forge's release stage does the same through :func:`stamp_index` before its direct signed commit (public-first design DR-9; the release workflow no longer writes the registry) |
 
 Exit status: 0 ok, 1 a check failed, 2 usage or an unreadable input.
 """
@@ -19,7 +20,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +36,7 @@ from .record import RecordError, make_record
 from .repo import RegistryRepo, RepoError
 from .submission import validate_submission
 
-__all__ = ["main"]
+__all__ = ["Stamp", "StampError", "main", "stamp_index"]
 
 
 def _say(message: str) -> None:
@@ -235,6 +238,120 @@ def cmd_readme(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- stamp (a release into the registry) -------------------------------------------------------------------------
+
+
+class StampError(RuntimeError):
+    """The index could not be stamped: a record defect the build refuses, or a signing key the registry does not name."""
+
+
+@dataclass
+class Stamp:
+    """What :func:`stamp_index` did: the version stamped, the files it wrote (to ``git add``), the key that signed, one note per step."""
+
+    version: str | None
+    written: list[Path] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    key_id: str | None = None
+    mods: int = 0
+    versions: int = 0
+
+
+def stamp_index(repo: RegistryRepo, version: str | None, *, sign: Path | None = None, app_registry: bool = True, readme: bool = True) -> Stamp:
+    """``build --floofycrew VERSION [--app-registry] [--sign KEY]`` plus the README table, as one library call.
+
+    Rebuilds ``index.json`` from the records with the matrix folded in and ``floofycrew`` set to
+    ``version`` (``None`` leaves the stamp out), writes ``app-registry.json`` (``app_registry``),
+    rewrites the README's mod table when the README carries the ``<!-- mods:begin -->`` markers
+    (``readme``; a README without them is a human's and is left alone), and signs the index with
+    ``sign`` — whose key id must be the one ``registry.json`` names, as ``build --sign`` insists.
+    ``compat.json`` is not touched: its rows come from the Forge (``compat-merge``). Raises
+    :class:`StampError` on a record defect or a key mismatch, with nothing signed.
+    """
+    from .app_registry import write_app_registry  # noqa: PLC0415
+    from .readme import MARK_BEGIN, MARK_END, update_readme  # noqa: PLC0415
+
+    pair = None
+    if sign is not None:
+        try:
+            pair = load_private_key(Path(sign))
+        except SignatureError as exc:
+            raise StampError(str(exc)) from exc
+        if repo.key_id and pair.key_id != repo.key_id:
+            raise StampError(f"registry.json expects key {repo.key_id}, but {sign} is key {pair.key_id}")
+    result = build_index(repo, floofycrew_version=version)
+    if not result.ok:
+        raise StampError("index build failed: " + "; ".join(result.problems))
+    stamp = Stamp(version, notes=[f"note: {note}" for note in result.notes])
+    stamp.mods = len(result.index["mods"])
+    stamp.versions = sum(len(m["versions"]) for m in result.index["mods"])
+    target = write_index(repo, result)
+    stamp.written.append(target)
+    stamp.notes.append(f"wrote {target}: {stamp.mods} mod(s), {stamp.versions} version(s)" + (f", floofycrew {version}" if version else ""))
+    if app_registry:
+        path, rows = write_app_registry(repo, result.index)
+        stamp.written.append(path)
+        stamp.notes.append(f"wrote {path}: {len(rows)} app row(s)")
+    readme_path = repo.root / "README.md"
+    if readme and readme_path.is_file():
+        text = readme_path.read_text(encoding="utf-8")
+        if MARK_BEGIN in text and MARK_END in text:
+            changed, path = update_readme(repo, index=result.index)
+            if changed:
+                stamp.written.append(path)
+            stamp.notes.append(f"{'rewrote' if changed else 'unchanged'} the mod table in {path}")
+    if pair is not None:
+        signature = sign_document(target, pair)
+        stamp.written.append(signature)
+        stamp.key_id = pair.key_id
+        stamp.notes.append(f"signed with key {pair.key_id} -> {signature}")
+    return stamp
+
+
+def _clone_version() -> str | None:
+    """``floofy_core.__version__`` of the FloofyCrew clone this tool runs from (``PYTHONPATH=floofy-core:registry-tools`` in the public clone)."""
+    try:
+        from floofy_core import __version__  # noqa: PLC0415
+    except ImportError:
+        return None
+    return str(__version__) if __version__ else None
+
+
+def cmd_stamp(args: argparse.Namespace) -> int:
+    try:
+        repo = RegistryRepo.load(Path(args.repo))
+    except RepoError as exc:
+        return _fail(str(exc), 2)
+    version = args.floofycrew or _clone_version()
+    if not version:
+        return _fail("no version to stamp: pass --floofycrew VERSION (floofy_core is not importable here)", 2)
+    try:
+        stamp = stamp_index(repo, version, sign=Path(args.sign) if args.sign else None, app_registry=not args.no_app_registry)
+    except StampError as exc:
+        return _fail(str(exc))
+    for note in stamp.notes:
+        _say(note)
+    if not args.commit:
+        return 0
+    paths = sorted({str(p.resolve().relative_to(repo.root.resolve())) for p in stamp.written})
+    git = ["git", "-C", str(repo.root)]
+    added = subprocess.run([*git, "add", "--", *paths], capture_output=True, text=True, check=False, timeout=60)
+    if added.returncode != 0:
+        return _fail(f"git add in {repo.root} failed: {(added.stderr or added.stdout).strip()[-300:]}")
+    subject = f"chore(index): Stamp floofycrew {version}"
+    committed = subprocess.run([*git, "commit", "-q", "-m", subject, "-m", "Index rebuilt by `registry_tools stamp` for a hand-cut public release; the compatibility rows come from the Forge."], capture_output=True, text=True, check=False, timeout=60)
+    if committed.returncode != 0:
+        text = (committed.stdout or "") + (committed.stderr or "")
+        if "nothing to commit" in text or "nothing added to commit" in text or "no changes added to commit" in text:
+            _say(f"registry index already stamped with floofycrew {version}; nothing to commit")
+            return 0
+        return _fail(f"git commit in {repo.root} failed: {text.strip()[-300:]}")
+    head = subprocess.run([*git, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=False, timeout=60).stdout.strip()
+    _say(f"committed {head}: {subject}")
+    _say("next: review the commit and push the registry's branch yourself (this command never pushes)")
+    return 0
+
+
 # --- parser -----------------------------------------------------------------------------------------------------
 
 
@@ -319,6 +436,14 @@ def build_parser() -> argparse.ArgumentParser:
     readme.add_argument("repo")
     readme.add_argument("--check", action="store_true", help="do not write; fail when the committed table differs from the regenerated one")
     readme.set_defaults(func=cmd_readme)
+
+    stamp = sub.add_parser("stamp", help="stamp a hand-cut FloofyCrew release into the registry: rebuild index.json (+ app-registry.json, the README table), sign, optionally commit; never pushes")
+    stamp.add_argument("repo", help="the registry repository clone (holds registry.json)")
+    stamp.add_argument("--floofycrew", default=None, metavar="VERSION", help="the FloofyCrew release to stamp (default: floofy_core.__version__ of the clone this tool runs from)")
+    stamp.add_argument("--sign", default=None, metavar="KEY", help="sign the written index with this private key (its id must be the one registry.json names)")
+    stamp.add_argument("--no-app-registry", action="store_true", help="leave app-registry.json alone")
+    stamp.add_argument("--commit", action="store_true", help="commit the written files in the registry clone as `chore(index): Stamp floofycrew VERSION` (the push stays yours)")
+    stamp.set_defaults(func=cmd_stamp)
     return parser
 
 

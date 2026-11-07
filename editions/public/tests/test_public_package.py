@@ -184,5 +184,9 @@ def test_registry_row_matches_the_public_adapter(release: dict):
 
 def test_release_workflow_builds_verifies_and_publishes():
     text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    for needle in ('- "v*"', "packaging/public/build.py --check", "check_no_internal_identifiers.py", "pip install --quiet --no-index --no-deps build/public/dist/floofycrew-*.whl", "gh release create", "loader-app", "registry_tools build"):
+    for needle in ('- "v*"', "packaging/public/build.py --check", "check_no_internal_identifiers.py", "pip install --quiet --no-index --no-deps build/public/dist/floofycrew-*.whl", "gh release create", "loader-app", "registry_tools stamp"):
         assert needle in text, needle
+    # the public registry has one writer, the Forge's direct signed commit (public-first design DR-9, task 6.5): the workflow
+    # no longer clones the registry, rebuilds its index or opens a pull request — a hand-cut release uses `registry_tools stamp`
+    for gone in ("Stamp the release into the public registry index", "REGISTRY_TOKEN", "pr create", "registry_tools build"):
+        assert gone not in text, gone

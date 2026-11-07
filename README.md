@@ -43,6 +43,7 @@
     </li>
     <li><a href="#the-mods">The mods</a></li>
     <li><a href="#layout">Layout</a></li>
+    <li><a href="#internal-edition">Internal edition</a></li>
     <li><a href="#documentation">Documentation</a></li>
     <li><a href="#development">Development</a></li>
     <li><a href="#credits-and-license">Credits and license</a></li>
@@ -81,17 +82,9 @@ floofy doctor
 
 or into the host's own virtualenv: `pip install floofycrew-<version>-py3-none-any.whl`.
 
-<!-- floofy:internal-only:start -->
-**Internal edition** (the `FloofyCrew` package; the clone URL is in its
-[README](packaging/internal/FloofyCrew/README.md)):
+**Internal edition**: installed from its own package; the steps are in the
+overlay's README, see [Internal edition](#internal-edition) below.
 
-```bash
-git clone <the FloofyCrew package> && cd FloofyCrew
-bash install.sh
-floofy doctor
-```
-
-<!-- floofy:internal-only:end -->
 Every install path ends in `floofy init`, which shows a one-time warning and
 installs nothing until you agree. Then open **FloofyCrew** in the dashboard
 sidebar, or run `floofy` for the interactive terminal. Updating FloofyCrew
@@ -179,36 +172,44 @@ directory, and are published to the registry. Among them:
 
 ## Layout
 
-One repository, one shared core, two thin edition adapters. The core and the
-docs are edition-neutral; CI checks it, and measures how much of what ships is
-byte-identical across the two editions (the figures are in
+One shared core, two thin edition adapters. This repository holds the core,
+the public adapter and the edition-neutral docs; the internal adapter lives in
+the overlay described under [Internal edition](#internal-edition). CI checks
+that nothing here names an internal system, and the two editions are measured
+for how much of what ships is byte-identical (the figures are in
 [docs/two-track.md](docs/two-track.md)).
 
 | Path | What |
 |---|---|
 | `floofy-core/` | the shared core (`floofy_core`): manifest schema and validator, resolver, Patcher, registry client and signing, compatibility cache, the `floofy` CLI; example mods under `examples/`, tests under `tests/` |
 | `editions/public/` | the public edition adapter: pipx / venv / desktop payloads, the public registry and its pinned key |
-| `editions/toolbox/` | the internal edition adapter: the internal bundle's payloads, the internal registry, key and identity | <!-- floofy:internal-only:line -->
 | `loader-app/` | the Loader, a KiroCrew App (`app.json`, `floofy_loader/`, the early shim `floofy_early/`, the manager page in `ui/`) |
 | `spa-host/` | the dashboard-side runtime: `window.floofy`, surfaces, patch inspection, the reporter, the first-frame boot script |
 | `mods/` | first-party mods, one complete mod per directory &mdash; the index is [mods/README.md](mods/README.md) |
 | `registry-tools/` | build, sign and validate registry indexes; bootstrap a registry repository |
-| `packaging/` | the release tracks: `public/` (GitHub release assets, wheel, `install.sh`) and the internal package track |
-| `forge/` | release tracking: watches KiroCrew releases, re-tests every mod, fills the compatibility matrix | <!-- floofy:internal-only:line -->
+| `packaging/` | the public release track: `public/` (GitHub release assets, wheel, `install.sh`) |
 | `docs/` | documentation ([index](docs/README.md)) |
 | `scripts/` | repository tooling (identifier check, zipapp / wheel / Loader builds, identity report, the public export) |
 | `branding/` | the fox mark, wordmark, ASCII banner and the README screenshots, with the scripts that generate them |
-| `research/`, `.kiro/specs/` | the kickoff research and decision records; the spec (`requirements.md`, `design.md`, `tasks.md`) | <!-- floofy:internal-only:line -->
+
+## Internal edition
+
+The internal edition of KiroCrew gets FloofyCrew from an **overlay**: an
+internal repository that vendors a pinned public release of this one and adds
+only what that edition needs &mdash; its edition adapter (a sibling of
+`editions/public/`), its internal-only mods, its packaging track and the
+release tracking that fills the compatibility matrix. Every change ships here
+first; the overlay follows a public tag and never carries a copy of the core.
+Nothing internal is kept in this repository, and CI keeps it that way. For
+everything about that edition &mdash; installing it, its contributor assistant
+and contributing guide, building and releasing it &mdash; read the overlay's
+own README.
 
 ## Documentation
 
 Want to contribute a mod without reading any of this? Each edition can ship a
 contributor assistant that scaffolds, develops and publishes the mod with you;
 the docs below are the reference it works from.
-<!-- floofy:internal-only:start -->
-(The internal edition's assistant lives in its adapter under `editions/`, with
-its contributing guide.)
-<!-- floofy:internal-only:end -->
 
 [docs/README.md](docs/README.md) is the index: writing a mod (manifest, seams,
 the Python and SPA APIs, patches and fingerprints), publishing to a registry,
@@ -223,7 +224,6 @@ uv run pytest                                    # the whole suite (~5 min; Play
 python scripts/check_no_internal_identifiers.py  # what CI's de-amazon job runs
 python scripts/artifact_identity_report.py       # byte-identity across editions
 packaging/public/build.sh --check                # the public release tree, built twice, byte-identical
-packaging/internal/build.sh --check              # the internal package, built twice (floofy:internal-only:line)
 uv run --with pillow python branding/shots/capture.py   # the README screenshots, from a scratch gateway
 ```
 
@@ -232,6 +232,8 @@ in the shared core or `docs/`; no rebuilt host is ever shipped; the user's
 consent outranks host governance (governance is a warning, never a gate); mod
 network traffic is HTTPS-only, loopback excepted; the Loader is a KiroCrew App
 through the App Kit seam, never the host's plugin entry point.
+
+How to contribute &mdash; the git identity in a clone, branches and `main`, the required checks, what a Forge release looks like &mdash; is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Credits and license
 

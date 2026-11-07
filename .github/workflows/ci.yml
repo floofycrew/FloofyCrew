@@ -1,49 +1,38 @@
 name: ci
 
+# The public repository's CI (design "Public CI identifier gate"; Requirement 1.2,
+# 6.3). Two jobs, both required status checks on `main` (cut-over step 4): the
+# deterministic identifier gate `de-amazon` and `pytest`. Nothing here reviews,
+# exports or filters a derived tree — the tree that is pushed is the tree that
+# ships, and no AI review is ever a gate (Requirement 6.3). The both-edition
+# measurements (`two-track`) need the internal edition adapter, which only the
+# overlay's composed tree has, so they run in the overlay's own CI.
+
 on:
   push:
-    branches: [mainline]
+    branches: [main]
   pull_request:
 
 jobs:
   de-amazon:
-    # The shared core must be publishable as-is: no internal hostnames, package
-    # names or identifiers outside the edition adapters (Requirement 10.2) —
-    # and the WHOLE public export set must scan clean, not just the core:
-    # export_public.py --check builds the filtered GitHub tree into a temp
-    # directory and scans every exported file against public-export-allow.txt.
-    name: no internal identifiers in the shared core or the public export
+    # No Amazon-internal hostname, package name or identifier anywhere in the
+    # tree (Requirement 1.2). The identifier list itself stays in the overlay; the
+    # public tree carries its hashed form, scripts/internal-identifiers.sha256
+    # (written by the overlay's tools/hash-identifiers.py, whose --check in the
+    # overlay CI refuses a stale copy), and the scanner's --hashed mode hashes
+    # candidate substrings of the text and looks the digests up — so the gate
+    # runs on forks and pull requests with no secret, and a hit names the file,
+    # the line and the matched text. The job's display name is the required
+    # status check's name.
+    name: de-amazon
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: The shared core is clean
-        run: python scripts/check_no_internal_identifiers.py
-      - name: The full public export is clean
-        run: python scripts/export_public.py --check
-
-  two-track:
-    # One codebase, two editions (design DR-3): the shared core, Loader app and
-    # SPA host ship byte-identical (>= 80 % of shipped files; only the adapters
-    # differ) and the same mod archive installs and activates on both editions
-    # (Requirement 10.3, 10.4). Both scripts are standard-library only.
-    name: two-track byte-identity and same-archive install
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Byte-identity across editions
-        run: python scripts/artifact_identity_report.py
-      - name: The same mod archives install on both editions
-        run: python scripts/install_both_editions.py
-      - name: The release trees build reproducibly
-        run: |
-          python packaging/internal/build.py --check
-          python packaging/public/build.py --check
+      - name: No internal identifiers anywhere in the tree (hashed list)
+        run: python scripts/check_no_internal_identifiers.py --paths . --allowlist scripts/public-export-allow.txt --hashed scripts/internal-identifiers.sha256
 
   test:
     name: pytest

@@ -108,13 +108,14 @@ def test_the_identifier_list_stays_internal_and_the_exported_scanner_knows(expor
 
 
 def test_internal_only_regions_are_stripped(export_tree: Path) -> None:
-    """The README's internal-edition install block and marked table rows are for
-    the internal audience only; the export must carry neither them nor any marker."""
+    """The export carries no internal-edition install block, no internal adapter
+    row and no marker. Since the public-first README edit (Requirement 1.4) the
+    source README has none of these either — the "Internal edition" section
+    replaced the marked regions — so the export's README is the source README."""
     readme = (export_tree / "README.md").read_text(encoding="utf-8")
     assert "git clone <the FloofyCrew package>" not in readme, "the internal install block confuses public readers"
-    assert ADAPTER_DIR + "/" not in readme, "the internal adapter's table row is marked internal-only"
-    source = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "git clone <the FloofyCrew package>" in source, "the source README keeps the internal block"
+    assert ADAPTER_DIR + "/" not in readme, "the internal adapter's table row names the internal adapter"
+    assert readme == (REPO_ROOT / "README.md").read_text(encoding="utf-8"), "the README has nothing left to strip"
     marker_stem = exporter.INTERNAL_ONLY_START.rsplit(":", 1)[0]  # built at runtime: a literal here would trip the stripper on this very file
     for path in export_tree.rglob("*"):
         if path.is_file() and ".git" not in path.parts:

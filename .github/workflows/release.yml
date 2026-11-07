@@ -4,12 +4,15 @@ name: release
 # tag builds the public release tree twice (byte-identical), refuses internal
 # identifiers in the artifacts, measures the byte-identity across editions and
 # installs the same mod archive on both, installs the wheel into a scratch venv,
-# attaches the assets to the GitHub release, publishes the Loader app tree to the generated `loader-app` branch
-# (a federated app registry the host can clone) and, when a registry token is
-# configured, stamps the FloofyCrew version into the public registry's index
-# through registry_tools (a pull request; the compatibility rows themselves come
-# from the Forge). FloofyCrew is unofficial and ships only its own artifacts —
-# the KiroCrew host is never rebuilt or redistributed (design DR-1).
+# attaches the assets to the GitHub release and publishes the Loader app tree to
+# the generated `loader-app` branch (a federated app registry the host can clone).
+# The public registry is NOT written here: it has one writer — the Forge's
+# direct signed commit (records, matrix rows, the stamped index) on the
+# registry's `main` (public-first design DR-9). A hand-cut release stamps the
+# index from the public clone with `python -m registry_tools stamp <registry
+# clone> [--sign KEY] --commit` and pushes that commit itself. FloofyCrew is
+# unofficial and ships only its own artifacts — the KiroCrew host is never
+# rebuilt or redistributed (design DR-1).
 
 on:
   push:
@@ -116,37 +119,3 @@ jobs:
         run: gh release create "$TAG" build/public/dist/* --repo "$GITHUB_REPOSITORY" --title "floofycrew v$VERSION" --notes-file build/public/RELEASE.md --verify-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Stamp the release into the public registry index (registry_tools)
-        # Needs REGISTRY_TOKEN (a fine-grained token with contents + pull requests
-        # on the registry repository) and, optionally, the signing key
-        # FLOOFYCREW_SIGNING_KEY; without the token this step only prints what it
-        # would do. The registry repository is the one the public adapter names.
-        env:
-          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-          FLOOFYCREW_SIGNING_KEY: ${{ secrets.FLOOFYCREW_SIGNING_KEY }}
-        run: |
-          set -eu
-          REGISTRY=$(python -c 'import json; print(json.load(open("editions/public/floofy_edition_public/registry.json"))["sources"][0]["repo"].removeprefix("https://github.com/"))')
-          if [ -z "${REGISTRY_TOKEN:-}" ]; then
-            echo "REGISTRY_TOKEN not configured: skipping the registry update for $REGISTRY (run locally: python -m registry_tools build <clone> --floofycrew $VERSION --app-registry [--sign KEY])"
-            exit 0
-          fi
-          git clone -q "https://x-access-token:${REGISTRY_TOKEN}@github.com/${REGISTRY}.git" /tmp/registry
-          cd /tmp/registry
-          git config user.name "floofycrew-release"
-          git config user.email "floofycrew-release@users.noreply.github.com"
-          git checkout -q -b "floofycrew-$TAG"
-          if [ -n "${FLOOFYCREW_SIGNING_KEY:-}" ]; then
-            printf '%s' "$FLOOFYCREW_SIGNING_KEY" > /tmp/signing-key.json && chmod 0600 /tmp/signing-key.json
-            PYTHONPATH="$GITHUB_WORKSPACE/floofy-core:$GITHUB_WORKSPACE/registry-tools" python -m registry_tools build . --floofycrew "$VERSION" --app-registry --sign /tmp/signing-key.json
-          else
-            PYTHONPATH="$GITHUB_WORKSPACE/floofy-core:$GITHUB_WORKSPACE/registry-tools" python -m registry_tools build . --floofycrew "$VERSION" --app-registry
-          fi
-          git add -A
-          if git commit -q -m "chore(index): Stamp floofycrew $VERSION"; then
-            git push -q -u origin "floofycrew-$TAG"
-            GH_TOKEN="$REGISTRY_TOKEN" gh pr create --repo "$REGISTRY" --head "floofycrew-$TAG" --title "chore(index): Stamp floofycrew $VERSION" --body "Index rebuilt for floofycrew $TAG by the FloofyCrew release workflow; the compatibility rows come from the Forge."
-          else
-            echo "registry index already current"
-          fi

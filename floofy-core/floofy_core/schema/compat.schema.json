@@ -67,7 +67,12 @@
           "properties": {
             "verdict": { "$ref": "#/$defs/verdict" },
             "run": { "type": ["string", "null"], "description": "A link to the Forge run that produced the verdict." },
-            "detail": { "type": "string" }
+            "detail": { "type": "string" },
+            "inherited": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Internal rows only: the verdict was copied from the public twin's row rather than measured on this host — the lane and host version it came from, 'public-<channel> X.Y.Z' (the delta check; `run` is then the twin's link). Readers that do not know the field ignore it."
+            }
           },
           "additionalProperties": false
         }
