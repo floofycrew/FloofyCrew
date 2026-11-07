@@ -165,6 +165,8 @@ INTERNAL_ONLY_FILES: tuple[str, ...] = (
     "docs/migrating-from-the-standalone-patcher.md",
     # the scanner's denylist: a list of the names kept out of the public tree is itself such a list
     "scripts/internal-identifiers.txt",
+    # the overlay's README sidecar: the DROPPED_MODS rows of mods/README.md, appended at compose time
+    "mods/README.internal.md",
 )
 
 #: The identity every commit bound for the public remote carries. GitHub links a

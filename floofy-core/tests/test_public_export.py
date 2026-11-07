@@ -46,6 +46,11 @@ def test_the_public_set_is_copied_and_nothing_else(export_tree: Path) -> None:
 
 
 def test_excluded_mods_are_absent_and_readme_rows_dropped(export_tree: Path) -> None:
+    """The dropped mods' directories never reach the export and the exported ``mods/README.md`` does not list them.
+    Since the pre-rewrite sidecar edit (cut-over step 16.3) the source README has no such rows either — they live
+    in the overlay's ``mods/README.internal.md``, which the composer appends at render time — so the export's
+    ``mods/README.md`` is the source README byte for byte (the cut-over proof's identity check relies on it) and
+    the sidecar, an ``INTERNAL_ONLY_FILES`` entry, stays out of the export."""
     for mod in exporter.DROPPED_MODS:
         assert not (export_tree / "mods" / mod).exists(), f"excluded mod exported: {mod}"
     readme = (export_tree / "mods" / "README.md").read_text(encoding="utf-8")
@@ -54,6 +59,16 @@ def test_excluded_mods_are_absent_and_readme_rows_dropped(export_tree: Path) -> 
     for mod in exporter.WITHHELD_MODS:  # its row goes; other rows may still refer to it
         assert f"[`{mod}/`]" not in readme, f"mods/README.md still lists the withheld mod {mod}"
     assert "custom-themes" in readme and "settings-demo" in readme
+    assert (export_tree / "mods" / "README.md").read_bytes() == (REPO_ROOT / "mods" / "README.md").read_bytes(), \
+        "the source mods/README.md still carries rows the export has to prune"
+    assert exporter.prune_mods_readme(export_tree) == 0, "a second prune found rows to drop"
+    sidecar = "mods/README.internal.md"
+    assert sidecar in exporter.INTERNAL_ONLY_FILES
+    assert not (export_tree / sidecar).exists(), "the overlay's README sidecar reached the export"
+    sidecar_rows = [line for line in (REPO_ROOT / sidecar).read_text(encoding="utf-8").splitlines() if line.startswith("| [`")]
+    assert sorted(row.split("`")[1].rstrip("/") for row in sidecar_rows) == sorted(exporter.DROPPED_MODS), \
+        "the sidecar does not carry exactly one row per dropped mod"
+    assert "README.internal.md" not in readme, "the public README must not point at the overlay's sidecar"
 
 
 def test_withheld_mods_are_a_separate_set() -> None:
