@@ -39,8 +39,12 @@ NODE = node_binary()
 
 @pytest.mark.skipif(NODE is None, reason="node 20+ not available")
 def test_bridge_node_suite_passes():
+    # Node 22+ treats a `node --test` positional as a file pattern, not a directory to
+    # walk, so name the test files: that runs the same suite on Node 20 and on Node 24.
+    tests = sorted(str(path) for path in (MOD_DIR / "tests").glob("*.test.mjs"))
+    assert tests, f"no *.test.mjs files under {MOD_DIR / 'tests'}"
     result = subprocess.run(
-        [NODE, "--test", str(MOD_DIR / "tests")],
+        [NODE, "--test", *tests],
         capture_output=True,
         text=True,
         timeout=300,

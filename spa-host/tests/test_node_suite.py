@@ -1,6 +1,6 @@
 """Run the SPA host's ``node --test`` suite from pytest (Requirement 13.3).
 
-The JavaScript tests stay runnable on their own (``node --test spa-host/tests``);
+The JavaScript tests stay runnable on their own (``node --test 'spa-host/tests/*.test.mjs'``);
 this wrapper only makes ``python -m pytest`` cover them too. Skips when no Node
 20+ is available (``node`` on PATH or ``~/.local/bin/node``).
 """
@@ -34,7 +34,11 @@ NODE = node_binary()
 
 @pytest.mark.skipif(NODE is None, reason="node 20+ not available")
 def test_spa_host_node_suite_passes():
-    result = subprocess.run([NODE, "--test", str(TESTS_DIR)], capture_output=True, text=True, timeout=300, check=False, cwd=str(TESTS_DIR.parent))
+    # Node 22+ treats a `node --test` positional as a file pattern, not a directory to
+    # walk, so name the test files: that runs the same suite on Node 20 and on Node 24.
+    tests = sorted(str(path) for path in TESTS_DIR.glob("*.test.mjs"))
+    assert tests, f"no *.test.mjs files under {TESTS_DIR}"
+    result = subprocess.run([NODE, "--test", *tests], capture_output=True, text=True, timeout=300, check=False, cwd=str(TESTS_DIR.parent))
     summary = "\n".join(line for line in result.stdout.splitlines() if line.startswith("# "))
     assert result.returncode == 0, f"node --test failed:\n{result.stdout[-4000:]}\n{result.stderr[-2000:]}"
     assert "# fail 0" in summary, summary
