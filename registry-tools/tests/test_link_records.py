@@ -37,14 +37,14 @@ from registry_tools.submission import accepted_tags, validate_submission
 
 from registry_testing import EXAMPLES_DIR, REPO_ROOT, ScratchRegistry
 
-#: The internal edition adapter (``editions/toolbox``) carries the internal registry
+#: The internal edition adapter carries the internal registry
 #: config; it is not part of the public tree, so the tests that render or seed the
 #: internal registry are skipped there and still run in the internal composition.
 HAS_INTERNAL_EDITION = any(
     json.loads(p.read_text(encoding="utf-8"))["edition"] == "internal"
     for p in REPO_ROOT.glob("editions/*/floofy_edition_*/registry.json")
 )
-needs_internal_edition = pytest.mark.skipif(not HAS_INTERNAL_EDITION, reason="the internal edition adapter (editions/toolbox) is not part of the public tree")
+needs_internal_edition = pytest.mark.skipif(not HAS_INTERNAL_EDITION, reason="the internal edition adapter is not part of the public tree")
 
 
 #: The first-party theme's version, from its manifest (records are keyed by it; no tag is involved).
