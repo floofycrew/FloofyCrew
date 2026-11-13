@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--edition", choices=("toolbox", "public", "both"), default="public")
     parser.add_argument("--check", action="store_true", help="build twice and exit 1 unless both wheels are byte-identical (also checks an existing wheel in --out)")
     args = parser.parse_args(argv)
-    editions = list(build_zipapp.EDITIONS) if args.edition == "both" else [args.edition]
+    editions = build_zipapp.available_editions() if args.edition == "both" else [args.edition]
     if args.check:
         first, second = build_bytes(editions), build_bytes(editions)
         if first != second:

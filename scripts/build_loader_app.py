@@ -60,6 +60,21 @@ SPA_HOST_SUFFIXES = (".mjs", ".js", ".json", ".css")
 EDITIONS = {"toolbox": "floofy_edition_toolbox", "public": "floofy_edition_public"}
 
 
+def adapter_dir(edition: str) -> Path:
+    """The adapter package directory of ``edition`` in this tree."""
+    return REPO_ROOT / "editions" / edition / EDITIONS[edition]
+
+
+def available_editions() -> list[str]:
+    """The editions this tree carries an adapter package for.
+
+    The public tree is the whole source of the public edition and carries no
+    internal adapter, so "every edition" is every adapter actually present here.
+    Naming an absent edition explicitly stays an error (see :func:`build`).
+    """
+    return [edition for edition in EDITIONS if adapter_dir(edition).is_dir()]
+
+
 def _ignore(_directory: str, names: list[str]) -> set[str]:
     return {n for n in names if n in SKIP_NAMES or n.endswith(".pyc")}
 
@@ -116,7 +131,10 @@ def build(out: Path, editions: list[str]) -> Path:
     shutil.copytree(REPO_ROOT / "floofy-core" / "floofy_core", out / "floofy_core", ignore=_ignore)
     for edition in editions:
         package = EDITIONS[edition]
-        shutil.copytree(REPO_ROOT / "editions" / edition / package, out / package, ignore=_ignore)
+        source = adapter_dir(edition)
+        if not source.is_dir():
+            raise SystemExit(f"edition {edition!r} has no adapter package at {source.relative_to(REPO_ROOT)}")
+        shutil.copytree(source, out / package, ignore=_ignore)
     # the app tree vendors floofy_core (the themes.py port among it): the notices ride along
     for name, data in build_zipapp.notice_members():
         target = out / name
@@ -139,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--edition", choices=("toolbox", "public", "both"), default="both")
     parser.add_argument("--check", action="store_true", help="exit 1 when --out is not a fresh build")
     args = parser.parse_args(argv)
-    editions = list(EDITIONS) if args.edition == "both" else [args.edition]
+    editions = available_editions() if args.edition == "both" else [args.edition]
     out = Path(args.out).resolve()
     if args.check:
         if not out.is_dir():

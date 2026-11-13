@@ -75,11 +75,13 @@ def test_hook_modules_exist_and_never_register_a_plugins_entry_point():
 
 
 def test_build_assembles_a_self_contained_app_dir(tmp_path: Path):
-    editions = list(build_loader_app.EDITIONS)
+    editions = build_loader_app.available_editions()
     out = build_loader_app.build(tmp_path / "floofycrew", editions)
     assert (out / "app.json").is_file() and (out / "floofy_loader" / "hooks.py").is_file()
     assert (out / "floofy_core" / "resolver.py").is_file(), "floofy_core must be vendored beside floofy_loader"
-    for package in build_loader_app.EDITIONS.values():
+    assert editions, "the tree carries at least its own edition adapter"
+    for edition in editions:
+        package = build_loader_app.EDITIONS[edition]
         assert (out / package / "__init__.py").is_file(), package
     assert (out / "ui" / "index.mjs").is_file()
     assert (out / built_icon_path(out)).is_file(), "the declared store icon ships in the built app"

@@ -29,6 +29,18 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = REPO_ROOT / "dist" / "floofy.pyz"
 EDITIONS = {"toolbox": REPO_ROOT / "editions" / "toolbox" / "floofy_edition_toolbox", "public": REPO_ROOT / "editions" / "public" / "floofy_edition_public"}
+
+
+def available_editions() -> list[str]:
+    """The editions this tree carries an adapter package for.
+
+    The public tree is the whole source of the public edition and carries no
+    internal adapter, so "every edition" is every adapter actually present here.
+    Naming an absent edition explicitly stays an error.
+    """
+    return [edition for edition, package in EDITIONS.items() if package.is_dir()]
+
+
 CORE = REPO_ROOT / "floofy-core" / "floofy_core"
 SKIP_NAMES = frozenset({"__pycache__", "tests", ".pytest_cache", ".hypothesis", "build", "node_modules", ".git"})
 #: A fixed, valid zip timestamp (zip cannot store dates before 1980) for reproducible archives.
@@ -112,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--python", default="/usr/bin/env python3.12", help="shebang interpreter")
     parser.add_argument("--check", action="store_true", help="exit 1 when --out is not a fresh build")
     args = parser.parse_args(argv)
-    editions = list(EDITIONS) if args.edition == "both" else [args.edition]
+    editions = available_editions() if args.edition == "both" else [args.edition]
     out = Path(args.out).resolve()
     if args.check:
         if not out.is_file():

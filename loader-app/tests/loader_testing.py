@@ -81,7 +81,7 @@ def build_loader_app(out: Path) -> Path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     import build_loader_app as builder  # noqa: PLC0415
 
-    return builder.build(out, list(builder.EDITIONS))
+    return builder.build(out, builder.available_editions())
 
 
 @dataclass

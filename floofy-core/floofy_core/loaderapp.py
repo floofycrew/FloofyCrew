@@ -90,7 +90,7 @@ def obtain_build(explicit: Path | str | None = None, *, editions: str = "both") 
     finally:
         sys.path.pop(0)
     scratch = Path(tempfile.mkdtemp(prefix="floofy-loader-build-"))
-    wanted = list(builder.EDITIONS) if editions == "both" else [editions]
+    wanted = builder.available_editions() if editions == "both" else [editions]
     built = builder.build(scratch / APP_NAME, wanted)
     return built, f"built from the checkout at {root} (editions: {', '.join(wanted)})", scratch
 
