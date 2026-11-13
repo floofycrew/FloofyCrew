@@ -11,6 +11,17 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.12 — 2026-11-13
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.8.0.9, 0.9.0.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0 |
+
 - **The public-first pathway: this repository is the source of record, the
   Forge releases from it, and the internal edition is an overlay that vendors
   a public tag.** Until now the internal source package came first and GitHub
