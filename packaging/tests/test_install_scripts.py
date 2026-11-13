@@ -56,8 +56,14 @@ def _load(name: str, path: Path):
     return module
 
 
+#: ``packaging/internal/`` is the internal edition's packaging and is not part of the
+#: public tree, so the tests that build or read the internal package are skipped there
+#: and still run in the internal composition. The public half of every pair runs in both.
+HAS_INTERNAL = (INTERNAL / "build.py").is_file()
+needs_internal = pytest.mark.skipif(not HAS_INTERNAL, reason="packaging/internal/build.py is not part of the public tree")
+
 public_build = _load("install_tests_public_build", PUBLIC / "build.py")
-internal_build = _load("install_tests_internal_build", INTERNAL / "build.py")
+internal_build = _load("install_tests_internal_build", INTERNAL / "build.py") if HAS_INTERNAL else None
 
 
 @pytest.fixture(scope="module")
@@ -136,7 +142,7 @@ def _run_on_pty(script: Path, args: list[str], env: dict[str, str], answers: lis
 # --- the scripts themselves ---------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("script", [PUBLIC / "install.sh", INTERNAL / "FloofyCrew" / "install.sh"])
+@pytest.mark.parametrize("script", [PUBLIC / "install.sh", pytest.param(INTERNAL / "FloofyCrew" / "install.sh", marks=needs_internal)])
 def test_scripts_are_posix_sh_with_set_eu_and_never_accept_the_warning(script: Path):
     text = script.read_text(encoding="utf-8")
     assert text.startswith("#!/bin/sh\n") and "\nset -eu\n" in text
@@ -148,7 +154,7 @@ def test_scripts_are_posix_sh_with_set_eu_and_never_accept_the_warning(script: P
     assert "NO_COLOR+set" in text and '"${TERM:-}" != dumb' in text and "--no-color" in text and "[ -t 1 ]" in text
 
 
-def test_the_public_script_embeds_the_branding_banner_and_the_internal_package_ships_it():
+def test_the_public_script_embeds_the_branding_banner():
     public = (PUBLIC / "install.sh").read_text(encoding="utf-8")
     embedded_txt = public.split("BANNER_TXT='", 1)[1].split("'", 1)[0]
     assert embedded_txt + "\n" == (BRANDING / "floofy.txt").read_text(encoding="utf-8")
@@ -159,10 +165,16 @@ def test_the_public_script_embeds_the_branding_banner_and_the_internal_package_s
     embedded_wide_ans = public.split("BANNER_WIDE_ANS='", 1)[1].split("'", 1)[0]
     assert embedded_wide_ans.replace("\\033", "\x1b") + "\n" == (BRANDING / "floofy-wide.ans").read_text(encoding="utf-8")
     for name in ("floofy.ans", "floofy.txt", "floofy-wide.ans", "floofy-wide.txt"):
-        assert (INTERNAL / "FloofyCrew" / "banner" / name).read_bytes() == (BRANDING / name).read_bytes(), f"packaging/internal/FloofyCrew/banner/{name} is a byte-identical copy (source: branding/build_ascii.py, copied by scripts/refresh_install_banners.py)"
+        assert (BRANDING / name).is_file(), f"branding/ascii/{name} is the source of the embedded art"
     wide = (BRANDING / "floofy-wide.txt").read_text(encoding="utf-8").splitlines()
     assert len(wide[0]) + 2 <= 110, "indented by two, the wide art fits a 110-column terminal"
     assert wide[4:10] != (BRANDING / "floofy.txt").read_text(encoding="utf-8").splitlines()[4:10], "the wordmark occupies the fox's middle rows"
+
+
+@needs_internal
+def test_the_internal_package_ships_the_branding_banner():
+    for name in ("floofy.ans", "floofy.txt", "floofy-wide.ans", "floofy-wide.txt"):
+        assert (INTERNAL / "FloofyCrew" / "banner" / name).read_bytes() == (BRANDING / name).read_bytes(), f"packaging/internal/FloofyCrew/banner/{name} is a byte-identical copy (source: branding/build_ascii.py, copied by scripts/refresh_install_banners.py)"
 
 
 # --- non-interactive runs -------------------------------------------------------------------------------------
@@ -233,6 +245,7 @@ def test_public_verification_failure_is_a_numbered_failed_step(public_release: d
     assert not (home / ".local").exists()
 
 
+@needs_internal
 def test_internal_headless_run_takes_the_defaults_and_prints_the_summary(internal_package: dict, tmp_path: Path):
     home = tmp_path / "home"
     home.mkdir()
@@ -254,6 +267,7 @@ def test_internal_headless_run_takes_the_defaults_and_prints_the_summary(interna
     assert version.returncode == 0 and f"floofy {internal_package['version']}" in version.stdout
 
 
+@needs_internal
 def test_internal_flags_keep_working_and_init_flags_pass_through(internal_package: dict, tmp_path: Path):
     home = tmp_path / "home"
     home.mkdir()
@@ -282,6 +296,7 @@ def test_internal_flags_keep_working_and_init_flags_pass_through(internal_packag
 # --- terminal runs -------------------------------------------------------------------------------------------
 
 
+@needs_internal
 def test_internal_terminal_run_walks_the_menus_with_defaults_and_paints(internal_package: dict, tmp_path: Path):
     home = tmp_path / "home"
     home.mkdir()
@@ -301,6 +316,7 @@ def test_internal_terminal_run_walks_the_menus_with_defaults_and_paints(internal
     assert not (home / ".kiro").exists()
 
 
+@needs_internal
 def test_terminal_banner_switches(internal_package: dict, tmp_path: Path):
     home = tmp_path / "home"
     home.mkdir()

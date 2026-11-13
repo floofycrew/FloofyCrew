@@ -22,8 +22,13 @@ sys.path.insert(0, str(SCRIPT.parent))
 import check_no_internal_identifiers as checker  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not checker.DENYLIST, reason="the internal identifier list (scripts/internal-identifiers.txt) is not part of the public tree")
-TOKEN = checker.DENYLIST[0]  # a hostname fragment
-OTHER_TOKEN = checker.DENYLIST[-1]  # an account name
+# The module skips wholesale without the plain list, but ``pytestmark`` is only read
+# after the module is imported — so the tokens must not be subscripted eagerly, or an
+# empty ``DENYLIST`` turns the intended skip into a collection error. The public tree's
+# own coverage of the gate is test_identifier_scan.py, which exercises hashed mode
+# against scripts/internal-identifiers.sha256 and needs no plain list.
+TOKEN = checker.DENYLIST[0] if checker.DENYLIST else ""  # a hostname fragment
+OTHER_TOKEN = checker.DENYLIST[-1] if checker.DENYLIST else ""  # an account name
 
 
 def _tree(tmp_path: Path, files: dict[str, str | bytes]) -> Path:

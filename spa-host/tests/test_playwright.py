@@ -44,10 +44,20 @@ from loader_testing import REPO_ROOT, ScratchGateway, ShellGuard, build_loader_a
 from spa_testing import API, CUSTOM_THEMES_DIR, RIMURU_DIR, consent, dashboard_url, install_loader_app, install_mod, write_test_mod
 
 pytest.importorskip("playwright.sync_api")
-pytestmark = pytest.mark.skipif(scratch_payload() is None, reason="no payload copy under .scratch (set FLOOFY_SCRATCH_PAYLOAD)")
+# Every test here runs against the shared ``harness``, which installs the Rimuru theme
+# pack, and the assertions name that pack's own theme id, DOM node, cache key and asset
+# route — so the module needs the pack itself, not an interchangeable mod. The pack is
+# not part of the public tree, and the module already needs a payload copy that neither
+# CI provides, so both conditions gate it together and the eager manifest read below
+# must not fire before they are evaluated.
+RIMURU_DIR_PRESENT = (RIMURU_DIR / "theme" / "variables.json").is_file()
+pytestmark = [
+    pytest.mark.skipif(scratch_payload() is None, reason="no payload copy under .scratch (set FLOOFY_SCRATCH_PAYLOAD)"),
+    pytest.mark.skipif(not RIMURU_DIR_PRESENT, reason="the Rimuru theme pack (mods/rimuru-branding) is not part of the public tree"),
+]
 
 SHOTS = REPO_ROOT / ".scratch" / "loader-tests" / "playwright"
-RIMURU_VARIABLES = json.loads((RIMURU_DIR / "theme" / "variables.json").read_text(encoding="utf-8"))
+RIMURU_VARIABLES = json.loads((RIMURU_DIR / "theme" / "variables.json").read_text(encoding="utf-8")) if RIMURU_DIR_PRESENT else {}
 
 PROBE_INIT = """
 window.__probe = { bootNode: null };

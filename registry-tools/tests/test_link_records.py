@@ -38,7 +38,6 @@ from registry_tools.submission import accepted_tags, validate_submission
 from registry_testing import EXAMPLES_DIR, REPO_ROOT, ScratchRegistry
 
 #: The first-party theme's version, from its manifest (records are keyed by it; no tag is involved).
-RIMURU_VERSION = json.loads((REPO_ROOT / "mods" / "rimuru-branding" / "floofy.json").read_text(encoding="utf-8"))["version"]
 
 pytestmark = pytest.mark.registry
 
@@ -244,9 +243,9 @@ def test_check_record_reports_every_kind_of_drift(tmp_path: Path, monkeypatch: p
 
 
 def test_bootstrap_seeds_a_link_record_from_a_local_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    # a repository shaped like the FloofyCrew package: mods/rimuru-branding on the default branch, no tag anywhere
+    # a repository shaped like the FloofyCrew package: mods/<SEED_MOD> on the default branch, no tag anywhere
     work = tmp_path / "floofycrew-package"
-    shutil.copytree(REPO_ROOT / "mods" / "rimuru-branding", work / "mods" / "rimuru-branding")
+    shutil.copytree(SEED_MOD_DIR, work / "mods" / SEED_MOD)
     _git("init", "-q", "-b", "mainline", cwd=work)
     _git("add", "-A", cwd=work)
     _git("commit", "-q", "-m", "ship the mod source", cwd=work)
@@ -265,15 +264,15 @@ def test_bootstrap_seeds_a_link_record_from_a_local_checkout(tmp_path: Path, mon
     config_path.write_text(json.dumps(config) + "\n", encoding="utf-8")
     target = tmp_path / "registry"
     with pytest.raises(BootstrapError, match="--link-source"):
-        init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version=None, channel=None)
+        init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[SEED_MOD], host_version=None, channel=None)
     shutil.rmtree(target, ignore_errors=True)
-    summary = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel="beta", verdict="tested", link_source=work)
+    summary = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[SEED_MOD], host_version="0.7.0.5", channel="beta", verdict="tested", link_source=work)
     seed = summary["seeded"][0]
     assert summary["recordKind"] == "link" and seed["record"] == "link" and seed["commit"] == commit and "tag" not in seed
     assert not (target / "archives").exists(), "a link record carries no archive"
-    release = json.loads((target / "mods" / "rimuru-branding" / RIMURU_VERSION / "release.json").read_text(encoding="utf-8"))
-    assert release["link"] == {"repo": package_url, "path": "mods/rimuru-branding", "commit": commit, "manifestSha256": seed["manifestSha256"]} and "tag" not in release
-    manifest = json.loads((REPO_ROOT / "mods" / "rimuru-branding" / "floofy.json").read_text(encoding="utf-8"))
+    release = json.loads((target / "mods" / SEED_MOD / SEED_MOD_VERSION / "release.json").read_text(encoding="utf-8"))
+    assert release["link"] == {"repo": package_url, "path": f"mods/{SEED_MOD}", "commit": commit, "manifestSha256": seed["manifestSha256"]} and "tag" not in release
+    manifest = json.loads((SEED_MOD_DIR / "floofy.json").read_text(encoding="utf-8"))
     listed = {f["path"]: f["sha256"] for f in manifest["files"]}
     recorded = {f["path"]: f["sha256"] for f in release["files"]}
     assert recorded == listed, "the record's files[] are the committed tree's files, which the manifest lists exactly"
@@ -283,21 +282,21 @@ def test_bootstrap_seeds_a_link_record_from_a_local_checkout(tmp_path: Path, mon
     assert json.loads((target / "registry.json").read_text(encoding="utf-8"))["recordKind"] == "link"
     assert "link-based" in (target / "README.md").read_text(encoding="utf-8")
     # the gate the internal package runs: fetch the pinned commit, compare
-    assert validate_submission(None, registry=target, record=f"rimuru-branding@{RIMURU_VERSION}").ok
+    assert validate_submission(None, registry=target, record=f"{SEED_MOD}@{SEED_MOD_VERSION}").ok
     # re-rendering over the populated clone is refused without --replace and idempotent with it
     with pytest.raises(BootstrapError, match="--replace"):
-        init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version=None, channel=None, link_source=work)
-    again = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel="beta", verdict="tested", link_source=work, replace=True)
+        init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[SEED_MOD], host_version=None, channel=None, link_source=work)
+    again = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[SEED_MOD], host_version="0.7.0.5", channel="beta", verdict="tested", link_source=work, replace=True)
     assert again["seeded"][0]["commit"] == commit and (target / ".git").exists() is False
     # the seed must be the committed tree: a HEAD whose manifest differs from the seed is refused
-    (work / "mods" / "rimuru-branding" / "floofy.json").write_text(json.dumps({**manifest, "description": "drifted"}, indent=2) + "\n", encoding="utf-8")
+    (work / "mods" / SEED_MOD / "floofy.json").write_text(json.dumps({**manifest, "description": "drifted"}, indent=2) + "\n", encoding="utf-8")
     _git("add", "-A", cwd=work)
     _git("commit", "-q", "-m", "drift", cwd=work)
     with pytest.raises(BootstrapError, match="differs from the seed"):
-        init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version=None, channel=None, link_source=work, replace=True)
-    facts = facts_from_local_commit(work, "HEAD", "mods/rimuru-branding")
+        init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[SEED_MOD], host_version=None, channel=None, link_source=work, replace=True)
+    facts = facts_from_local_commit(work, "HEAD", f"mods/{SEED_MOD}")
     assert facts.manifest_sha256 != seed["manifestSha256"]
-    assert facts_from_local_commit(work, commit, "mods/rimuru-branding").manifest_sha256 == seed["manifestSha256"], "the earlier commit still reads as it was"
+    assert facts_from_local_commit(work, commit, f"mods/{SEED_MOD}").manifest_sha256 == seed["manifestSha256"], "the earlier commit still reads as it was"
 
 
 # --- `registry_tools record`: a record from the mod's repository, no tag -------------------------------------

@@ -11,7 +11,17 @@ from typing import Any
 
 from floofy_testing import EXAMPLES_DIR, REPO_ROOT  # noqa: F401
 
-__all__ = ["EXAMPLES_DIR", "REPO_ROOT", "ScratchRegistry", "zip_mod"]
+__all__ = ["EXAMPLES_DIR", "REPO_ROOT", "SEED_MOD", "SEED_MOD_DIR", "SEED_MOD_VERSION", "ScratchRegistry", "zip_mod"]
+
+#: The first-party mod the bootstrap tests seed a registry with. It must be a real
+#: mod of the tree under test and not an app-kind one (the tests assert the app
+#: registry stays empty), and it must be present in BOTH compositions — so it is a
+#: mod of the public tree, which the internal composition also carries. The
+#: internal-only theme pack would make these tests collect only internally.
+SEED_MOD = "custom-themes"
+SEED_MOD_DIR = REPO_ROOT / "mods" / SEED_MOD
+#: Its version, from its manifest (a seeded record is ``<id>@<version>``).
+SEED_MOD_VERSION = json.loads((SEED_MOD_DIR / "floofy.json").read_text(encoding="utf-8"))["version"]
 
 
 def zip_mod(mod_dir: Path, top: str | None = None) -> bytes:

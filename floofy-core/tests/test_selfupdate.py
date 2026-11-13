@@ -63,7 +63,15 @@ from floofy_testing import REPO_ROOT, FakeGateway, fake_payload
 from test_loaderapp import install_fake_loader_app
 
 PUBLIC_BUILD = load_module_from_file("_selfupdate_tests_public_build", REPO_ROOT / "packaging" / "public" / "build.py")
-INTERNAL_BUILD = load_module_from_file("_selfupdate_tests_internal_build", REPO_ROOT / "packaging" / "internal" / "build.py")
+#: ``packaging/internal/build.py`` renders the internal edition's ``RELEASE.md`` and is not
+#: part of the public tree. Only the ``notes`` feed shape is served from it, so the public
+#: tree runs every ``github``-shape test and skips just the ``notes`` ones; the internal
+#: composition runs both.
+_INTERNAL_BUILD_PATH = REPO_ROOT / "packaging" / "internal" / "build.py"
+HAS_INTERNAL_BUILD = _INTERNAL_BUILD_PATH.is_file()
+INTERNAL_BUILD = load_module_from_file("_selfupdate_tests_internal_build", _INTERNAL_BUILD_PATH) if HAS_INTERNAL_BUILD else None
+needs_internal = pytest.mark.skipif(not HAS_INTERNAL_BUILD, reason="packaging/internal/build.py is not part of the public tree")
+notes_shape = pytest.param("notes", marks=needs_internal)
 
 HOST = "0.7.0.5"
 #: The channel the fake internal payload reports (a stamped build without a channel marker).
@@ -110,7 +118,7 @@ class FakeRelease:
         self.files["supports.json"] = json.dumps({"floofycrew": version, "supports": supports}).encode()
         self.public_notes = PUBLIC_BUILD._release_notes(version, self.tag, "example/FloofyCrew", supports, dict(self.sums))
         internal_sums = {f"dist/{name}": digest for name, digest in self.sums.items()}
-        self.internal_notes = INTERNAL_BUILD._release_notes(version, supports, internal_sums)
+        self.internal_notes = INTERNAL_BUILD._release_notes(version, supports, internal_sums) if INTERNAL_BUILD is not None else None
         self.internal_sums_text = "".join(f"{digest}  {name}\n" for name, digest in sorted(internal_sums.items()))
 
     def tamper(self, name: str, data: bytes) -> None:
@@ -217,13 +225,18 @@ def test_parse_release_notes_of_both_renderers_and_sums_of_both_layouts() -> Non
     public = parse_release_notes(release.public_notes)
     assert public["version"] == "9.9.9" and public["supports"] == SUPPORTS
     assert public["sha256"] == release.sums, "the assets table names every dist file with its digest"
-    internal = parse_release_notes(release.internal_notes)
-    assert internal["version"] == "9.9.9" and internal["supports"] == SUPPORTS and internal["sha256"] == release.sums, "the internal table's dist/ prefix is stripped"
     empty = FakeRelease("9.9.9", supports=None)
     assert parse_release_notes(empty.public_notes)["supports"] == {}, "'not recorded in this build' is no support claim"
     assert parse_sums(release.files["SHA256SUMS"].decode()) == release.sums
-    assert parse_sums(release.internal_sums_text) == release.sums
+    assert parse_sums(release.internal_sums_text) == release.sums, "the dist/ layout parses from the same renderer-independent text"
     assert parse_release_notes("# floofycrew v1.2.3-rc.1 (public edition)\n")["version"] == "1.2.3-rc.1"
+
+
+@needs_internal
+def test_parse_release_notes_of_the_internal_renderer() -> None:
+    release = FakeRelease("9.9.9")
+    internal = parse_release_notes(release.internal_notes)
+    assert internal["version"] == "9.9.9" and internal["supports"] == SUPPORTS and internal["sha256"] == release.sums, "the internal table's dist/ prefix is stripped"
 
 
 def test_only_floofycrew_tags_are_release_tags() -> None:
@@ -259,7 +272,7 @@ def test_a_mod_archive_release_as_github_latest_never_hides_the_floofycrew_relea
 # --- the check against both shapes -------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("shape", ["github", "notes"])
+@pytest.mark.parametrize("shape", ["github", notes_shape])
 def test_check_reads_both_shapes_and_caches_the_record(tmp_path: Path, shape: str) -> None:
     release = FakeRelease(newer())
     cache = tmp_path / "cache" / CACHE_NAME
@@ -428,7 +441,7 @@ def scratch_prefix(tmp_path: Path) -> tuple[Path, Path]:
     return target, pending
 
 
-@pytest.mark.parametrize("shape", ["github", "notes"])
+@pytest.mark.parametrize("shape", ["github", notes_shape])
 def test_download_verifies_every_artifact_then_swaps_atomically_and_stages_the_loader_app(tmp_path: Path, shape: str) -> None:
     release = FakeRelease(newer())
     target, pending = scratch_prefix(tmp_path)
@@ -606,7 +619,7 @@ def test_doctor_stays_quiet_when_up_to_date_unsupported_disabled_or_unreachable(
     assert cli.run("--offline", "self-update").exit == 1
 
 
-@pytest.mark.parametrize("shape", ["notes", "github"])
+@pytest.mark.parametrize("shape", [notes_shape, "github"])
 def test_a_floofy_ahead_of_the_feed_is_up_to_date_without_blaming_the_supports_list(cli, tmp_path: Path, shape: str) -> None:
     """Task 10.12 (Requirement 7.7, 7.4): found on the 1.1.2 checkout against the internal package's `RELEASE.md` (1.1.1, which lists
     the host) — `doctor` said "1.1.1 does not list host 0.7.0.5 (internal/stable) as supported". The reason is the version order."""
@@ -774,6 +787,7 @@ def test_apply_installs_a_staged_loader_app_only_when_no_gateway_runs(cli, tmp_p
     assert "selfUpdateLoaderApp" not in third.json, "an applied stage is not applied twice"
 
 
+@needs_internal
 def test_a_published_release_whose_tag_is_not_pushed_yet_fails_cleanly_before_any_change(cli, tmp_path: Path) -> None:
     """Seen on the test box for 1.1.4: the package's RELEASE.md on mainline named the release, but the assets are raw
     blobs at the tag ``v<version>`` and the tag had not been pushed, so SHA256SUMS 404'd — as an uncaught traceback.

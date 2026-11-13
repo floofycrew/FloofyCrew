@@ -27,10 +27,8 @@ from registry_tools.build import build_index, index_matches
 from registry_tools.repo import RegistryRepo
 from registry_tools.submission import validate_submission
 
-from registry_testing import REPO_ROOT
+from registry_testing import REPO_ROOT, SEED_MOD, SEED_MOD_DIR, SEED_MOD_VERSION
 
-#: The first-party theme's version, from its manifest (the seeded record is ``<id>@<version>``).
-RIMURU_VERSION = json.loads((REPO_ROOT / "mods" / "rimuru-branding" / "floofy.json").read_text(encoding="utf-8"))["version"]
 
 pytestmark = pytest.mark.registry
 
@@ -57,7 +55,7 @@ def test_init_registry_repo_for_each_edition(edition: str, tmp_path: Path):
     target = tmp_path / f"registry-{edition}"
     payload = _fake_payload(tmp_path / "payload") if FIXTURE_DIST.is_dir() else None
     # archive records on both editions here (the link shape has its own test in test_link_records.py)
-    summary = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel="beta", payload=payload, verdict="expected", run="https://forge.example/run/1", record_kind="archive")
+    summary = init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[SEED_MOD], host_version="0.7.0.5", channel="beta", payload=payload, verdict="expected", run="https://forge.example/run/1", record_kind="archive")
     assert summary["edition"] == edition and summary["keyId"] == pinned_key_id and summary["source"] == config["sourceLabel"] and summary["recordKind"] == "archive"
     repo = RegistryRepo.load(target)
     assert repo.source == config["sourceLabel"] and repo.key_id == pinned_key_id and repo.config["hostRegistry"]["repo"] == config["sources"][0]["repo"]
@@ -70,16 +68,16 @@ def test_init_registry_repo_for_each_edition(edition: str, tmp_path: Path):
     assert (target / ".github" / "workflows" / "validate-submission.yml").is_file() is github
     # the seeded record and its deterministic archive
     seed = summary["seeded"][0]
-    assert seed["id"] == "rimuru-branding" and seed["url"].startswith("https://") and "{" not in seed["url"]
+    assert seed["id"] == SEED_MOD and seed["url"].startswith("https://") and "{" not in seed["url"]
     archive = Path(seed["archive"])
     assert archive.is_file() and hashlib.sha256(archive.read_bytes()).hexdigest() == seed["sha256"] and archive.stat().st_size == seed["size"]
     inside_repo = archive.is_relative_to(target / "archives")
     assert inside_repo == ("/archives/" in config["archiveUrlTemplate"]), "archives are committed only where the edition's URL template points into the repository"
     if not inside_repo:
         assert archive.is_relative_to(target / ".dist") and ".dist/" in (target / ".gitignore").read_text(encoding="utf-8")
-    release = json.loads((target / "mods" / "rimuru-branding" / seed["version"] / "release.json").read_text(encoding="utf-8"))
-    assert release["files"][0] == {"url": seed["url"], "sha256": seed["sha256"], "size": seed["size"], "name": f"rimuru-branding-{seed['version']}.zip"} and release["tag"] == seed["tag"]
-    mod_record = json.loads((target / "mods" / "rimuru-branding" / "mod.json").read_text(encoding="utf-8"))
+    release = json.loads((target / "mods" / SEED_MOD / seed["version"] / "release.json").read_text(encoding="utf-8"))
+    assert release["files"][0] == {"url": seed["url"], "sha256": seed["sha256"], "size": seed["size"], "name": f"{SEED_MOD}-{seed['version']}.zip"} and release["tag"] == seed["tag"]
+    mod_record = json.loads((target / "mods" / SEED_MOD / "mod.json").read_text(encoding="utf-8"))
     assert mod_record["repo"] == config["floofycrewRepo"]
     # the gates the tooling itself applies
     assert validate_submission(archive, registry=target, tag=seed["tag"]).ok
@@ -89,16 +87,16 @@ def test_init_registry_repo_for_each_edition(edition: str, tmp_path: Path):
     compat = json.loads(repo.compat_path.read_text(encoding="utf-8"))
     assert validate_instance(compat, load_schema("compat")) == []
     row = compat["rows"][0]
-    assert (row["edition"], row["channel"], row["hostVersion"]) == (edition, "beta", "0.7.0.5") and row["mods"][f"rimuru-branding@{RIMURU_VERSION}"] == {"verdict": "expected", "run": "https://forge.example/run/1"}
+    assert (row["edition"], row["channel"], row["hostVersion"]) == (edition, "beta", "0.7.0.5") and row["mods"][f"{SEED_MOD}@{SEED_MOD_VERSION}"] == {"verdict": "expected", "run": "https://forge.example/run/1"}
     if payload is not None:
         spa = row["framework"]["spaFingerprints"]
         assert spa["total"] > 0 and spa["matched"] == 0 and len(spa["missed"]) == spa["total"], "the trimmed fixture stubs the App chunk, so the offline reporter measured every fingerprint as missed"
         assert row["framework"]["pythonAnchors"]["matched"] == 0 and row["framework"]["loader"] == "degraded", "an empty kiro_crew package misses every anchor"
-    assert json.loads(repo.app_registry_path.read_text(encoding="utf-8")) == [], "rimuru-branding is not an app-kind mod"
+    assert json.loads(repo.app_registry_path.read_text(encoding="utf-8")) == [], f"{SEED_MOD} is not an app-kind mod"
     # the client consumes the result
     cache = IndexCache.load_path(repo.index_path)
-    best = cache.best_version("rimuru-branding", base_version="0.7.0", edition=edition, host_version="0.7.0.5", channel="beta", compat=CompatCache.load(repo.compat_path))
-    assert best.version.version == RIMURU_VERSION and best.verdict == "expected"
+    best = cache.best_version(SEED_MOD, base_version="0.7.0", edition=edition, host_version="0.7.0.5", channel="beta", compat=CompatCache.load(repo.compat_path))
+    assert best.version.version == SEED_MOD_VERSION and best.verdict == "expected"
     # a non-empty target is refused; a fresh clone holding only .git/ is fine
     with pytest.raises(BootstrapError, match="not empty"):
         init_registry_repo(target, edition_config=config_path, floofycrew_root=REPO_ROOT, seed_mods=[], host_version=None, channel=None)
@@ -122,14 +120,14 @@ def test_signing_and_the_shell_wrapper(tmp_path: Path):
     custom = {**config, "sources": [{**config["sources"][0], "keyId": pair.key_id}], "keys": [pair.public_record()]}
     custom_path = tmp_path / "registry.json"
     custom_path.write_text(json.dumps(custom), encoding="utf-8")
-    summary = init_registry_repo(tmp_path / "r2", edition_config=custom_path, floofycrew_root=REPO_ROOT, seed_mods=["rimuru-branding"], host_version="0.7.0.5", channel=None, sign_key=tmp_path / "key.json")
+    summary = init_registry_repo(tmp_path / "r2", edition_config=custom_path, floofycrew_root=REPO_ROOT, seed_mods=[SEED_MOD], host_version="0.7.0.5", channel=None, sign_key=tmp_path / "key.json")
     assert summary["signedWith"] == pair.key_id
     for name in ("index.json", "compat.json"):
         assert verify_detached((tmp_path / "r2" / name).read_bytes(), (tmp_path / "r2" / f"{name}.sig").read_bytes(), {pair.key_id: pair.public_key}).verified
     assert json.loads((tmp_path / "r2" / "compat.json").read_text(encoding="utf-8"))["rows"][0]["channel"] == ("beta" if edition == "internal" else "stable")
     # deterministic archives: the same bytes twice
-    a = deterministic_zip(REPO_ROOT / "mods" / "rimuru-branding", tmp_path / "a.zip", top="rimuru-branding")
-    b = deterministic_zip(REPO_ROOT / "mods" / "rimuru-branding", tmp_path / "b.zip", top="rimuru-branding")
+    a = deterministic_zip(SEED_MOD_DIR, tmp_path / "a.zip", top=SEED_MOD)
+    b = deterministic_zip(SEED_MOD_DIR, tmp_path / "b.zip", top=SEED_MOD)
     assert a == b and (tmp_path / "a.zip").read_bytes() == (tmp_path / "b.zip").read_bytes()
     # the shell wrapper picks the adapter config by edition and passes options through
     script = REPO_ROOT / "registry-tools" / "scripts" / "init_registry_repo.sh"
