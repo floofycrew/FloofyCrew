@@ -174,6 +174,14 @@ def stamped_registry(tmp_path: Path) -> tuple[ScratchRegistry, Path]:
     (scratch.root / "README.md").write_text("# registry (fixture)\n\n<!-- mods:begin -->\n<!-- mods:end -->\n", encoding="utf-8")
     (scratch.root / ".gitignore").write_text(".dist/\n", encoding="utf-8")
     _git(scratch.root, "init", "-q", "-b", "main")
+    # The stamp CLI commits from a git subprocess of its own, with the ambient
+    # environment rather than GIT_ENV, so a host without a global git identity (a
+    # hosted CI runner) made `stamp --commit` fail on "empty ident name". Pin the
+    # identity and signing in the scratch repository itself, which every git process
+    # in it reads.
+    _git(scratch.root, "config", "user.name", "t")
+    _git(scratch.root, "config", "user.email", "t@example.invalid")
+    _git(scratch.root, "config", "commit.gpgsign", "false")
     _git(scratch.root, "add", "-A")
     _git(scratch.root, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "seed")
     return scratch, key
