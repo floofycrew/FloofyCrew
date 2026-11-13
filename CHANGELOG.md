@@ -24,6 +24,20 @@ KiroCrew; it never ships a rebuilt host.
   tested host. A client older than 1.3.7 gated on the declared range before the
   verdict and read "nothing known to work here" on every host past 0.11.
 
+### Changed
+
+- **The `supports` table is refreshed from the compatibility matrix.** It had
+  not been rewritten since 1.3.8 and still named 0.10.0.2 as the newest
+  internal beta; it is now every `loader: ok` row of both registries'
+  `compat.json`, per edition and channel, sorted by host version. internal/beta
+  gains 0.10.0.3 through 0.12.2.4 (15 hosts), internal/stable gains 0.10.0.3
+  through 0.12.2.4 and drops 0.8.0.9, which has no row (10 hosts),
+  external/insider reaches 0.12.2rc2 (26 hosts) and external/stable 0.12.2 (12
+  hosts). external/nightly is listed for the first time: 29 hosts,
+  0.8.0.dev20260920060902 through 0.13.0.dev20261112101633. A host the table
+  omits reads "does not list your host" and stops `floofy self-update`, so the
+  stale table was withholding updates from every host released since.
+
 ## 1.3.12 — 2026-11-13
 
 ### Supports
