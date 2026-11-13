@@ -11,6 +11,19 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Mods
+
+- **The seven first-party mods this repository ships declare the hosts the
+  matrix has tested**: `kirocrew <0.11.0` → `<0.14.0`, each with a patch bump —
+  `agent-backend-doctor` 0.2.3, `agent-orchestrator` 0.2.6, `custom-themes`
+  1.0.4, `display-comfort` 1.0.2, `model-retry-policy` 0.2.2,
+  `os-notify-bridge` 1.0.2, `settings-demo` 1.0.2. The matrix grades every one
+  of those versions `tested` through internal beta and stable 0.12.2.4, public
+  stable 0.12.2, insider 0.12.2rc2 and nightly 0.13.0.dev20261112101633, so
+  `forge widen`'s rule raises each upper bound to one minor above the highest
+  tested host. A client older than 1.3.7 gated on the declared range before the
+  verdict and read "nothing known to work here" on every host past 0.11.
+
 ## 1.3.12 — 2026-11-13
 
 ### Supports
