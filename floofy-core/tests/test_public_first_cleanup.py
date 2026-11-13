@@ -6,14 +6,16 @@ internal-only regions of ``README.md`` and ``docs/README.md`` are gone, one
 identifier scanner as they are — no marker stripping in between. Task 15.2 adds
 the public ``CONTRIBUTING.md`` of Requirements 1.5 and 7.6: the maintainer's
 identity, the working convention, the required checks and the Forge's release
-shape, all stated there. Task 17.1 extends the module with the Requirement 1.3
-removals (the marked spot at the end).
+shape, all stated there. Task 17.1 adds the Requirement 1.3 and 6.3 removals: the
+export tooling is deleted from the tree and the index, nothing but the cut-over
+tooling still names it, the public CI runs the hashed scan and no export step,
+the release workflow writes no registry pull request, and the scanner's allowlist
+stays behind as the one piece of the export pathway that is still a gate's input.
 
 The marker text is assembled at runtime, never spelled: ``floofy-core/`` is part
-of the public tree, and while the exporter still exists it strips every exported
-text file — a literal marker here would be eaten by, or trip, the very stripper
-this module says is no longer needed. Internal identifiers are likewise never
-spelled, so the file stays clean under the scan it exercises.
+of the public tree, and a literal marker here would trip the test below that says
+no tracked file spells one. Internal identifiers are likewise never spelled, so the
+file stays clean under the scan it exercises.
 """
 from __future__ import annotations
 
@@ -63,15 +65,18 @@ MAINTAINER_EMAIL = "oscar217b@gmail.com"
 #: into ``CHANGELOG.md`` by the next hand-cut release).
 CONTRIBUTING_NAMES: tuple[str, ...] = ("publish-enabled", "de-amazon", "pytest", "RELEASE.md", "CHANGELOG.md")
 
+#: The working convention's two statements (Requirement 7.6), as ``CONTRIBUTING.md`` leads with them.
+CONVENTION_STATEMENTS: tuple[str, ...] = ("Feature work lives on branches", "`main` is always releasable")
+
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True)
 
 
-def _tracked_files_quoting(needle: str) -> list[str]:
+def _tracked_files_quoting(needle: str, *, excluding: tuple[str, ...] = MAY_QUOTE_THE_MARKER) -> list[str]:
     """Tracked text files (working-tree content) containing ``needle``, outside the
     paths allowed to quote it. ``git grep`` exits 1 for "no match" and >1 on error."""
-    excludes = [f":(exclude){path}" for path in MAY_QUOTE_THE_MARKER]
+    excludes = [f":(exclude){path}" for path in excluding]
     result = _git("grep", "-I", "-l", "-F", "-e", needle, "--", ".", *excludes)
     if result.returncode > 1:
         raise RuntimeError(f"git grep failed: {result.stderr.strip()}")
@@ -98,8 +103,8 @@ def test_no_internal_only_marker_remains_in_the_edited_readmes() -> None:
 
 def test_no_internal_only_marker_remains_anywhere_in_the_tree() -> None:
     """Stronger than the two READMEs: no tracked file outside the specs and the
-    decision records spells a marker. The code that used to strip them (while it
-    still exists, until task 17.1) assembles the text at runtime, as this test does."""
+    decision records spells a marker. The code that used to strip them is gone
+    (task 17.1); this test assembles the text at runtime, as that code did."""
     assert _tracked_files_quoting(MARKER_STEM) == []
 
 
@@ -179,12 +184,19 @@ def _required_check_names() -> list[str]:
 
 
 def test_contributing_names_the_identity_the_convention_and_the_release_shape() -> None:
-    """Seeded by task 15.2 (task 17.1 extends it once the exporter is gone). The public
-    contributor guide exists and states: the maintainer's identity, as the two values the
-    clone's own ``.git/config`` pins; the hold (removing ``publish-enabled``); the two
-    required checks, named as ``ci.yml`` names them; the notes' two homes."""
+    """Seeded by task 15.2; task 17.1 added the convention's two statements and the
+    export's absence. The public contributor guide exists and states: the maintainer's
+    identity, as the two values the clone's own ``.git/config`` pins; the convention
+    (feature work on branches, ``main`` always releasable); the hold (removing
+    ``publish-enabled``); the two required checks, named as ``ci.yml`` names them; the
+    notes' two homes; and that nothing is exported, filtered or reviewed between a
+    commit and GitHub (Requirement 1.3), which is what makes the convention the whole
+    story."""
     assert CONTRIBUTING.is_file(), "CONTRIBUTING.md is missing from the public tree"
     text = CONTRIBUTING.read_text(encoding="utf-8")
+    for statement in CONVENTION_STATEMENTS:
+        assert statement in text, f"CONTRIBUTING.md does not state the convention {statement!r}"
+    assert re.search(r"nothing is exported", text, flags=re.I), "CONTRIBUTING.md says nothing is exported between a commit and GitHub"
     for value in (MAINTAINER_NAME, MAINTAINER_EMAIL):
         assert value in text, f"CONTRIBUTING.md does not state the maintainer's identity value {value!r}"
     assert re.search(r"git config user\.name\s+\"" + re.escape(MAINTAINER_NAME) + '"', text), \
@@ -217,16 +229,125 @@ def test_contributing_passes_the_scanner_as_it_is() -> None:
     assert ran, "neither scripts/internal-identifiers.txt nor scripts/internal-identifiers.sha256 is present"
 
 
-# --- Requirement 1.3 / 6.3: the export pathway is gone (task 17.1 adds these) ---------
-#
-# Task 17.1 fills this in once the cut-over proof (16.3) has used export_public.py
-# for the last time:
-#   * the Requirement 1.3 paths are absent: scripts/export_public.py,
-#     packaging/internal/review_public_export.py, floofy-core/tests/test_public_export.py,
-#     packaging/tests/test_review_public_export.py (and tools/cut-release.sh);
-#   * CONTRIBUTING.md names the maintainer's identity values and the convention
-#     (branches, main always releasable, the publish-enabled hold) — seeded above by
-#     task 15.2; 17.1 extends that test;
-#   * .github/workflows/ci.yml invokes the scanner with --hashed and runs no export;
-#   * .github/workflows/release.yml has no registry pull-request step;
-#   * scripts/public-export-allow.txt stays, as the scanner's allowlist.
+# --- Requirement 1.3 / 6.3: the export pathway is gone (task 17.1) --------------------
+
+#: Requirement 1.3's removal list — the exporter, its AI review and their two test
+#: modules — plus the one-piece release script the public and overlay halves replaced
+#: (task 10.4). None may be in the working tree or in the index.
+REMOVED_PATHS: tuple[str, ...] = (
+    "scripts/export_public.py",
+    "packaging/internal/review_public_export.py",
+    "floofy-core/tests/test_public_export.py",
+    "packaging/tests/test_review_public_export.py",
+    "tools/cut-release.sh",
+)
+
+#: The two module names the removal takes away. Tracked files outside the specs, the
+#: decision records and the changelog's history may still spell them only where they
+#: read the exporter *as committed at the cut-over commit* or assert its absence.
+REMOVED_MODULE_NAMES: tuple[str, ...] = ("export_public", "review_public_export")
+MAY_NAME_THE_REMOVED_MODULES: tuple[str, ...] = (
+    "tools/cutover/",  # keep_list.py, replacements.py, prove.py read the exporter with `git show C0:`
+    "packaging/tests-internal/test_cutover_",  # their fixture tests commit a stand-in exporter into fixture histories
+    "floofy-core/tests/test_identifier_scan.py",  # asserts the string is absent from both CI workflows
+    "floofy-core/tests/test_public_first_cleanup.py",  # this module's own path strings
+)
+
+#: The scanner's allowlist for the full-tree public scan. It outlives the export whose
+#: name it carries: the CI's de-amazon job and the tests name it by this path.
+PUBLIC_ALLOWLIST = "scripts/public-export-allow.txt"
+PUBLIC_CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
+
+#: What the registry pull-request step of ``release.yml`` spelled before task 6.5
+#: removed it (DR-9, D-2: the Forge's direct signed commit is the registry's one writer).
+REGISTRY_PR_TRACES: tuple[str, ...] = (
+    "Stamp the release into the public registry index",
+    "REGISTRY_TOKEN",
+    "FLOOFYCREW_SIGNING_KEY",
+    "pr create",
+    "registry_tools build",
+)
+
+
+def _workflow_lines(path: Path) -> list[str]:
+    """Every non-blank, non-comment line of a workflow file, stripped — what the runner acts on."""
+    lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def _step_lines(path: Path) -> list[str]:
+    """The step-level lines of a workflow: names, ``run:`` commands and ``uses:`` actions."""
+    return [line.removeprefix("- ") for line in _workflow_lines(path) if line.removeprefix("- ").startswith(("name:", "run:", "uses:"))]
+
+
+def test_the_export_pathway_files_are_absent_from_the_tree_and_the_index() -> None:
+    """Requirement 1.3: the four files are deleted, and ``tools/cut-release.sh`` with them
+    (task 10.4). Both the working tree and ``git ls-files`` are asked, so a file that is
+    merely unstaged or merely untracked fails too."""
+    present = [rel for rel in REMOVED_PATHS if (REPO_ROOT / rel).exists()]
+    assert present == [], f"still in the working tree: {present}"
+    tracked = _git("ls-files", "--", *REMOVED_PATHS)
+    assert tracked.returncode == 0, tracked.stderr
+    assert tracked.stdout.split() == [], f"still tracked: {tracked.stdout.split()}"
+
+
+def test_nothing_but_the_cut_over_tooling_names_the_removed_modules() -> None:
+    """Nothing imports, runs or documents the exporter or its review as a live tool. The
+    cut-over tooling reads the exporter at the cut-over commit through ``git show`` (so
+    the rewrite stays re-runnable from that commit), its fixture tests commit a stand-in
+    into fixture histories, and the scanner test asserts the name's absence from the
+    CI files: those, and this module, are the only tracked files that may spell the
+    names. The changelog is history and is left alone."""
+    naming: set[str] = set()
+    for name in REMOVED_MODULE_NAMES:
+        naming.update(_tracked_files_quoting(name, excluding=(*MAY_QUOTE_THE_MARKER, "CHANGELOG.md")))
+    unexpected = sorted(path for path in naming if not path.startswith(MAY_NAME_THE_REMOVED_MODULES))
+    assert unexpected == [], f"tracked files that still name the export tooling: {unexpected}"
+
+
+def test_the_public_ci_runs_the_hashed_scan_with_the_kept_allowlist_and_no_export_step() -> None:
+    """Requirements 1.2, 1.3, 6.3 as the public CI shows them: one scanner invocation, in
+    hashed mode, against the kept allowlist; no step names, runs or uses an export or a
+    review of any kind (``test_identifier_scan.py`` parses the same file job by job; this
+    is the removal's own, narrower pin)."""
+    steps = _step_lines(PUBLIC_CI)
+    scans = [line for line in steps if line.startswith("run:") and "check_no_internal_identifiers.py" in line]
+    assert len(scans) == 1, f"expected one scanner step, found {scans}"
+    assert "--hashed scripts/internal-identifiers.sha256" in scans[0], scans[0]
+    assert f"--allowlist {PUBLIC_ALLOWLIST}" in scans[0], scans[0]
+    for line in steps:
+        assert not any(name in line for name in REMOVED_MODULE_NAMES), f"ci.yml still runs the export pathway: {line}"
+        assert "review" not in line.lower(), f"a review is a gate in ci.yml: {line}"
+
+
+def test_the_release_workflow_has_no_registry_pull_request_step() -> None:
+    """Task 6.5 removed the step that cloned the public registry with ``REGISTRY_TOKEN``,
+    rebuilt its index and opened a pull request: the registry has one writer, the Forge's
+    direct signed commit (DR-9, D-2). None of the step's traces survive outside comments,
+    the only secret the workflow reads is ``GITHUB_TOKEN``, and no step name speaks of the
+    registry index or a pull request."""
+    lines = _workflow_lines(RELEASE_WORKFLOW)
+    text = "\n".join(lines)
+    for trace in REGISTRY_PR_TRACES:
+        assert trace not in text, f"release.yml still carries the registry pull-request step: {trace!r}"
+    assert set(re.findall(r"secrets\.([A-Za-z_]+)", text)) == {"GITHUB_TOKEN"}
+    names = [line for line in _step_lines(RELEASE_WORKFLOW) if line.startswith("name:")]
+    assert names, "release.yml has no named steps"
+    assert not any(re.search(r"registry index|pull request|\bstamp", name, flags=re.I) for name in names), names
+
+
+def test_the_scanners_allowlist_stays_and_parses_against_the_tree() -> None:
+    """``scripts/public-export-allow.txt`` is the one survivor of the export pathway: it is
+    the allowlist of the scanner's full-tree public scan, so it stays, tracked, under the
+    name the CI and the tests use, and it parses with the scanner's own ``parse_allowlist``
+    against this tree (every excused path exists, every pattern is a denylist entry, every
+    rule has a reason) — and excuses none of the removed paths."""
+    allowlist = REPO_ROOT / PUBLIC_ALLOWLIST
+    assert allowlist.is_file(), f"{PUBLIC_ALLOWLIST} is gone"
+    assert _git("ls-files", "--error-unmatch", "--", PUBLIC_ALLOWLIST).returncode == 0, f"{PUBLIC_ALLOWLIST} is not tracked"
+    denylist = checker.HashList.parse(HASHED_LIST.read_text(encoding="utf-8")) if HASHED_LIST.is_file() else checker.DENYLIST
+    rules = checker.parse_allowlist(allowlist.read_text(encoding="utf-8"), root=REPO_ROOT, denylist=denylist)
+    assert rules, "the allowlist excuses nothing, so it would be dead weight"
+    assert all(rule.reason for rule in rules)
+    assert not any(rule.path.rstrip("/") in REMOVED_PATHS for rule in rules), "a rule excuses a removed path"

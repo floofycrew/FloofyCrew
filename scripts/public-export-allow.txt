@@ -1,8 +1,10 @@
-# Documented exceptions for the FULL-TREE scan of the public export
-# (scripts/export_public.py; scripts/check_no_internal_identifiers.py --paths .).
+# Documented exceptions for the FULL-TREE scan of the public tree — the scanner's
+# allowlist (scripts/check_no_internal_identifiers.py --paths . --allowlist <this file>,
+# the public CI's de-amazon job). The name is the export era's; the CI and the
+# tests reference it, so it stays.
 # Same format as de-amazon-allow.txt: path:pattern:reason — path is relative to
-# the EXPORTED tree, pattern is a denylist entry (or * for all), reason is
-# mandatory. Every path must exist in the export so stale exceptions are noticed.
+# the repository root, pattern is a denylist entry (or * for all), reason is
+# mandatory. Every path must exist in the tree so stale exceptions are noticed.
 #
 # The bar for a line here: the occurrence must be structural (the scanner's own
 # denylist, this file's own patterns, the internal adapter's directory name, a

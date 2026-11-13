@@ -265,7 +265,7 @@ def test_classify_failure_transient_and_reached_model():
 def test_redact_strips_secret_shapes():
     # every credential shape is assembled from adjacent literals at runtime, so the shipped source carries no
     # bare credential word and no key-shaped literal: credential scanners (GitHub's push protection included)
-    # reject the shape on sight, made-up or not, and the public export's own gate (scripts/export_public.py) too
+    # reject the shape on sight, made-up or not, and the tree is pushed to GitHub as committed, no export gate between
     key_id = "AKIA" + "ABCDEFGHIJKLMNOP"
     secret_key = "abcdefghijklmnopqrstuvwxyz" + "0123456789ABCD"  # 40 base64 characters, the length of a real one
     text = f"aws_secret_access_key={secret_key} {key_id} " + "Bea" "rer eyJhbGciOiJIUzI1NiJ9.xxxxxxxxxxxx " + "A" * 60 + " and a message"

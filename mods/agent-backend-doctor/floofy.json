@@ -73,7 +73,7 @@
     },
     {
       "path": "tests/awsenv_test.py",
-      "sha256": "0ed0b5786865f67cc9bd7ce8bdd8122d17dee6804a8ecbba1cd1b63b0494a2d5"
+      "sha256": "c0d809bfd170740b21f93bdc8fbf08a649fe5c66485c30454d08b5e6c88e8bc5"
     },
     {
       "path": "tests/discovery_test.py",
