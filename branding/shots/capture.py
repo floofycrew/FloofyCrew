@@ -60,7 +60,6 @@ DEMO_MODS = (
     "model-retry-policy",
     "agent-backend-doctor",
     "agent-orchestrator",
-    "kiro-spec-plan",
     "os-notify-bridge",
 )
 #: Mod pages to try for the "a mod page" shot, in order of preference.

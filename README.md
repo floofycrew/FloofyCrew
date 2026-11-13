@@ -166,7 +166,6 @@ directory, and are published to the registry. Among them:
 | [`model-retry-policy/`](mods/model-retry-policy/) | what KiroCrew does when the model fails: retries, backoff, fallback chains |
 | [`agent-orchestrator/`](mods/agent-orchestrator/) | real parallel multi-agent runs over a typed message bus, with a live graph |
 | [`agent-backend-doctor/`](mods/agent-backend-doctor/) | finds and repairs the Claude Code / Codex backends behind your agents |
-| [`kiro-spec-plan/`](mods/kiro-spec-plan/) | Kiro's Spec, Quick Spec, Bug Fix and Plan modes as KiroCrew agents |
 | [`display-comfort/`](mods/display-comfort/) | font size, density and contrast controls for the dashboard |
 | [`os-notify-bridge/`](mods/os-notify-bridge/) | desktop notifications for approvals and finished turns |
 

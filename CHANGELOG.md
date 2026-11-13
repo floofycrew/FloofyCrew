@@ -11,6 +11,14 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- **The Python anchor check follows the host's facade modules.** KiroCrew
+  0.12.2 and 0.12.2.4 serve `apps_dir`, `api_token_local` and
+  `read_local_secret` through facades rather than from the module the anchor
+  named, so three anchors stopped resolving: 13/16 matched and the loader
+  reported `degraded`. It is 16/16 again, and the loader reports `ok`.
+
 ### Mods
 
 - **The seven first-party mods this repository ships declare the hosts the
@@ -23,6 +31,12 @@ KiroCrew; it never ships a rebuilt host.
   `forge widen`'s rule raises each upper bound to one minor above the highest
   tested host. A client older than 1.3.7 gated on the declared range before the
   verdict and read "nothing known to work here" on every host past 0.11.
+- **`kiro-spec-plan` is retired.** Kiro's Spec and Plan modes now ship with
+  KiroCrew IDE, so the mod is gone from `mods/` and from the mod tables in
+  `README.md` and `mods/README.md`. 0.2.2 stays in the registries: a host whose
+  row grades it `tested` can still install it, and its changelog history here is
+  left as it was. Nothing replaces it — the IDE mod covers the same workflow
+  inside the editor.
 
 ### Changed
 
@@ -37,6 +51,18 @@ KiroCrew; it never ships a rebuilt host.
   0.8.0.dev20260920060902 through 0.13.0.dev20261112101633. A host the table
   omits reads "does not list your host" and stops `floofy self-update`, so the
   stale table was withholding updates from every host released since.
+
+### Tooling
+
+- **The artifact identity report compares two already-built trees**, not only
+  the two editions: `scripts/artifact_identity_report.py --tree A B`, with
+  `--names X,Y` for the labels and `--expect PATTERN[=REGEX]` (repeatable) to
+  admit a difference. It answers a different question from the editions mode —
+  do two ways of producing the *same* artifact agree? — and `--expect` with a
+  regex admits a file that may differ on one stated line, a vendored tag or a
+  timestamp, without admitting the whole file. The public-first cut-over used
+  it to show that the tree the old export path produced and the tree this
+  repository now carries are the same bytes for the same source (119a10c).
 
 ## 1.3.12 — 2026-11-13
 

@@ -121,7 +121,7 @@ RowKey = tuple[str, str, str]
 FLOOFYCREW = "https://github.com/floofycrew/FloofyCrew"
 REGISTRY_SOURCE = "github:floofycrew/floofycrew-registry"
 FORGE_RUNS = "https://forge.example/runs"
-#: What every public mod on mainline declares today (``mods/*/floofy.json``, 2026-11-02); ``kiro-spec-plan`` admits 0.11 too.
+#: What every public mod on mainline declares today (``mods/*/floofy.json``, 2026-11-02); ``model-retry-policy`` admits 0.11 too.
 MAINLINE_RANGE = ">=0.7.0 <0.11.0"
 
 # --- the concrete pair -----------------------------------------------------------------------------------------------
@@ -159,7 +159,7 @@ HOSTED_SNAPSHOT: dict[str, Any] = {
             "channel": "nightly",
             "hostVersion": "0.11.0.dev20261019030000",
             "framework": {"loader": "ok"},
-            "mods": {"settings-demo@1.0.0": {"verdict": "broken", "run": f"{FORGE_RUNS}/public-nightly/0.11.0.dev20261019030000"}, "kiro-spec-plan@0.2.1": {"verdict": "broken", "run": f"{FORGE_RUNS}/public-nightly/0.11.0.dev20261019030000"}},
+            "mods": {"settings-demo@1.0.0": {"verdict": "broken", "run": f"{FORGE_RUNS}/public-nightly/0.11.0.dev20261019030000"}, "model-retry-policy@0.2.1": {"verdict": "broken", "run": f"{FORGE_RUNS}/public-nightly/0.11.0.dev20261019030000"}},
             "checkedAt": "2026-10-19T07:30:00Z",
             "overrides": [{"cell": "settings-demo@1.0.1", "verdict": "expected", "reason": "curator: 1.0.1 carries the fix for the mode ids a 0.11 host renamed", "by": "curator", "at": "2026-10-20T07:00:00Z"}],
         },
@@ -250,14 +250,14 @@ PUBLIC_SPECS: tuple[ModSpec, ...] = (
     ModSpec("custom-themes", "1.0.3"),
     ModSpec("display-comfort", "1.0.0", yanked="1.0.1 supersedes it: the zoom handler leaked a listener"),
     ModSpec("display-comfort", "1.0.1"),
-    ModSpec("kiro-spec-plan", "0.2.1"),
-    ModSpec("kiro-spec-plan", "0.2.2", ">=0.7.0 <0.12.0"),
+    ModSpec("model-retry-policy", "0.2.1"),
+    ModSpec("model-retry-policy", "0.2.2", ">=0.7.0 <0.12.0"),
     ModSpec("kirocrew-ide", "0.23.3"),
 )
 PUBLIC_INDEX: dict[str, Any] = index_document(PUBLIC_SPECS, source=REGISTRY_SOURCE, floofycrew="1.3.10")
 
 #: The cells the Forge measures on a current host: every public mod at its mainline version.
-CURRENT_SET = {"settings-demo@1.0.1": "tested", "custom-themes@1.0.3": "tested", "display-comfort@1.0.1": "tested", "kiro-spec-plan@0.2.2": "tested", "kirocrew-ide@0.23.3": "tested"}
+CURRENT_SET = {"settings-demo@1.0.1": "tested", "custom-themes@1.0.3": "tested", "display-comfort@1.0.1": "tested", "model-retry-policy@0.2.2": "tested", "kirocrew-ide@0.23.3": "tested"}
 
 
 def _measured(channel: str, host: str, cells: Mapping[str, str], checked_at: str) -> dict[str, Any]:
@@ -277,7 +277,7 @@ MEASURED_MATRIX: list[dict[str, Any]] = [
     _measured("insider", "0.8.0rc1", CURRENT_SET, "2026-11-01T07:21:00Z"),
     _measured("insider", "0.10.0rc4", CURRENT_SET, "2026-11-01T07:22:00Z"),
     # the hosted nightly row again — its broken cells kept, the repaired versions measured since
-    _measured("nightly", "0.11.0.dev20261019030000", {"settings-demo@1.0.0": "broken", "kiro-spec-plan@0.2.1": "broken", "settings-demo@1.0.1": "tested", "kiro-spec-plan@0.2.2": "tested"}, "2026-11-01T07:30:00Z"),
+    _measured("nightly", "0.11.0.dev20261019030000", {"settings-demo@1.0.0": "broken", "model-retry-policy@0.2.1": "broken", "settings-demo@1.0.1": "tested", "model-retry-policy@0.2.2": "tested"}, "2026-11-01T07:30:00Z"),
     _measured("nightly", "0.12.0.dev20261031060601", CURRENT_SET, "2026-11-01T07:31:00Z"),
 ]
 
@@ -548,8 +548,8 @@ def releases(draw: st.DrawFn) -> Release:
 
 
 CONCRETE_WORLD = World(PUBLIC_INDEX, HOSTED_SNAPSHOT, tuple(MEASURED_MATRIX))
-#: What ``v1.3.12`` ships: a settings-demo fix, kiro-spec-plan widened to 0.12, custom-themes unchanged (already recorded).
-CONCRETE_RELEASE = Release(PUBLIC_SPECS, HOSTED_SNAPSHOT, (ModSpec("settings-demo", "1.0.2"), ModSpec("custom-themes", "1.0.3"), ModSpec("kiro-spec-plan", "0.2.3", ">=0.7.0 <0.13.0")))
+#: What ``v1.3.12`` ships: a settings-demo fix, model-retry-policy widened to 0.12, custom-themes unchanged (already recorded).
+CONCRETE_RELEASE = Release(PUBLIC_SPECS, HOSTED_SNAPSHOT, (ModSpec("settings-demo", "1.0.2"), ModSpec("custom-themes", "1.0.3"), ModSpec("model-retry-policy", "0.2.3", ">=0.7.0 <0.13.0")))
 
 
 # --- the release path on a scratch registry ------------------------------------------------------------------------------
@@ -672,12 +672,12 @@ def test_hosted_snapshot_survives_the_measured_matrix() -> None:
     # the forecast (>=0.7.0) excludes 0.6.0; the row admits 1.0.0 and the curator's `expected` outranks the Forge's `tested`
     assert admitted(index, view_before, stable_060, "settings-demo", "1.0.0") == admitted(index, view_after, stable_060, "settings-demo", "1.0.0") == (2, "expected")
     assert admitted(index, view_after, stable_060, "settings-demo", "1.0.1") is None, "a version without a cell on 0.6.0 stays excluded by its range"
-    assert {ref: best and best[2] for ref, best in best_on(index, view_before, stable_060).items()} == {"settings-demo": "1.0.0", "custom-themes": None, "display-comfort": None, "kiro-spec-plan": None, "kirocrew-ide": None}
-    assert {ref: best and best[2] for ref, best in best_on(index, view_after, stable_060).items()} == {"settings-demo": "1.0.0", "custom-themes": None, "display-comfort": None, "kiro-spec-plan": None, "kirocrew-ide": "0.23.3"}
+    assert {ref: best and best[2] for ref, best in best_on(index, view_before, stable_060).items()} == {"settings-demo": "1.0.0", "custom-themes": None, "display-comfort": None, "model-retry-policy": None, "kirocrew-ide": None}
+    assert {ref: best and best[2] for ref, best in best_on(index, view_after, stable_060).items()} == {"settings-demo": "1.0.0", "custom-themes": None, "display-comfort": None, "model-retry-policy": None, "kirocrew-ide": "0.23.3"}
     assert rows_by_key(after)[("external", "stable", "0.6.0")]["overrides"] == HOSTED_ROW["overrides"]
     # the host the stale forecast refused (nightly-follow.md): every mod tested, within the tick, with no release
     stable_0111 = rows_by_key(after)[("external", "stable", "0.11.1")]
-    every_mod_tested = {"settings-demo": (3, "1.0.1"), "custom-themes": (3, "1.0.3"), "display-comfort": (3, "1.0.1"), "kiro-spec-plan": (3, "0.2.2"), "kirocrew-ide": (3, "0.23.3")}
+    every_mod_tested = {"settings-demo": (3, "1.0.1"), "custom-themes": (3, "1.0.3"), "display-comfort": (3, "1.0.1"), "model-retry-policy": (3, "0.2.2"), "kirocrew-ide": (3, "0.23.3")}
     assert {ref: (best[0], best[2]) for ref, best in best_on(index, view_after, stable_0111).items()} == every_mod_tested
     # the external matrix leaves the internal rows alone; the curator's yank of custom-themes@1.0.2 on 0.9.0.4 stands, as does the yanked index record
     internal_0904 = rows_by_key(before)[("internal", "stable", "0.9.0.4")]
