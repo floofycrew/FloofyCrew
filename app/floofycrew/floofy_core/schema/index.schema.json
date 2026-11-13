@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://floofycrew.dev/schema/index-1.json",
+  "title": "FloofyCrew registry index (index.json, schema 1)",
+  "description": "The signed JSON index of a mod registry (Requirement 8.1). The detached signature over the canonical form lives beside it in index.json.sig; the index itself never embeds one.",
+  "type": "object",
+  "required": ["schema", "source", "generatedAt", "mods"],
+  "properties": {
+    "schema": { "const": 1 },
+    "source": {
+      "description": "The registry's own label (github:org/repo, or a package name). Informational: a client namespaces collisions by the source name the USER configured, never by this claim.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "generatedAt": { "$ref": "#/$defs/timestamp" },
+    "floofycrew": {
+      "description": "The FloofyCrew release the index was built with (informational).",
+      "type": "string"
+    },
+    "mods": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mod" }
+    }
+  },
+  "patternProperties": { "^x-": {} },
+  "additionalProperties": false,
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "modId": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$" },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\\+([0-9a-zA-Z-]+(\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "hostVersion": {
+      "description": "A host version as the host prints it (floofy_core.semver.HostVersion; the same pattern as compat.schema.json): X.Y.Z (public), X.Y.Z.N (internal), X.Y.ZrcN / X.Y.Z.devN / X.Y.Z-insider.N (public pre-releases).",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+((a|b|rc)[0-9]+)?(\\.[0-9]+)?(\\.dev[0-9]+)?(-[0-9A-Za-z][0-9A-Za-z.-]*)?$"
+    },
+    "verdict": { "type": "string", "enum": ["tested", "expected", "broken"] },
+    "url": { "type": "string", "pattern": "^https://[^\\s]+$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "mod": {
+      "type": "object",
+      "required": ["id", "name", "description", "authors", "tags", "repo", "versions"],
+      "properties": {
+        "id": { "$ref": "#/$defs/modId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "authors": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "tags": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$" }, "uniqueItems": true },
+        "repo": {
+          "description": "The mod's source repository (an https URL, or an internal package name on a registry whose clients know how to resolve it).",
+          "type": "string",
+          "minLength": 1
+        },
+        "license": { "type": "string", "minLength": 1 },
+        "links": { "type": "object", "additionalProperties": { "$ref": "#/$defs/url" } },
+        "icon": { "$ref": "#/$defs/url" },
+        "versions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/version" }
+        }
+      },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false
+    },
+    "version": {
+      "type": "object",
+      "required": ["version", "kirocrew", "editions", "compat", "files", "dependencies", "channel", "publishedAt"],
+      "properties": {
+        "version": { "$ref": "#/$defs/semver" },
+        "kirocrew": {
+          "description": "The host base-version range from the manifest's kirocrew.version.",
+          "type": "string",
+          "minLength": 1
+        },
+        "editions": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["internal", "external"] },
+          "uniqueItems": true
+        },
+        "channels": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "strict": { "type": "boolean" },
+        "compat": {
+          "description": "Per host version: tested | expected | broken (the matrix cells for this mod@version, folded in from compat.json).",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/hostVersion" },
+          "additionalProperties": { "$ref": "#/$defs/verdict" }
+        },
+        "files": {
+          "description": "An ASSET record lists downloadable archives {url, sha256, size}; a LINK record (with `link`) lists the checkout's files {path, sha256, size} so a client can verify the clone file by file (Requirement 8.9). One shape per record, never mixed.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/file" }
+        },
+        "link": { "$ref": "#/$defs/link" },
+        "dependencies": {
+          "description": "The manifest's dependsOn: id -> range, or id -> {range, reason}.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/modId" },
+          "additionalProperties": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "required": ["range"],
+                "properties": { "range": { "type": "string", "minLength": 1 }, "reason": { "type": "string" } },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "channel": {
+          "description": "The mod's own release channel (stable, beta, …).",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$"
+        },
+        "publishedAt": { "$ref": "#/$defs/timestamp" },
+        "tag": {
+          "description": "The release tag the archive is published under; equals `version` (Requirement 8.2) unless the repository prefixes it (v1.2.0).",
+          "type": "string",
+          "minLength": 1
+        },
+        "kinds": {
+          "description": "The part kinds the mod ships (from the manifest), so clients can show what a mod does before downloading.",
+          "type": "array",
+          "items": { "type": "string", "enum": ["theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch", "ui"] },
+          "uniqueItems": true
+        },
+        "app": {
+          "description": "Present when the mod is a pure App Kit app (a single `app` part): what the KiroCrew-compatible app-registry.json row needs (Requirement 8.6).",
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$" },
+            "subdirectory": { "type": "string", "pattern": "^([A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*)?$" }
+          },
+          "additionalProperties": false
+        },
+        "yanked": {
+          "description": "Set when the version was withdrawn; clients never pick a yanked version automatically.",
+          "type": "string",
+          "minLength": 1
+        },
+        "changelog": {
+          "description": "Optional https URL of this version's release notes (release.json `changelog`, else the manifest's links.changelog); the manager shows it beside an available update (Requirement 16.6) and falls back to the mod's repo.",
+          "$ref": "#/$defs/url"
+        }
+      },
+      "patternProperties": { "^x-": {} },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "description": "asset record: no `link`, every files[] entry names an https URL",
+          "not": { "required": ["link"] },
+          "properties": { "files": { "items": { "required": ["url"] } } }
+        },
+        {
+          "description": "link record: `link` present, every files[] entry names a path inside the checkout",
+          "required": ["link"],
+          "properties": { "files": { "items": { "required": ["path"] } } }
+        }
+      ]
+    },
+    "link": {
+      "description": "Where a link-based version lives (Requirement 8.9): the repository (ssh:// or https:// only — the transport a client fetches over with its own credentials), the commit the version is pinned at (fetched directly by the client, so no tag is needed to locate a version), the SHA-256 of the canonical floofy.json, and the mod's directory inside the repository when it is not the root. Optional: ref, the branch the record was made from (the default branch when absent), and tag, kept by records made before commits were pinned. A client refuses a checkout whose canonical-manifest hash or files[] differ.",
+      "type": "object",
+      "required": ["repo", "commit", "manifestSha256"],
+      "properties": {
+        "repo": { "type": "string", "pattern": "^(ssh|https)://[^\\s@#?]+$" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "manifestSha256": { "$ref": "#/$defs/sha256" },
+        "path": { "type": "string", "pattern": "^([A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*)?$" },
+        "ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+-]*$" },
+        "tag": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+-]*$" }
+      },
+      "additionalProperties": false
+    },
+    "relativePath": {
+      "description": "A path relative to the mod root (the manifest's rule): no leading '/', no '..' segment, no backslashes or control characters.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))[^\\\\\\u0000-\\u001f]+$"
+    },
+    "file": {
+      "description": "One files[] entry: {url, sha256, size[, name]} in an asset record (an https archive), or {path, sha256, size} in a link record (a file of the checkout, verified after the clone). Never both url and path.",
+      "type": "object",
+      "required": ["sha256", "size"],
+      "properties": {
+        "url": { "$ref": "#/$defs/url" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size": { "type": "integer", "minimum": 0 },
+        "name": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["url"], "not": { "required": ["path"] } },
+        { "required": ["path"], "not": { "anyOf": [ { "required": ["url"] }, { "required": ["name"] } ] } }
+      ]
+    }
+  }
+}

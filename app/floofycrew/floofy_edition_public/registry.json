@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "edition": "external",
+  "sourceLabel": "github:floofycrew/floofycrew-registry",
+  "floofycrewRepo": "https://github.com/floofycrew/FloofyCrew",
+  "sources": [
+    {
+      "name": "floofycrew",
+      "url": "https://raw.githubusercontent.com/floofycrew/floofycrew-registry/main/",
+      "trust": "index",
+      "keyId": "31ddb18e6ffafef2",
+      "repo": "https://github.com/floofycrew/floofycrew-registry",
+      "branch": "main"
+    }
+  ],
+  "archiveUrlTemplate": "https://github.com/floofycrew/FloofyCrew/releases/download/{id}-{version}/{file}",
+  "recordKind": "archive",
+  "selfUpdate": {
+    "kind": "github-releases",
+    "url": "https://api.github.com/repos/floofycrew/FloofyCrew/releases/latest",
+    "download": "https://github.com/floofycrew/FloofyCrew/releases/download/{tag}/{file}",
+    "notes": "https://github.com/floofycrew/FloofyCrew/releases/tag/{tag}",
+    "label": "GitHub releases of floofycrew/FloofyCrew"
+  },
+  "keys": [
+    {
+      "schema": 1,
+      "alg": "ed25519",
+      "keyId": "31ddb18e6ffafef2",
+      "publicKey": "fJUsf7aIJM0P2xFCnxFDIM6HzrKuiIhzH/BUKON9M0c=",
+      "createdAt": "2026-09-20T05:25:45Z",
+      "comment": "FloofyCrew public-edition registry signing key (floofycrew-registry index.json/compat.json), generated 2026-09-19 by task 7.1"
+    }
+  ],
+  "notes": "The GitHub organisation `floofycrew` is a placeholder until the owner creates the public registry repository (task 7.5); change `sources[].url`, `sources[].repo` and `archiveUrlTemplate` together when it lands. `keys[]` may hold several records during a key rotation. `selfUpdate` (task 10.7) is the FloofyCrew release feed of this edition: the GitHub releases API of the same repository (`releases/latest`: the tag names the version, the body is the build's RELEASE.md with its Supports lines and assets table) and the release assets `floofy.pyz`, `SHA256SUMS` and the Loader app archive; it moves with the organisation."
+}
