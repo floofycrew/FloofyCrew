@@ -70,5 +70,51 @@ Both scripts run in CI (`.github/workflows/ci.yml`, job `two-track`) and in the
 test suite (`floofy-core/tests/test_two_track.py`), which also checks that the
 numbers in this page are the measured ones.
 
+## Comparing two trees
+
+The same script also compares two directories that already exist — `--tree A B`,
+labelled with `--names X,Y` (default: the directory names). That answers a
+different question from the editions one: when the way an artifact is *produced*
+changes, do the old way and the new way still produce the same bytes **for the
+same source**? That was the acceptance condition for the public-first cut-over,
+and it has to be stated that precisely: a later release is not a counter-example,
+because it carries the fixes made after the cut-over and the version bump by
+design. Every comparison below therefore holds the source fixed and varies only
+the path that built it.
+
+Differences are grouped `expected`, `only in <A>`, `only in <B>` and `other`;
+only `other` fails the report, together with an identical share below
+`--min-percent`. A file that exists in one tree only is reported on its side and
+does not fail on its own — it does lower the percentage, since the denominator is
+the union of both trees' paths. `--expect PATTERN[=REGEX]` is repeatable and
+moves a path into `expected`:
+
+* bare, any difference on a path fnmatching PATTERN is expected, including a file
+  only one tree has;
+* with `=REGEX`, only if the file exists in **both** trees and the two are
+  identical once every line matching REGEX is dropped from both. So a file that
+  may differ *on one stated line* — a vendored tag, a timestamp — is admitted
+  without admitting the rest of the file: a change anywhere else still lands in
+  `other`.
+
+`fnmatch`'s `*` crosses `/`, so `mods/*` covers that whole subtree.
+
+```bash
+# two renders of the same source, one differing line admitted by name
+python scripts/artifact_identity_report.py --tree build/old build/new \
+    --names old,new --expect 'RELEASE.md=^Vendors public tag '
+python scripts/artifact_identity_report.py --tree A B --json   # the numbers
+```
+
+Measured over the cut-over (task 18.3): the first two rows hold the source at the
+cut-over commit, the last two at `v1.3.12`.
+
+| compared, same source | identical files | identical bytes | differences |
+|---|---|---|---|
+| the public tree: the old export path's output vs this repository | 1093/1095 (99.8 %) | 9 203 025/9 212 329 (99.9 %) | `.github/workflows/ci.yml` and `CONTRIBUTING.md`, both only in this repository — the export path never emitted them |
+| the internal package: rendered from the pre-cut-over single repository vs from this repository plus the overlay | 291/293 (99.3 %) | 4 170 980/4 209 515 (99.1 %) | `mods/README.md` — the composed tree carries the three internal-only mod rows that the single repository's own copy never spelled — and `dist/SHA256SUMS`, on that one file's hash line |
+| the internal package at `v1.3.12`: the released package vs a render of the composed tree | 292/293 (99.7 %) | 4 211 132/4 212 734 (99.96 %) | `RELEASE.md`, on the `Vendors public tag` provenance line (and the blank line after it), which a `--root` render does not write |
+| the public release at `v1.3.12`: the published assets vs a local build of the tag | 5/5 (100 %) | 1 377 918/1 377 918 (100 %) | none |
+
 ---
 Covers Requirements 10.1, 10.2, 10.3, 10.4.
