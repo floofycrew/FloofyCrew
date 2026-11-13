@@ -15,7 +15,11 @@ import pytest
 import artifact_identity_report
 import install_both_editions
 
-from floofy_testing import REPO_ROOT
+from floofy_testing import HAS_TOOLBOX, NO_TOOLBOX_REASON, REPO_ROOT
+
+# The whole module measures the two editions against each other, so it needs both
+# adapters. ci.yml says so: these run in the overlay's own CI, on the composed tree.
+pytestmark = pytest.mark.skipif(not HAS_TOOLBOX, reason=NO_TOOLBOX_REASON)
 
 DOC = REPO_ROOT / "docs" / "two-track.md"
 

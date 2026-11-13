@@ -20,7 +20,7 @@ from floofy_core.semver import Range, Version
 from floofy_core.themes import validate_theme_dir
 from floofy_core.validator import validate_mod
 
-from floofy_testing import REPO_ROOT
+from floofy_testing import HAS_RIMURU, NO_RIMURU_REASON, REPO_ROOT
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import hash_example_files  # noqa: E402
@@ -43,6 +43,7 @@ def test_first_party_mod_validates_clean_with_current_hashes(mod_dir: Path):
     assert manifest["id"] == mod_dir.name and "network" not in manifest or manifest["network"].get("hosts", []) == []
 
 
+@pytest.mark.skipif(not HAS_RIMURU, reason=NO_RIMURU_REASON)
 def test_rimuru_theme_part_is_the_pack_the_host_validator_accepts():
     summary = validate_theme_dir(RIMURU / "theme")
     assert summary.slug == "rimuru" and summary.level == 1 and summary.name == "Rimuru"
@@ -52,6 +53,7 @@ def test_rimuru_theme_part_is_the_pack_the_host_validator_accepts():
     assert manifest["branding"]["botName"] == "Great Sage"
 
 
+@pytest.mark.skipif(not HAS_RIMURU, reason=NO_RIMURU_REASON)
 def test_rimuru_is_a_pure_theme_pack_on_top_of_custom_themes():
     manifest = json.loads((RIMURU / "floofy.json").read_text(encoding="utf-8"))
     assert manifest["version"].startswith("2.") and [p["kind"] for p in manifest["parts"]] == ["theme"], "no boot part, no patch: custom-themes provides both"

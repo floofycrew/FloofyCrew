@@ -23,6 +23,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES_DIR = REPO_ROOT / "floofy-core" / "examples"
 KINDS = ("theme", "agent", "skill", "appearance", "config", "app", "python-hook", "spa", "patch", "ui")
 
+# --- assets only the internal composition carries ------------------------------------
+#
+# The public tree is the whole source of the public edition; the internal edition's
+# adapter and its first-party mods are added by the overlay. A test that needs one of
+# those is gated on the asset's own absence, so it is skipped here with a reason and
+# still runs in the composed internal tree — neither edition loses coverage, and there
+# is no marker list to keep in sync by hand.
+TOOLBOX_DIR = REPO_ROOT / "editions" / "toolbox" / "floofy_edition_toolbox"
+RIMURU_DIR = REPO_ROOT / "mods" / "rimuru-branding"
+MOCHI_DIR = REPO_ROOT / "mods" / "mochi-pet-zoom-fix"
+
+HAS_TOOLBOX = TOOLBOX_DIR.is_dir()
+HAS_RIMURU = (RIMURU_DIR / "theme").is_dir()
+HAS_MOCHI = (MOCHI_DIR / "floofy.json").is_file()
+
+NO_TOOLBOX_REASON = "the internal edition adapter (editions/toolbox) is not part of the public tree"
+NO_RIMURU_REASON = "the Rimuru theme pack (mods/rimuru-branding) is not part of the public tree"
+NO_MOCHI_REASON = "the Electron patch mod (mods/mochi-pet-zoom-fix) is not part of the public tree"
+
 # SAFETY: the test session must never reach a live host install. The CLI honours this
 # environment guard by searching only the roots a test names explicitly.
 os.environ["FLOOFY_NO_ADAPTERS"] = "1"

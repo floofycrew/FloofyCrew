@@ -23,7 +23,7 @@ from floofy_core.kinds.dropins import AgentHandler, AppearanceHandler, SkillHand
 from floofy_core.kinds.theme import ThemeHandler
 from floofy_core.themes import validate_theme_dir
 
-from floofy_testing import EXAMPLES_DIR, REPO_ROOT, fake_payload
+from floofy_testing import EXAMPLES_DIR, HAS_RIMURU, NO_RIMURU_REASON, REPO_ROOT, fake_payload
 from test_cli_init_doctor import FAKE_KIROCREW
 
 RIMURU_THEME = REPO_ROOT / "mods" / "rimuru-branding" / "theme"
@@ -53,6 +53,7 @@ def test_every_kind_has_a_handler_with_the_documented_seam():
         assert handler.modifies_payload is (kind == "patch"), "patch is the only kind touching payload files (Requirement 2.6)"
 
 
+@pytest.mark.skipif(not HAS_RIMURU, reason=NO_RIMURU_REASON)
 def test_theme_direct_write_is_the_host_route_without_the_route(kctx, tmp_path: Path):
     root = tmp_path / "rimuru"
     root.mkdir()
@@ -80,6 +81,7 @@ def test_theme_direct_write_is_the_host_route_without_the_route(kctx, tmp_path: 
     assert not refused.ok and "requires level 1" in refused.detail
 
 
+@pytest.mark.skipif(not HAS_RIMURU, reason=NO_RIMURU_REASON)
 def test_theme_closed_by_governance_is_a_warning_and_still_installs(kctx, tmp_path: Path):
     kctx.governance = GovernanceSnapshot(capabilities={"theme_install": False})
     root = tmp_path / "rimuru"

@@ -19,7 +19,11 @@ from floofy_core.patcher import Patcher, PlannedPatch, VerifyStatus
 from floofy_core.patches import PatchDescriptor
 from floofy_core.payloads import make_payload
 
-from floofy_testing import fake_payload
+from floofy_testing import HAS_MOCHI, NO_MOCHI_REASON, fake_payload
+
+# The mod under test is mods/mochi-pet-zoom-fix (see the module docstring): its two
+# Electron patch parts and their ops are the subject, so the module needs that mod.
+pytestmark = pytest.mark.skipif(not HAS_MOCHI, reason=NO_MOCHI_REASON)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "electron" / "app.asar"
 MOD_DIR = Path(__file__).resolve().parents[2] / "mods" / "mochi-pet-zoom-fix"

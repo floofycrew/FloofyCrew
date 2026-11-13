@@ -37,6 +37,16 @@ from registry_tools.submission import accepted_tags, validate_submission
 
 from registry_testing import EXAMPLES_DIR, REPO_ROOT, ScratchRegistry
 
+#: The internal edition adapter (``editions/toolbox``) carries the internal registry
+#: config; it is not part of the public tree, so the tests that render or seed the
+#: internal registry are skipped there and still run in the internal composition.
+HAS_INTERNAL_EDITION = any(
+    json.loads(p.read_text(encoding="utf-8"))["edition"] == "internal"
+    for p in REPO_ROOT.glob("editions/*/floofy_edition_*/registry.json")
+)
+needs_internal_edition = pytest.mark.skipif(not HAS_INTERNAL_EDITION, reason="the internal edition adapter (editions/toolbox) is not part of the public tree")
+
+
 #: The first-party theme's version, from its manifest (records are keyed by it; no tag is involved).
 
 pytestmark = pytest.mark.registry
@@ -242,6 +252,7 @@ def test_check_record_reports_every_kind_of_drift(tmp_path: Path, monkeypatch: p
 # --- the bootstrap seeds link records from a local checkout's HEAD ------------------------------------------
 
 
+@needs_internal_edition
 def test_bootstrap_seeds_a_link_record_from_a_local_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # a repository shaped like the FloofyCrew package: mods/<SEED_MOD> on the default branch, no tag anywhere
     work = tmp_path / "floofycrew-package"

@@ -35,6 +35,15 @@ pytestmark = pytest.mark.registry
 EDITION_CONFIGS = {json.loads(p.read_text(encoding="utf-8"))["edition"]: p for p in REPO_ROOT.glob("editions/*/floofy_edition_*/registry.json")}
 FIXTURE_DIST = REPO_ROOT / "floofy-core" / "tests" / "fixtures" / "dist-0.7.0.5"
 
+#: The internal edition adapter (``editions/toolbox``) carries the internal registry
+#: config; it is not part of the public tree, so the tests that render or seed the
+#: internal registry are skipped there and still run in the internal composition.
+HAS_INTERNAL_EDITION = any(
+    json.loads(p.read_text(encoding="utf-8"))["edition"] == "internal"
+    for p in REPO_ROOT.glob("editions/*/floofy_edition_*/registry.json")
+)
+needs_internal_edition = pytest.mark.skipif(not HAS_INTERNAL_EDITION, reason="the internal edition adapter (editions/toolbox) is not part of the public tree")
+
 
 def _fake_payload(root: Path) -> Path:
     """A payload-shaped directory: the trimmed real 0.7.0.5 dist fixture plus an empty kiro_crew package (anchors miss on purpose)."""
@@ -141,6 +150,7 @@ def test_signing_and_the_shell_wrapper(tmp_path: Path):
 
 
 
+@needs_internal_edition
 def test_byte_code_caches_next_to_templates_and_adapter_files_are_never_rendered(tmp_path: Path):
     """A ``__pycache__/*.pyc`` beside ``setup.py`` (left by any tool that imported it in place) is
     neither UTF-8 nor part of the package; before, the internal edition's gated-package render
