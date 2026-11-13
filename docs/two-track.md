@@ -25,7 +25,7 @@ Measured after 1.3.12, on the public-first pathway tree (main: 1.1.0's terminal 
 | | identical | total | share |
 |---|---|---|---|
 | files | 236 | 262 | 90.1 % |
-| bytes | 2 892 597 | 2 984 871 | 96.9 % |
+| bytes | 2 899 639 | 2 991 913 | 96.9 % |
 
 The 26 differing paths are the two adapters' modules — 13 files, each counted in
 the unpacked zipapp and in the Loader app directory. Run it yourself:
