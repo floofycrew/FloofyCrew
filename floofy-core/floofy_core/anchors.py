@@ -5,9 +5,14 @@ presence). :func:`check_anchors` locates each module's source file under the
 payload's package directory (``kiro_crew/…/module.py`` or ``…/__init__.py``) and
 parses it with :mod:`ast`, looking for a top-level ``def``/``async def``/
 ``class``/assignment of that name (``Class.method`` looks inside the class
-body) — no import, no gateway, so the check runs on a dormant payload, on the
-Forge's scratch provisions, and inside the host-version-change handler. The
-result carries the matrix shape ``pythonAnchors {matched, total, missed[]}``.
+body). A name the module only *re-exports* from inside a module-level ``if`` /
+``try`` block — the facade shape KiroCrew 0.11+ left behind when it split
+``apps/manager.py``, ``dashboard/handlers/core.py`` and ``config/loader.py``
+into owner modules — is followed to the owner's source under the same payload
+and must be defined there. No import, no gateway, so the check runs on a
+dormant payload, on the Forge's scratch provisions, and inside the
+host-version-change handler. The result carries the matrix shape
+``pythonAnchors {matched, total, missed[]}``.
 """
 from __future__ import annotations
 
@@ -77,10 +82,72 @@ def _top_level_names(tree: ast.Module) -> dict[str, ast.AST]:
     return names
 
 
-def _has_attr(tree: ast.Module, attr: str) -> bool:
+def _block_bodies(node: ast.AST) -> list[list[ast.stmt]]:
+    """The statement lists of a module-level ``if`` / ``try`` block (the facade re-export shape)."""
+    if isinstance(node, ast.If):
+        return [node.body, node.orelse]
+    if isinstance(node, ast.Try):
+        return [node.body, *[h.body for h in node.handlers], node.orelse, node.finalbody]
+    return []
+
+
+def _facade_reexports(tree: ast.Module, name: str, module: str, *, is_package: bool) -> list[tuple[str, str]]:
+    """``(owner module, name in the owner)`` for every ``from <owner> import <name>`` inside a module-level ``if``/``try`` block.
+
+    Since KiroCrew 0.11 a split host module (``apps/manager.py``,
+    ``dashboard/handlers/core.py``, ``config/loader.py``) keeps its path as a
+    facade: the owners are imported and mirrored at import time, and the names
+    are listed for type checkers under ``if TYPE_CHECKING: from <owner> import
+    (…)``. Such an import does not bind at runtime, so it is followed to the
+    owner instead of being taken on faith (:func:`_has_attr`).
+    """
+    owners: list[tuple[str, str]] = []
+    pending = [n for stmt in tree.body for body in _block_bodies(stmt) for n in body]
+    while pending:
+        node = pending.pop(0)
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if (alias.asname or alias.name) == name and alias.name != "*":
+                    owners.append((_absolute_module(node, module, is_package=is_package), alias.name))
+        else:
+            for body in _block_bodies(node):
+                pending.extend(body)
+    return owners
+
+
+def _absolute_module(node: ast.ImportFrom, module: str, *, is_package: bool) -> str:
+    """The dotted module a ``from … import`` names; ``from .sibling import x`` resolved against the importer's package."""
+    if not node.level:
+        return node.module or ""
+    parts = module.split(".") if is_package else module.split(".")[:-1]
+    base = parts[: max(len(parts) - (node.level - 1), 0)]
+    return ".".join([*base, node.module] if node.module else base)
+
+
+def _has_attr(tree: ast.Module, attr: str, *, package_root: Path | None = None, module: str = "", is_package: bool = False, _depth: int = 0) -> bool:
     head, _, rest = attr.partition(".")
     names = _top_level_names(tree)
     if head not in names:
+        # a facade re-export: follow ``from <owner> import head`` to the owner's own source (at most a few hops)
+        if package_root is None or _depth >= 4:
+            return False
+        for owner, owner_name in _facade_reexports(tree, head, module, is_package=is_package):
+            source = _module_file(package_root, owner) if owner else None
+            if source is None:
+                continue
+            try:
+                owner_tree = ast.parse(source.read_text(encoding="utf-8", errors="replace"), filename=str(source))
+            except SyntaxError:
+                continue
+            if _has_attr(
+                owner_tree,
+                f"{owner_name}.{rest}" if rest else owner_name,
+                package_root=package_root,
+                module=owner,
+                is_package=source.name == "__init__.py",
+                _depth=_depth + 1,
+            ):
+                return True
         return False
     if not rest:
         return True
@@ -117,7 +184,7 @@ def check_anchors(payload: Payload | Path, anchors: list[dict[str, Any]] | None 
         except SyntaxError as exc:
             report.missed.append({"name": name, "reason": f"cannot parse {source}: {exc}"})
             continue
-        if _has_attr(tree, str(attr)):
+        if _has_attr(tree, str(attr), package_root=package_root, module=module, is_package=source.name == "__init__.py"):
             report.matched.append(name)
         else:
             report.missed.append({"name": name, "reason": f"{attr!r} is not defined at the top level of {source.name}"})

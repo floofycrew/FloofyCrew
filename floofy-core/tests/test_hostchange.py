@@ -100,6 +100,25 @@ def test_anchors_match_the_real_host_sources():
     assert [m["name"] for m in missed.missed] == ["kiro_crew.apps.manager:no_such_function", "kiro_crew.nope"]
 
 
+def _payload_copies() -> list[Path]:
+    """Every payload copy the tests may check anchors against: ``.scratch/payload-*`` and ``FLOOFY_SCRATCH_PAYLOAD``."""
+    copies = sorted((REPO_ROOT / ".scratch").glob("payload-*")) if (REPO_ROOT / ".scratch").is_dir() else []
+    if os.environ.get("FLOOFY_SCRATCH_PAYLOAD"):
+        copies.append(Path(os.environ["FLOOFY_SCRATCH_PAYLOAD"]))
+    return [c for c in copies if (c / "lib" / "python3.12" / "site-packages" / "kiro_crew").is_dir()]
+
+
+def test_anchors_match_every_payload_copy():
+    """Facade hosts (0.11+) and unsplit hosts (0.7–0.10) alike: every anchor matches, through the facade or directly."""
+    copies = _payload_copies()
+    if not copies:
+        pytest.skip("no payload copy for the real anchor check")
+    for payload in copies:
+        report = check_anchors(payload / "lib" / "python3.12" / "site-packages", host_version=payload.name.removeprefix("payload-"))
+        assert report.ok, (payload.name, report.missed)
+        assert report.to_dict()["pythonAnchors"]["matched"] == len(load_anchors())
+
+
 def test_first_apply_if_changed_records_state_and_host_change_outcome(world):
     first = world.run("--json", "apply", "--if-changed", "--no-verify")
     assert first.exit == 0, first.stderr
