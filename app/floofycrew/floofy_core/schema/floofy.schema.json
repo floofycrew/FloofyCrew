@@ -1,0 +1,389 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://floofycrew.dev/schema/floofy-1.json",
+  "title": "FloofyCrew mod manifest (floofy.json, schema 1)",
+  "description": "The manifest at the root of every FloofyCrew mod (Requirement 1). Identity, host compatibility, graded dependencies, load order, network declaration, contribution parts and the shipped-file list. Keys starting with 'x-' are reserved for extensions and ignored by the framework.",
+  "type": "object",
+  "required": ["schema", "id", "name", "version", "description", "authors", "license", "kirocrew", "dependsOn", "parts", "files"],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {}
+  },
+  "properties": {
+    "schema": {
+      "description": "Manifest schema version. Requirement 1.1: an integer, first value 1.",
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "description": "Stable mod identifier used in dependency maps, the registry and the data home. Requirement 1.2.",
+      "$ref": "#/$defs/modId"
+    },
+    "name": {
+      "description": "Human-readable display name. Requirement 1.2.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "version": {
+      "description": "Mod version, SemVer 2.0. Requirement 1.2.",
+      "$ref": "#/$defs/semver"
+    },
+    "description": {
+      "description": "One or two sentences shown in the manager and the registry. Requirement 1.2.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "authors": {
+      "description": "Authors or maintainers, at least one. Requirement 1.2.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "license": {
+      "description": "Licence identifier (an SPDX expression is recommended) or a relative path to a licence file. Requirement 1.2.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "links": {
+      "description": "Optional named links (homepage, source, issues, ...) as URL strings. Requirement 1.2.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_-]{0,31}$" },
+      "additionalProperties": { "type": "string", "format": "uri", "minLength": 1, "maxLength": 2048 }
+    },
+    "icon": {
+      "description": "Optional relative path to an icon shipped with the mod (also listed in files[]). Requirement 1.2.",
+      "$ref": "#/$defs/relativePath"
+    },
+    "tags": {
+      "description": "Optional free-form tags for registry search. Requirement 1.2.",
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" }
+    },
+    "kirocrew": {
+      "description": "Host compatibility. Requirement 1.3: 'version' is a SemVer range matched against the host's X.Y.Z base version; 'editions' and 'channels' narrow further; 'strict' turns an out-of-range host from a warning into the non-load reason Unsupported.",
+      "type": "object",
+      "required": ["version"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "$ref": "#/$defs/semverRange" },
+        "editions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["internal", "external"] }
+        },
+        "channels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}$" }
+        },
+        "strict": { "type": "boolean", "default": false }
+      }
+    },
+    "dependsOn": {
+      "description": "Hard dependencies (Requirement 1.4). Must include 'floofycrew': the framework version, not the host version, is the hard dependency. A missing or out-of-range entry gives the non-load reason Dependency.",
+      "allOf": [
+        { "$ref": "#/$defs/dependencyMap" },
+        { "required": ["floofycrew"] }
+      ]
+    },
+    "recommends": {
+      "description": "Soft dependencies (Requirement 1.4): a missing entry is a warning, never a non-load reason.",
+      "$ref": "#/$defs/dependencyMap"
+    },
+    "suggests": {
+      "description": "Optional companions (Requirement 1.4): informational only.",
+      "$ref": "#/$defs/dependencyMap"
+    },
+    "conflicts": {
+      "description": "Mods this mod cannot run alongside (Requirement 1.4). Conflicts are mutual (Requirement 1.5): when both are active the declaring mod is disabled with reason Conflict.",
+      "$ref": "#/$defs/dependencyMap"
+    },
+    "breaks": {
+      "description": "Mods (in range) that this mod is known to break (Requirement 1.4). One-directional: the declaring mod is disabled with reason Conflict while the other stays active.",
+      "$ref": "#/$defs/dependencyMap"
+    },
+    "loadBefore": {
+      "description": "Ids this mod must be activated before (Requirement 1.5). Unknown ids are ignored.",
+      "$ref": "#/$defs/idList"
+    },
+    "loadAfter": {
+      "description": "Ids this mod must be activated after (Requirement 1.5). Unknown ids are ignored.",
+      "$ref": "#/$defs/idList"
+    },
+    "network": {
+      "description": "Network declaration (Requirement 1.10, 11.6). Every remote host the mod contacts, and whether the mod asks the user for credentials itself. Plaintext is only allowed to loopback.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/hostPattern" }
+        },
+        "credentials": { "type": "boolean", "default": false }
+      }
+    },
+    "parts": {
+      "description": "Contribution parts (Requirement 1.6, 1.7, Requirement 2). Each part names its kind, the side it lands on and a path relative to the mod root, plus kind-specific fields.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/part" }
+    },
+    "files": {
+      "description": "Every file shipped with the mod other than floofy.json itself, with its SHA-256 (Requirement 1.6). A missing or mismatched file gives the non-load reason MissingFiles.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "$ref": "#/$defs/relativePath" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "modId": {
+      "description": "Requirement 1.2: lower-case, starts with a letter, 2-64 characters of [a-z0-9_-].",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+    },
+    "idList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/modId" }
+    },
+    "semver": {
+      "description": "SemVer 2.0.0 (https://semver.org), the official grammar.",
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "semverRange": {
+      "description": "A version range in the npm style: comparators (>= > < <= =), hyphen ranges (1.2.3 - 2.0.0), caret (^1.2), tilde (~1.2.3), wildcards (1.x, *), unions with ||, whitespace as AND. Fully parsed by floofy validate; the pattern only bounds the character set.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[ 0-9A-Za-z.*+|<>=^~-]+$",
+      "format": "semver-range"
+    },
+    "dependencyMap": {
+      "description": "id -> range, or id -> {range, reason}. Requirement 1.4.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_-]{1,63}$" },
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/semverRange" },
+          {
+            "type": "object",
+            "required": ["range"],
+            "additionalProperties": false,
+            "properties": {
+              "range": { "$ref": "#/$defs/semverRange" },
+              "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+            }
+          }
+        ]
+      }
+    },
+    "relativePath": {
+      "description": "A path relative to the mod root: no leading '/', no '..' segment, no backslashes or control characters (Requirement 1.6, 1.8).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))[^\\\\\\u0000-\\u001f]+$"
+    },
+    "hostPattern": {
+      "description": "A DNS name, optionally with a port, where a label may be '*' to match one or more labels at that position (Requirement 1.10). Examples: api.example.com, *.example.com, api.example.com:8443.",
+      "type": "string",
+      "maxLength": 260,
+      "pattern": "^(\\*|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\\.(\\*|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*(:[0-9]{1,5})?$"
+    },
+    "side": {
+      "description": "Where the part lands (Requirement 1.6): the gateway process, the dashboard SPA, the Electron shell or the CLI.",
+      "type": "string",
+      "enum": ["gateway", "spa", "electron", "cli"]
+    },
+    "part": {
+      "description": "Discriminated on 'kind' (Requirement 1.6, 1.7, Requirement 2).",
+      "type": "object",
+      "required": ["kind"],
+      "oneOf": [
+        { "$ref": "#/$defs/partTheme" },
+        { "$ref": "#/$defs/partAgent" },
+        { "$ref": "#/$defs/partSkill" },
+        { "$ref": "#/$defs/partAppearance" },
+        { "$ref": "#/$defs/partConfig" },
+        { "$ref": "#/$defs/partApp" },
+        { "$ref": "#/$defs/partPythonHook" },
+        { "$ref": "#/$defs/partSpa" },
+        { "$ref": "#/$defs/partPatch" },
+        { "$ref": "#/$defs/partUi" }
+      ]
+    },
+    "partTheme": {
+      "description": "Requirement 1.7, 2.1: a KiroCrew theme pack. 'path' points at the pack's theme.json; the pack directory is its parent.",
+      "type": "object",
+      "required": ["kind", "side", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "theme" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "(^|/)theme\\.json$" } ] },
+        "description": { "type": "string" }
+      }
+    },
+    "partAgent": {
+      "description": "Requirement 1.7, 2.2: an agent spec file (JSON or markdown) installed into the host's agents directory.",
+      "type": "object",
+      "required": ["kind", "side", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "agent" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(json|md)$" } ] },
+        "description": { "type": "string" }
+      }
+    },
+    "partSkill": {
+      "description": "Requirement 1.7, 2.2: a skill. 'path' points at the skill's SKILL.md; the skill directory is its parent.",
+      "type": "object",
+      "required": ["kind", "side", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "skill" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "(^|/)SKILL\\.md$" } ] },
+        "description": { "type": "string" }
+      }
+    },
+    "partAppearance": {
+      "description": "Requirement 1.7, 2.2: an appearance pack. 'path' points at the pack's manifest file; the pack directory is its parent.",
+      "type": "object",
+      "required": ["kind", "side", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "appearance" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.json$" } ] },
+        "description": { "type": "string" }
+      }
+    },
+    "partConfig": {
+      "description": "Requirement 2.2: host config.json key/value pairs applied with 'kirocrew config set' semantics; previous values are recorded for uninstall. Pairs come from 'values' (inline), from 'path' (a JSON object file), or both ('values' wins). The only kind whose 'path' is optional.",
+      "type": "object",
+      "required": ["kind", "side"],
+      "anyOf": [ { "required": ["values"] }, { "required": ["path"] } ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "config" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.json$" } ] },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$" }
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "partApp": {
+      "description": "Requirement 1.7, 2.3: a KiroCrew App installed through the host App Kit. 'path' points at the app's app.json; the app directory is its parent.",
+      "type": "object",
+      "required": ["kind", "side", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "app" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "(^|/)app\\.json$" } ] },
+        "description": { "type": "string" }
+      }
+    },
+    "partPythonHook": {
+      "description": "Requirement 2.4, Requirement 3: a Python module activated by the Loader inside the gateway process, exposing activate(ctx) / deactivate(ctx). 'path' is the module file or package directory; 'module' the dotted name the Loader imports under its namespaced sys.modules key. 'early' asks for activation through the optional early shim.",
+      "type": "object",
+      "required": ["kind", "side", "path", "module"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "python-hook" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "module": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$" },
+        "early": { "type": "boolean", "default": false },
+        "description": { "type": "string" }
+      }
+    },
+    "partSpa": {
+      "description": "Requirement 2.5, Requirement 4: an ES module loaded by the SPA host inside an error boundary. 'activation' runtime (default) loads after the host bundle through the Loader app's ui entry; 'boot' is injected into index.html by the Patcher for first-frame effects, described by the optional 'boot' object (Requirement 4.3).",
+      "type": "object",
+      "required": ["kind", "side", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "spa" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(js|mjs)$" } ] },
+        "activation": { "type": "string", "enum": ["runtime", "boot"], "default": "runtime" },
+        "boot": { "$ref": "#/$defs/bootActivation" },
+        "description": { "type": "string" }
+      }
+    },
+    "bootActivation": {
+      "description": "First-frame effects the Patcher bakes into every payload's index.html for a spa part with activation 'boot' (Requirement 4.3, design 'boot script'): baked CSS placed before </head>, favicon / logo / title asserted before the host hydrates, attributes re-asserted on <html> until the host settles. 'when.theme' gates favicon, logo, title and attributes on the active colour theme (localStorage 'mc-color-theme', else the host config's dashboard.theme_color captured at patch time); the CSS is always baked and must scope itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "css": { "description": "Relative path to the baked stylesheet (also listed in files[]).", "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.css$" } ] },
+        "favicon": { "description": "Relative path to an icon (png, svg, jpg, webp, gif) served from the Loader app's ui/boot/<id>/ and set as <link rel=icon> at boot.", "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(png|svg|jpg|jpeg|webp|gif)$" } ] },
+        "logo": { "description": "Relative path to a logo image served the same way and set as the host's --theme-logo custom property at boot.", "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(png|svg|jpg|jpeg|webp|gif)$" } ] },
+        "title": { "description": "document.title to set at boot.", "type": "string", "minLength": 1, "maxLength": 120 },
+        "attributes": {
+          "description": "Attributes asserted on <html> at boot and re-asserted by the drift guard until the host settles (data-* names only).",
+          "type": "object",
+          "propertyNames": { "pattern": "^data-[a-z][a-z0-9-]*$" },
+          "additionalProperties": { "type": "string", "maxLength": 200 }
+        },
+        "when": {
+          "description": "Only act when the active colour theme equals 'theme' (for example custom-<slug>); the CSS is baked regardless.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "theme": { "type": "string", "pattern": "^[a-z0-9-]{1,72}$" } }
+        }
+      }
+    },
+    "partUi": {
+      "description": "Requirement 16.4: the mod's own page inside the FloofyCrew App. 'path' is the directory holding the page's files (or the entry file itself); 'entry' the ES module the App imports same-origin and mounts through its default export mount(container, api) with api = floofy.mod(id); 'title' the entry in the App's Mods section; 'icon' an optional image. Inert until the user opens it, so it never lands a mod disabled on its own.",
+      "type": "object",
+      "required": ["kind", "side", "path", "entry", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "ui" },
+        "side": { "const": "spa" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "entry": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(js|mjs)$" } ] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "icon": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.(svg|png)$" } ] },
+        "description": { "type": "string" }
+      }
+    },
+    "partPatch": {
+      "description": "Requirement 2.6, Requirement 5: an overlay patch descriptor (see patch-1.json) applied by the Patcher; the only kind that modifies payload files.",
+      "type": "object",
+      "required": ["kind", "side", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "patch" },
+        "side": { "$ref": "#/$defs/side" },
+        "path": { "allOf": [ { "$ref": "#/$defs/relativePath" }, { "pattern": "\\.json$" } ] },
+        "description": { "type": "string" }
+      }
+    }
+  }
+}
