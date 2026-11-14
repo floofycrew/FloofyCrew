@@ -17,7 +17,7 @@
     "first-frame"
   ],
   "kirocrew": {
-    "version": ">=0.7.0 <0.14.0",
+    "version": ">=0.7.0 <0.15.0",
     "editions": [
       "internal",
       "external"
