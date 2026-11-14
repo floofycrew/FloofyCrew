@@ -134,3 +134,44 @@ First-party mods live in-tree under `mods/<id>` (the index is
 `<id>-<version>` of this repository, and the Forge publishes it. Writing one is
 covered by the "For mod authors" pages in [docs/README.md](docs/README.md);
 getting it into a registry by [docs/publishing.md](docs/publishing.md).
+
+### Pins and records
+
+What a user can install is decided by the registry record and the compatibility
+matrix together, never by the manifest alone. The rules, each with its reason:
+
+- **`kirocrew.version` is your forecast, not a gate.** With `strict: false` (the
+  default) the client admits a version on a host outside its range once the
+  matrix row for that exact host grades that exact `id@version` `tested` or
+  `expected`; the Loader loads it with a warning, and a host update does not
+  quarantine it. Declare the range you actually ran, do not pre-widen to hosts
+  you have not tested, and set `strict: true` only when an out-of-range host
+  MUST refuse the mod.
+- **A version users should install needs a record** in the registry index and,
+  publicly, the archive release `<id>-<version>`. A tag or a commit alone is
+  invisible to `floofy install <id>`. Rows are keyed by exact `id@version`, so a
+  tested version without a record helps nobody, and an older record outside its
+  range with no verdict is excluded: installs on a new host then answer "no
+  version works".
+- **A recorded version is immutable.** Any change, the pin included, is a patch
+  bump plus a new record. A manifest edited in place at a recorded version is
+  never seen by users.
+- **The Forge widens and publishes.** When a mod's current version passes green
+  on a newer host, the Forge raises the upper bound to `<MAJOR.(MINOR+1).0` of
+  the highest tested host, bumps the patch, tags `<id>-<version>`, archives it
+  and writes the records on both editions, with no FloofyCrew release (the
+  `mod-release` step; `python -m forge mod-release --dry-run` shows the plan).
+  It never widens a `strict` range, a `||` set or a `<=`/open bound: those are
+  yours to edit. Do not widen by hand what the Forge will.
+- **Hard dependencies go in `dependsOn`, not `recommends`.** The Loader refuses
+  a mod whose declared dependency is not installed, and the Forge installs the
+  declared dependencies before it grades a mod; a dependency left in
+  `recommends` (or undeclared) is outside that install set, and a mod that
+  needs it is graded `broken` on a host where it would have worked.
+- **A mod in its own repository with an internal package too:** the Forge lands
+  widenings on the public repository; the internal branch is the maintainer's to
+  move, and each edition's records follow what its branch carries.
+- **After publishing by hand,** confirm the record is in the registry index of
+  every edition you ship to and that `floofy install <id>` on a current host
+  picks the version you expect. A hand-cut FloofyCrew release writes no public
+  mod records.

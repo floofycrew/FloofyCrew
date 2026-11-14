@@ -119,6 +119,37 @@ notes of a version, set `"changelog": "https://…"` in its `release.json` (or
 `links.changelog` in the manifest): `floofy update --check` and the FloofyCrew
 App show that link beside the available update, falling back to the mod's `repo`.
 
+## 6. Pins and records: what a published version is
+
+- **The record is the publication.** A version users should install needs a
+  record in the registry index and, for an asset registry, the archive release
+  `<id>-<version>`; a tag or a commit alone is invisible to `floofy install <id>`.
+  Matrix rows are keyed by exact `id@version`, so a tested version without a
+  record helps nobody, and an older record whose range excludes the host and
+  that has no verdict there is excluded: installs on a new host then answer
+  "no version works".
+- **A recorded version is immutable.** Any change, the `kirocrew.version` pin
+  included, is a patch bump and a new record; a manifest edited in place at a
+  recorded version is never seen by users. `kirocrew.version` is the range you
+  tested, not a gate ([manifest.md](manifest.md)): with `strict: false` the
+  client admits the version on a newer host as soon as its row there grades it
+  `tested` or `expected`.
+- **The Forge widens and publishes.** When a mod's current version passes green
+  on a newer host, the Forge raises the upper bound to `<MAJOR.(MINOR+1).0` of
+  the highest tested host, bumps the patch, tags `<id>-<version>`, archives it
+  and writes the records on both editions, with no FloofyCrew release (the
+  `mod-release` step; `python -m forge mod-release --dry-run` shows what it
+  would do). `strict` ranges, `||` sets and `<=`/open bounds are never widened
+  automatically; the author edits those. Do not widen by hand what the Forge
+  will.
+- **A mod in its own repository with an internal package too:** the Forge lands
+  widenings on the public repository; the internal branch is the maintainer's to
+  move, and each edition's records follow what its branch carries.
+- **Before you call it published**, check the record is in the registry index
+  of every edition you ship to and that `floofy install <id>` on a current host
+  picks the version you expect. A hand-cut FloofyCrew release writes no public
+  mod records.
+
 ## Federated sources
 
 Anyone can run a registry with the same layout (`registry-tools/README.md`,

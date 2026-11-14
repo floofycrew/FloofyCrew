@@ -46,6 +46,17 @@ wildcards, `||`) matched against the host's `X.Y.Z` **base** version: an interna
 `false` (default) loads the mod with the warning `HostVersionOutOfRange`; `true`
 refuses it with the typed reason `Unsupported`.
 
+The range is the author's forecast, not a gate. For a non-strict mod the
+client admits a version on a host outside its range once the compatibility
+matrix row for that exact host grades that exact `id@version` `tested` or
+`expected` ([publishing.md](publishing.md) §5); the Loader loads it with the
+warning, and a host update does not quarantine it. So declare the range you
+actually tested and do not pre-widen to hosts you have not run: when the mod
+passes on a newer host the Forge raises the upper bound itself, in a new
+patch version with its own record. Keep `strict: false` unless an
+out-of-range host MUST refuse the mod; a `strict` range, a `||` set or a
+`<=`/open bound is never widened automatically.
+
 ## Graded dependencies
 
 Five maps of `id → range` (or `id → {"range", "reason"}`):
@@ -59,6 +70,12 @@ Five maps of `id → range` (or `id → {"range", "reason"}`):
 
 `loadBefore[]` / `loadAfter[]` add ordering edges to the topological sort. A cycle
 disables its participants with reason `Conflict`; the rest of the boot proceeds.
+
+A dependency the mod cannot run without goes in `dependsOn`, never in
+`recommends`: the Loader refuses a mod whose declared dependency is not
+installed, and the Forge installs the declared dependencies before it grades a
+mod, so one left in `recommends` is outside the install set and the mod is
+graded `broken` on a host where it would have worked.
 
 ## Network
 
