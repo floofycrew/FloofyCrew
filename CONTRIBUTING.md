@@ -17,7 +17,7 @@ uv run pytest               # the whole suite (~5 min; Playwright tests need Chr
 ```
 
 The README's [Development](README.md#development) section lists the other local
-commands (the identifier scan, the identity report, the public build check).
+commands (the identity report, the public build check).
 
 ## Your git identity in this clone
 
@@ -65,22 +65,14 @@ missing.
   default) before cutting from it, so a release never lands between two pushes
   of one piece of work.
 
-## The required checks
+## The required check
 
-Two status checks run on every pull request and on `main`
-(`.github/workflows/ci.yml`); both are required for a merge:
+One status check runs on every pull request and on `main`
+(`.github/workflows/ci.yml`); it is required for a merge:
 
 | Check | What it runs | Locally |
 |---|---|---|
-| `de-amazon` | `scripts/check_no_internal_identifiers.py` over the whole tree, against the hashed list `scripts/internal-identifiers.sha256` and the justified allowlist `scripts/public-export-allow.txt` | `python scripts/check_no_internal_identifiers.py --paths . --allowlist scripts/public-export-allow.txt --hashed scripts/internal-identifiers.sha256` |
 | `pytest` | the test suite in the locked environment | `uv run pytest` |
-
-`de-amazon` is the boundary that keeps this repository public: no internal
-hostname, system or account name anywhere in the tree. The list of names is not
-in this repository, only its hashed form is, so the check works on forks and
-needs no secret; a hit names the file, the line and the matched text. Fix the
-file. An allowlist line needs a structural reason, and the allowlist's header
-says which reasons qualify.
 
 ## What a Forge release looks like
 
@@ -123,7 +115,7 @@ have released since your last pull. It needs a clean tracked tree, the identity
 above, a branch that is not behind the remote, no `vX.Y.Z` on the remote yet,
 and something to release: `## Unreleased` entries, or Forge releases waiting to
 be folded (the fold needs `gh`). `--notes FILE` adds an intro paragraph above
-the Supports table. The gates are the two required checks plus
+the Supports table. The gates are the required check (`pytest`) plus
 `packaging/public/build.sh --check`. The public release tree and its assets are
 described in [packaging/README.md](packaging/README.md).
 

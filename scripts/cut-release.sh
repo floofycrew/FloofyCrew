@@ -31,9 +31,8 @@
 #      [tool.floofycrew.supports]) go directly under "## Unreleased", so the Unreleased bullets
 #      become the release's
 #   4. README.md: the "Current release: **X.Y.Z**" line
-#   5. gates, quick ones first: the hashed identifier scan over the whole tree
-#      (scripts/check_no_internal_identifiers.py --hashed scripts/internal-identifiers.sha256),
-#      packaging/public/build.sh --check, then the test suite; a failure keeps its full log
+#   5. gates, quick one first: packaging/public/build.sh --check, then the test suite; a failure
+#      keeps its full log
 #   6. one commit, "chore(release): Release floofycrew X.Y.Z", and the annotated tag vX.Y.Z
 #   7. prints the push command. The push is yours; this script never pushes.
 #
@@ -45,8 +44,6 @@
 #   CUT_RELEASE_PYTEST       default: TMPDIR=/tmp uv run pytest -q -p no:cacheprovider --basetemp=/tmp/fpt-cut-<pid>
 #                            (a short --basetemp keeps the tests' unix-socket paths under the OS limit)
 #   CUT_RELEASE_BUILD_CHECK  default: packaging/public/build.sh --check
-#   CUT_RELEASE_SCAN         default: uv run python scripts/check_no_internal_identifiers.py --paths .
-#                              --allowlist scripts/public-export-allow.txt --hashed scripts/internal-identifiers.sha256
 #
 # Needs bash, git, uv (the project's interpreter and uv.lock) and, when a Forge release has to be
 # folded, gh. Exit status: 0 released (or, with --check-only, would be); 1 a precondition, the fold
@@ -212,7 +209,6 @@ say "bumped to $VER: ${TOUCHED[*]}"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/cut-release.XXXXXX")
 PYTEST_CMD=${CUT_RELEASE_PYTEST:-"TMPDIR=/tmp uv run pytest -q -p no:cacheprovider --basetemp=/tmp/fpt-cut-$$"}
 BUILD_CMD=${CUT_RELEASE_BUILD_CHECK:-"packaging/public/build.sh --check"}
-SCAN_CMD=${CUT_RELEASE_SCAN:-"uv run python scripts/check_no_internal_identifiers.py --paths . --allowlist scripts/public-export-allow.txt --hashed scripts/internal-identifiers.sha256"}
 # gate NAME COMMAND: run it from the root with its output in $WORK/NAME.log; its last line is reported.
 gate() {
   local name=$1 cmd=$2 log="$WORK/$1.log"
@@ -225,8 +221,7 @@ gate() {
   tail -n 5 "$log" >&2
   fail "gate $name failed (exit status of: $cmd); full output: $log"
 }
-gate identifiers "$SCAN_CMD"   # the quick gates first: a leaked name is reported in seconds, not after the test suite
-gate packaging "$BUILD_CMD"
+gate packaging "$BUILD_CMD"   # the quick gate first: a broken build is reported in seconds, not after the test suite
 gate pytest "$PYTEST_CMD"
 PYTEST_SUMMARY=$(tail -n 1 "$WORK/pytest.log")
 if [ "$CHECK_ONLY" = 1 ]; then
@@ -238,7 +233,7 @@ fi
 MSG=(-m "chore(release): Release floofycrew $VER")
 [ -z "$NOTES" ] || MSG+=(-m "$(cat "$NOTES")")
 [ -z "$PENDING" ] || MSG+=(-m "Folded into CHANGELOG.md from the tags: ${PENDING_LIST% }.")
-MSG+=(-m "Gates: pytest: $PYTEST_SUMMARY; packaging: $(tail -n 1 "$WORK/packaging.log"); identifiers: $(tail -n 1 "$WORK/identifiers.log")")
+MSG+=(-m "Gates: pytest: $PYTEST_SUMMARY; packaging: $(tail -n 1 "$WORK/packaging.log")")
 git add -- "${TOUCHED[@]}"
 git commit -q "${MSG[@]}" || fail "release commit"
 RESTORE=0

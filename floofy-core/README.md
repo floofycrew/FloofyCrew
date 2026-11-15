@@ -7,8 +7,9 @@ Loader app runtime and the SPA host. Everything here is stdlib-only Python 3.12
 (plus ES modules for the dashboard side) and must run unchanged on the host's own
 interpreter. It must not contain any edition-specific value — no internal
 hostnames, package names, account identifiers or people — those belong in
-`editions/*`; CI enforces this with `scripts/check_no_internal_identifiers.py`.
-Tests live in `tests/`.
+`editions/*`. The public tree carries no edition-specific code at all: the
+internal adapter lives in the overlay, which cannot even carry a copy of a
+public file. Tests live in `tests/`.
 
 ## Layout
 

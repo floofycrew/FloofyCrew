@@ -173,10 +173,9 @@ directory, and are published to the registry. Among them:
 
 One shared core, two thin edition adapters. This repository holds the core,
 the public adapter and the edition-neutral docs; the internal adapter lives in
-the overlay described under [Internal edition](#internal-edition). CI checks
-that nothing here names an internal system, and the two editions are measured
-for how much of what ships is byte-identical (the figures are in
-[docs/two-track.md](docs/two-track.md)).
+the overlay described under [Internal edition](#internal-edition). The two
+editions are measured for how much of what ships is byte-identical (the figures
+are in [docs/two-track.md](docs/two-track.md)).
 
 | Path | What |
 |---|---|
@@ -188,7 +187,7 @@ for how much of what ships is byte-identical (the figures are in
 | `registry-tools/` | build, sign and validate registry indexes; bootstrap a registry repository |
 | `packaging/` | the public release track: `public/` (GitHub release assets, wheel, `install.sh`) |
 | `docs/` | documentation ([index](docs/README.md)) |
-| `scripts/` | repository tooling (identifier check, zipapp / wheel / Loader builds, identity report, the public export) |
+| `scripts/` | repository tooling (zipapp / wheel / Loader builds, identity report, the hand-cut release) |
 | `branding/` | the fox mark, wordmark, ASCII banner and the README screenshots, with the scripts that generate them |
 
 ## Internal edition
@@ -199,7 +198,8 @@ only what that edition needs &mdash; its edition adapter (a sibling of
 `editions/public/`), its internal-only mods, its packaging track and the
 release tracking that fills the compatibility matrix. Every change ships here
 first; the overlay follows a public tag and never carries a copy of the core.
-Nothing internal is kept in this repository, and CI keeps it that way. For
+Nothing internal is kept in this repository: the internal edition's layer lives
+only in the overlay. For
 everything about that edition &mdash; installing it, its contributor assistant
 and contributing guide, building and releasing it &mdash; read the overlay's
 own README.
@@ -220,19 +220,18 @@ updates, and the Forge runbook.
 ```bash
 uv sync                                          # dev tools (pytest, hypothesis, playwright)
 uv run pytest                                    # the whole suite (~5 min; Playwright tests need Chromium)
-python scripts/check_no_internal_identifiers.py  # what CI's de-amazon job runs
 python scripts/artifact_identity_report.py       # byte-identity across editions
 packaging/public/build.sh --check                # the public release tree, built twice, byte-identical
 uv run --with pillow python branding/shots/capture.py   # the README screenshots, from a scratch gateway
 ```
 
-Rules the code keeps: one repository, two thin adapters; no internal identifiers
+Rules the code keeps: one repository, two thin adapters; nothing edition-specific
 in the shared core or `docs/`; no rebuilt host is ever shipped; the user's
 consent outranks host governance (governance is a warning, never a gate); mod
 network traffic is HTTPS-only, loopback excepted; the Loader is a KiroCrew App
 through the App Kit seam, never the host's plugin entry point.
 
-How to contribute &mdash; the git identity in a clone, branches and `main`, the required checks, what a Forge release looks like &mdash; is in [CONTRIBUTING.md](CONTRIBUTING.md).
+How to contribute &mdash; the git identity in a clone, branches and `main`, the required check, what a Forge release looks like &mdash; is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Credits and license
 

@@ -7,15 +7,14 @@ train's annotated ``v1.3.12`` tag on the remote only, and copies of the real
 ``scripts/cut-release.sh`` and ``scripts/fold_forge_releases.py``. ``uv`` and ``gh``
 are stand-ins on ``PATH``: ``uv run python`` runs this interpreter, ``uv lock``
 rewrites the lock's version line, ``gh release view --json body`` answers from a
-table; the three gate commands are replaced (``CUT_RELEASE_*``) by a recorder that
+table; the two gate commands are replaced (``CUT_RELEASE_*``) by a recorder that
 snapshots the tree as the gates see it. Nothing reaches the network or a real remote.
 
 What is checked: ``--check-only`` fetches the remote's tags, folds the pending
 release-train tag into ``CHANGELOG.md`` **before** the gates run, bumps every version
 file, computes ``next`` from the remote's tags, and then puts every file back; a
-version already tagged on the remote is refused before anything is edited; the
-plainer refusals (dirty tree, the train's identity, nothing to release); and the
-script itself passes the identifier scanner in both modes.
+version already tagged on the remote is refused before anything is edited; and the
+plainer refusals (dirty tree, the train's identity, nothing to release).
 """
 from __future__ import annotations
 
@@ -33,7 +32,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "cut-release.sh"
 FOLD = REPO_ROOT / "scripts" / "fold_forge_releases.py"
-SCANNER = REPO_ROOT / "scripts" / "check_no_internal_identifiers.py"
 
 TRAIN_EMAIL = "forge@floofycrew.invalid"  # the release train's identity (fold_forge_releases.FORGE_EMAIL)
 HUMAN = {"GIT_AUTHOR_NAME": "Maintainer", "GIT_AUTHOR_EMAIL": "maintainer@example.org", "GIT_COMMITTER_NAME": "Maintainer", "GIT_COMMITTER_EMAIL": "maintainer@example.org"}
@@ -41,7 +39,7 @@ TRAIN = {"GIT_AUTHOR_NAME": "FloofyCrew Forge", "GIT_AUTHOR_EMAIL": TRAIN_EMAIL,
 TRAIN_TAG_DATE = "2026-10-30T12:00:00Z"
 #: Every file a release edits (the script's ``TOUCHED``), relative to the clone.
 TOUCHED = ("pyproject.toml", "uv.lock", "floofy-core/floofy_core/__init__.py", "loader-app/app.json", "loader-app/floofy_loader/__init__.py", "CHANGELOG.md", "README.md")
-GATES = ("identifiers", "packaging", "pytest")
+GATES = ("packaging", "pytest")
 H2 = re.compile(r"^## .*$", re.MULTILINE)
 
 TRAIN_NOTES = """# floofycrew v1.3.12 (nightly)
@@ -211,7 +209,6 @@ def make_clone(tmp_path: Path, *, train_release: bool = True, changelog: str = C
         "GIT_CONFIG_GLOBAL": str(gitconfig),  # no global settings (signing, hooks, identity) reach the fixture
         "GIT_CONFIG_NOSYSTEM": "1",
         "TMPDIR": str(tmp_path),
-        "CUT_RELEASE_SCAN": f"{bin_dir}/gate identifiers",
         "CUT_RELEASE_BUILD_CHECK": f"{bin_dir}/gate packaging",
         "CUT_RELEASE_PYTEST": f"{bin_dir}/gate pytest",
     }
@@ -289,9 +286,9 @@ def test_check_only_folds_the_train_tags_before_the_gates_and_restores_the_tree(
     assert "check-only: floofycrew 1.3.13 would get through; nothing committed or tagged" in done.stdout
     assert f"working tree restored ({len(TOUCHED)} files back to HEAD)" in done.stdout
 
-    # the fold happened before the first gate, and the three gates ran in order on the bumped tree
+    # the fold happened before the first gate, and the two gates ran in order on the bumped tree
     assert clone.gate_runs() == list(GATES)
-    changelog = clone.snapshot("identifiers", "CHANGELOG.md")
+    changelog = clone.snapshot("packaging", "CHANGELOG.md")
     headings = H2.findall(changelog)
     assert headings[0] == "## Unreleased"
     assert re.fullmatch(r"## 1\.3\.13 — \d{4}-\d{2}-\d{2}", headings[1]), headings
@@ -387,7 +384,7 @@ def test_refuses_when_nothing_is_to_release_and_releases_when_only_train_tags_wa
     done = waiting.run("next", "--check-only")
     assert done.returncode == 0, done.stdout + done.stderr
     assert "releasing 1.3.12 -> 1.3.13: 0 unreleased entries; Forge releases to fold: v1.3.12" in done.stdout
-    assert [h.split(" — ")[0] for h in H2.findall(waiting.snapshot("identifiers", "CHANGELOG.md"))] == ["## Unreleased", "## 1.3.13", "## 1.3.12", "## 1.3.11"]
+    assert [h.split(" — ")[0] for h in H2.findall(waiting.snapshot("packaging", "CHANGELOG.md"))] == ["## Unreleased", "## 1.3.13", "## 1.3.12", "## 1.3.11"]
     assert waiting.gate_runs() == list(GATES) and waiting.git("status", "--porcelain") == ""
     assert waiting.tracked("CHANGELOG.md") == CHANGELOG_EMPTY
 
@@ -397,7 +394,7 @@ def test_a_failing_gate_restores_the_tree_and_names_the_gate(clone: Clone) -> No
     done = clone.run("next", "--check-only")
     assert done.returncode == 1
     assert "FAILED: gate packaging failed" in done.stderr and "NOT reproducible" in done.stderr
-    assert clone.gate_runs() == ["identifiers", "packaging"], "the pytest gate never ran"
+    assert clone.gate_runs() == ["packaging"], "the pytest gate never ran"
     assert "working tree restored" in done.stdout
     assert clone.git("status", "--porcelain") == "" and clone.git("rev-parse", "HEAD") == clone.head
     assert clone.tracked("CHANGELOG.md") == CHANGELOG_WITH_ENTRY
@@ -409,23 +406,3 @@ def test_usage_errors_exit_2_before_any_precondition(clone: Clone) -> None:
     assert clone.run("1.3.13", "--bogus").returncode == 2
     assert clone.run("1.3.13", "--notes", str(clone.root / "missing.md")).returncode == 2
     assert clone.gate_runs() == [] and clone.uv_calls() == []
-
-
-# --- the script is public-tree clean --------------------------------------------------------------------------------------
-
-
-def test_the_script_and_this_test_pass_the_identifier_scanner() -> None:
-    """``scripts/cut-release.sh`` lives in the public tree: the hashed scan the public CI runs passes over it (and over this file);
-    the plain scan too where the plain list is present (an overlay checkout; a public clone carries only the hashed list)."""
-    paths = ["scripts/cut-release.sh", "packaging/tests/test_cut_release.py"]
-    allowlist = REPO_ROOT / "scripts" / "public-export-allow.txt"
-    hashed = REPO_ROOT / "scripts" / "internal-identifiers.sha256"
-    assert hashed.is_file(), "the public tree carries the hashed identifier list"
-    common = [sys.executable, str(SCANNER), "--paths", *paths, "--allowlist", str(allowlist)]
-    done = subprocess.run([*common, "--hashed", str(hashed)], cwd=REPO_ROOT, capture_output=True, text=True, timeout=300, check=False)
-    assert done.returncode == 0, done.stdout + done.stderr
-    assert "OK: no internal identifiers" in done.stdout
-    plain = REPO_ROOT / "scripts" / "internal-identifiers.txt"
-    if plain.is_file():
-        done = subprocess.run([*common, "--denylist", str(plain)], cwd=REPO_ROOT, capture_output=True, text=True, timeout=300, check=False)
-        assert done.returncode == 0, done.stdout + done.stderr

@@ -15,10 +15,9 @@ installs with ``pip install --no-deps`` into the host's own venv or pipx::
 
 Deterministic: sorted entries, fixed timestamps, fixed permissions, ``RECORD``
 sorted — two builds of the same tree are byte-identical (``--check`` proves it).
-The public release ships ``--edition public``; the wheel then carries no internal
-identifier (``scripts/check_no_internal_identifiers.py`` scans the unpacked tree in
-the release workflow, the long description is ``packaging/public/wheel-description.md``
-rather than the repository README, which describes both editions). Version, summary
+The public release ships ``--edition public``; its long description is
+``packaging/public/wheel-description.md`` rather than the repository README, which
+describes both editions. Version, summary
 and licence come from ``pyproject.toml`` and ``floofy_core.__version__`` (they must agree).
 """
 from __future__ import annotations

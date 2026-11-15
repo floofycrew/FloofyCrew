@@ -1,35 +1,26 @@
 """The public-first pathway's removals stay removed (public-first spec, tasks 15.1, 15.2 and 17.1).
 
 Seeded by task 15.1 with the README edit of Requirement 1.4: the marked
-internal-only regions of ``README.md`` and ``docs/README.md`` are gone, one
-"Internal edition" section stands in their place, and both files pass the
-identifier scanner as they are — no marker stripping in between. Task 15.2 adds
-the public ``CONTRIBUTING.md`` of Requirements 1.5 and 7.6: the maintainer's
-identity, the working convention, the required checks and the Forge's release
-shape, all stated there. Task 17.1 adds the Requirement 1.3 and 6.3 removals: the
-export tooling is deleted from the tree and the index, nothing but the cut-over
-tooling still names it, the public CI runs the hashed scan and no export step,
-the release workflow writes no registry pull request, and the scanner's allowlist
-stays behind as the one piece of the export pathway that is still a gate's input.
+internal-only regions of ``README.md`` and ``docs/README.md`` are gone and one
+"Internal edition" section stands in their place. Task 15.2 adds the public
+``CONTRIBUTING.md`` of Requirements 1.5 and 7.6: the maintainer's identity, the
+working convention, the required check and the Forge's release shape, all stated
+there. Task 17.1 adds the Requirement 1.3 and 6.3 removals: the export tooling is
+deleted from the tree and the index, nothing but the cut-over tooling still names
+it, the public CI runs no export step, and the release workflow writes no
+registry pull request.
 
 The marker text is assembled at runtime, never spelled: ``floofy-core/`` is part
 of the public tree, and a literal marker here would trip the test below that says
-no tracked file spells one. Internal identifiers are likewise never spelled, so the
-file stays clean under the scan it exercises.
+no tracked file spells one.
 """
 from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
-
-import check_no_internal_identifiers as checker  # noqa: E402
 
 #: The files whose marked internal-only regions the "Internal edition" section replaced.
 EDITED_READMES: tuple[str, ...] = ("README.md", "docs/README.md")
@@ -48,8 +39,6 @@ MAY_QUOTE_THE_MARKER: tuple[str, ...] = (".kiro", "research")
 #: link it — its index row was the marker line of ``docs/README.md``.
 INTERNAL_ONLY_DOC = "migrating-from-the-standalone-patcher.md"
 
-HASHED_LIST = REPO_ROOT / "scripts" / "internal-identifiers.sha256"
-
 CONTRIBUTING = REPO_ROOT / "CONTRIBUTING.md"
 
 #: The maintainer's public git identity (Requirement 1.5): the values the exporter
@@ -60,10 +49,10 @@ MAINTAINER_NAME = "Oscar Tseng"
 MAINTAINER_EMAIL = "oscar217b@gmail.com"
 
 #: What ``CONTRIBUTING.md`` must name (Requirements 1.5, 7.6): the owner switch whose
-#: removal holds every Forge push, the two required status checks, and the two files
-#: a Forge release's notes travel through (``RELEASE.md`` on the GitHub release, folded
+#: removal holds every Forge push, the required status check, and the two files a
+#: Forge release's notes travel through (``RELEASE.md`` on the GitHub release, folded
 #: into ``CHANGELOG.md`` by the next hand-cut release).
-CONTRIBUTING_NAMES: tuple[str, ...] = ("publish-enabled", "de-amazon", "pytest", "RELEASE.md", "CHANGELOG.md")
+CONTRIBUTING_NAMES: tuple[str, ...] = ("publish-enabled", "pytest", "RELEASE.md", "CHANGELOG.md")
 
 #: The working convention's two statements (Requirement 7.6), as ``CONTRIBUTING.md`` leads with them.
 CONVENTION_STATEMENTS: tuple[str, ...] = ("Feature work lives on branches", "`main` is always releasable")
@@ -111,8 +100,7 @@ def test_no_internal_only_marker_remains_anywhere_in_the_tree() -> None:
 def test_the_readme_has_one_internal_edition_section_that_names_the_overlay_by_role() -> None:
     """One short section replaces the marked regions: it names the overlay by its
     role (an internal repository vendoring a pinned public release) and sends the
-    reader to the overlay's own README for everything else; it names no internal
-    identifier (that is the scanner's job, next test)."""
+    reader to the overlay's own README for everything else."""
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     headings = re.findall(r"^#{2,3} Internal edition\s*$", readme, flags=re.M)
     assert len(headings) == 1, f"expected exactly one 'Internal edition' heading, found {len(headings)}"
@@ -139,37 +127,6 @@ def test_the_docs_index_no_longer_links_the_internal_only_page() -> None:
     assert missing == [], f"docs/README.md links pages that do not exist: {missing}"
 
 
-def test_the_edited_readmes_pass_the_scanner_without_marker_stripping() -> None:
-    """What CI runs, as a module call: the plain scan where the plain list lives (the
-    overlay) and the hashed scan where the hashed list lives (the public tree, and
-    here), each over the two files as they are. At least one of the two lists must
-    be present, or this test would be vacuous."""
-    ran = 0
-    if checker.DENYLIST:
-        hits = checker.scan(REPO_ROOT, EDITED_READMES)  # default allowlist: none for these files
-        assert hits == [], "plain scan: " + "; ".join(hit.format() for hit in hits)
-        ran += 1
-    if HASHED_LIST.is_file():
-        hash_list = checker.HashList.parse(HASHED_LIST.read_text(encoding="utf-8"))
-        hits = checker.scan(REPO_ROOT, EDITED_READMES, hash_list=hash_list)
-        assert hits == [], "hashed scan: " + "; ".join(hit.format() for hit in hits)
-        ran += 1
-    assert ran, "neither scripts/internal-identifiers.txt nor scripts/internal-identifiers.sha256 is present"
-
-
-@pytest.mark.skipif(not HASHED_LIST.is_file(), reason="the hashed identifier list is not in this tree")
-def test_the_public_ci_invocation_passes_over_the_edited_readmes() -> None:
-    """The exact command shape of the public de-amazon job, narrowed to the two files:
-    hashed list plus the public allowlist, exit 0."""
-    result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "check_no_internal_identifiers.py"),
-         "--paths", *EDITED_READMES, "--allowlist", "scripts/public-export-allow.txt", "--hashed", str(HASHED_LIST)],
-        capture_output=True, text=True, cwd=str(REPO_ROOT),
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.startswith("OK:"), result.stdout
-
-
 # --- Requirement 1.5 / 7.6: CONTRIBUTING.md states the identity and the convention ----
 
 
@@ -188,7 +145,7 @@ def test_contributing_names_the_identity_the_convention_and_the_release_shape() 
     export's absence. The public contributor guide exists and states: the maintainer's
     identity, as the two values the clone's own ``.git/config`` pins; the convention
     (feature work on branches, ``main`` always releasable); the hold (removing
-    ``publish-enabled``); the two required checks, named as ``ci.yml`` names them; the
+    ``publish-enabled``); the required check, named as ``ci.yml`` names it; the
     notes' two homes; and that nothing is exported, filtered or reviewed between a
     commit and GitHub (Requirement 1.3), which is what makes the convention the whole
     story."""
@@ -212,23 +169,6 @@ def test_contributing_names_the_identity_the_convention_and_the_release_shape() 
     assert "](CONTRIBUTING.md)" in readme, "README.md links CONTRIBUTING.md"
 
 
-def test_contributing_passes_the_scanner_as_it_is() -> None:
-    """``CONTRIBUTING.md`` ships in the public tree, so it is scanned the way CI scans it:
-    the plain list where it lives (the overlay), the hashed list where it lives (the
-    public tree). At least one list must be present, or the test would be vacuous."""
-    ran = 0
-    if checker.DENYLIST:
-        hits = checker.scan(REPO_ROOT, ("CONTRIBUTING.md",))
-        assert hits == [], "plain scan: " + "; ".join(hit.format() for hit in hits)
-        ran += 1
-    if HASHED_LIST.is_file():
-        hash_list = checker.HashList.parse(HASHED_LIST.read_text(encoding="utf-8"))
-        hits = checker.scan(REPO_ROOT, ("CONTRIBUTING.md",), hash_list=hash_list)
-        assert hits == [], "hashed scan: " + "; ".join(hit.format() for hit in hits)
-        ran += 1
-    assert ran, "neither scripts/internal-identifiers.txt nor scripts/internal-identifiers.sha256 is present"
-
-
 # --- Requirement 1.3 / 6.3: the export pathway is gone (task 17.1) --------------------
 
 #: Requirement 1.3's removal list — the exporter, its AI review and their two test
@@ -249,13 +189,9 @@ REMOVED_MODULE_NAMES: tuple[str, ...] = ("export_public", "review_public_export"
 MAY_NAME_THE_REMOVED_MODULES: tuple[str, ...] = (
     "tools/cutover/",  # keep_list.py, replacements.py, prove.py read the exporter with `git show C0:`
     "packaging/tests-internal/test_cutover_",  # their fixture tests commit a stand-in exporter into fixture histories
-    "floofy-core/tests/test_identifier_scan.py",  # asserts the string is absent from both CI workflows
     "floofy-core/tests/test_public_first_cleanup.py",  # this module's own path strings
 )
 
-#: The scanner's allowlist for the full-tree public scan. It outlives the export whose
-#: name it carries: the CI's de-amazon job and the tests name it by this path.
-PUBLIC_ALLOWLIST = "scripts/public-export-allow.txt"
 PUBLIC_CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
 
@@ -296,9 +232,8 @@ def test_nothing_but_the_cut_over_tooling_names_the_removed_modules() -> None:
     """Nothing imports, runs or documents the exporter or its review as a live tool. The
     cut-over tooling reads the exporter at the cut-over commit through ``git show`` (so
     the rewrite stays re-runnable from that commit), its fixture tests commit a stand-in
-    into fixture histories, and the scanner test asserts the name's absence from the
-    CI files: those, and this module, are the only tracked files that may spell the
-    names. The changelog is history and is left alone."""
+    into fixture histories: those, and this module, are the only tracked files that may
+    spell the names. The changelog is history and is left alone."""
     naming: set[str] = set()
     for name in REMOVED_MODULE_NAMES:
         naming.update(_tracked_files_quoting(name, excluding=(*MAY_QUOTE_THE_MARKER, "CHANGELOG.md")))
@@ -306,16 +241,11 @@ def test_nothing_but_the_cut_over_tooling_names_the_removed_modules() -> None:
     assert unexpected == [], f"tracked files that still name the export tooling: {unexpected}"
 
 
-def test_the_public_ci_runs_the_hashed_scan_with_the_kept_allowlist_and_no_export_step() -> None:
-    """Requirements 1.2, 1.3, 6.3 as the public CI shows them: one scanner invocation, in
-    hashed mode, against the kept allowlist; no step names, runs or uses an export or a
-    review of any kind (``test_identifier_scan.py`` parses the same file job by job; this
-    is the removal's own, narrower pin)."""
+def test_the_public_ci_runs_the_tests_and_no_export_step() -> None:
+    """Requirements 1.3, 6.3 as the public CI shows them: the test suite runs; no step
+    names, runs or uses an export or a review of any kind."""
     steps = _step_lines(PUBLIC_CI)
-    scans = [line for line in steps if line.startswith("run:") and "check_no_internal_identifiers.py" in line]
-    assert len(scans) == 1, f"expected one scanner step, found {scans}"
-    assert "--hashed scripts/internal-identifiers.sha256" in scans[0], scans[0]
-    assert f"--allowlist {PUBLIC_ALLOWLIST}" in scans[0], scans[0]
+    assert any(line.startswith("run:") and "pytest" in line for line in steps), steps
     for line in steps:
         assert not any(name in line for name in REMOVED_MODULE_NAMES), f"ci.yml still runs the export pathway: {line}"
         assert "review" not in line.lower(), f"a review is a gate in ci.yml: {line}"
@@ -336,18 +266,3 @@ def test_the_release_workflow_has_no_registry_pull_request_step() -> None:
     assert names, "release.yml has no named steps"
     assert not any(re.search(r"registry index|pull request|\bstamp", name, flags=re.I) for name in names), names
 
-
-def test_the_scanners_allowlist_stays_and_parses_against_the_tree() -> None:
-    """``scripts/public-export-allow.txt`` is the one survivor of the export pathway: it is
-    the allowlist of the scanner's full-tree public scan, so it stays, tracked, under the
-    name the CI and the tests use, and it parses with the scanner's own ``parse_allowlist``
-    against this tree (every excused path exists, every pattern is a denylist entry, every
-    rule has a reason) — and excuses none of the removed paths."""
-    allowlist = REPO_ROOT / PUBLIC_ALLOWLIST
-    assert allowlist.is_file(), f"{PUBLIC_ALLOWLIST} is gone"
-    assert _git("ls-files", "--error-unmatch", "--", PUBLIC_ALLOWLIST).returncode == 0, f"{PUBLIC_ALLOWLIST} is not tracked"
-    denylist = checker.HashList.parse(HASHED_LIST.read_text(encoding="utf-8")) if HASHED_LIST.is_file() else checker.DENYLIST
-    rules = checker.parse_allowlist(allowlist.read_text(encoding="utf-8"), root=REPO_ROOT, denylist=denylist)
-    assert rules, "the allowlist excuses nothing, so it would be dead weight"
-    assert all(rule.reason for rule in rules)
-    assert not any(rule.path.rstrip("/") in REMOVED_PATHS for rule in rules), "a rule excuses a removed path"

@@ -4,8 +4,7 @@
 The external track ships FloofyCrew as **GitHub release assets** plus a generated
 ``loader-app`` branch, built from the shared core plus the **public** edition
 adapter only (``--edition public``), so nothing in a public artifact names an
-internal system (Requirement 10.2; the release workflow scans the unpacked tree
-with ``scripts/check_no_internal_identifiers.py``). ``packaging/internal/build.py``
+internal system (Requirement 10.2). ``packaging/internal/build.py``
 builds the same core with the internal adapter, and
 ``scripts/artifact_identity_report.py`` measures how much of the two trees is
 byte-identical (Requirement 10.4).

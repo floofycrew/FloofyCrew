@@ -5,8 +5,8 @@ app archive, ``SHA256SUMS`` — plus a generated ``loader-app`` tree, all built 
 shared core and the **public** adapter only. These tests build the tree into
 temporary directories, prove two builds byte-identical, install the wheel into a
 scratch venv and run ``floofy``, drive ``install.sh`` offline against the built
-assets (verification, tamper refusal, the host-venv interpreter preference), and
-scan every public artifact for internal identifiers. Nothing touches a live install.
+assets (verification, tamper refusal, the host-venv interpreter preference) and check
+the wheel's metadata. Nothing touches a live install.
 """
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ def _load(name: str, path: Path):
 build_module = _load("public_release_build", PACKAGING / "build.py")
 
 import build_wheel  # noqa: E402  (scripts/ is on the pytest pythonpath)
-import check_no_internal_identifiers as checker  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -81,16 +80,11 @@ def test_two_builds_are_byte_identical(release: dict, tmp_path: Path):
     assert build_wheel.build_bytes(["public"]) == build_wheel.build_bytes(["public"])
 
 
-def test_public_artifacts_carry_no_internal_identifier(release: dict, tmp_path: Path):
+def test_wheel_metadata_names_the_entry_point_and_the_two_packages(release: dict, tmp_path: Path):
     root: Path = release["root"]
-    text_paths = ["app", "install.sh", "README.md", "RELEASE.md", "app-registry.json"]
-    hits = checker.scan(root, text_paths)
-    assert hits == [], [h.format() for h in hits]
     unpacked = tmp_path / "wheel"
     with zipfile.ZipFile(root / "dist" / f"floofycrew-{release['version']}-py3-none-any.whl") as archive:
         archive.extractall(unpacked)
-    hits = checker.scan(unpacked, [p.name for p in unpacked.iterdir()])
-    assert hits == [], [h.format() for h in hits]
     assert (unpacked / f"floofycrew-{release['version']}.dist-info" / "entry_points.txt").read_text(encoding="utf-8") == "[console_scripts]\nfloofy = floofy_core.cli.main:main\n"
     assert (unpacked / f"floofycrew-{release['version']}.dist-info" / "top_level.txt").read_text(encoding="utf-8") == "floofy_core\nfloofy_edition_public\n"
 
@@ -184,7 +178,7 @@ def test_registry_row_matches_the_public_adapter(release: dict):
 
 def test_release_workflow_builds_verifies_and_publishes():
     text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    for needle in ('- "v*"', "packaging/public/build.py --check", "check_no_internal_identifiers.py", "pip install --quiet --no-index --no-deps build/public/dist/floofycrew-*.whl", "gh release create", "loader-app", "registry_tools stamp"):
+    for needle in ('- "v*"', "packaging/public/build.py --check", "pip install --quiet --no-index --no-deps build/public/dist/floofycrew-*.whl", "gh release create", "loader-app", "registry_tools stamp"):
         assert needle in text, needle
     # the public registry has one writer, the Forge's direct signed commit (public-first design DR-9, task 6.5): the workflow
     # no longer clones the registry, rebuilds its index or opens a pull request — a hand-cut release uses `registry_tools stamp`

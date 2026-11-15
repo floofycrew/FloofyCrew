@@ -16,10 +16,7 @@ compare every byte).
 The wheel is written by `scripts/build_wheel.py` (a stdlib wheel writer: the
 repository is a multi-root workspace with no build backend, so `uv build` has
 nothing to build; the writer is deterministic and needs nothing installed).
-Public artifacts are scanned for internal identifiers before they ship
-(`scripts/check_no_internal_identifiers.py`); the internal package may name
-internal systems and is not scanned. Neither track ever contains KiroCrew code
-(design DR-1).
+Neither track ever contains KiroCrew code (design DR-1).
 
 ## The install scripts
 
@@ -103,9 +100,8 @@ re-fetches the tree and compares both; either difference is a `PinMismatch`.
 
 `internal/compose.py` materialises the tree the internal package is rendered
 from: the pinned public tag plus the overlay's **render inputs**, its
-`OVERLAY_SET` &mdash; the internal edition adapter, the internal-only mods, the
-skeleton of the rendered package (`internal/FloofyCrew/`) and the identifier
-scanner's plain list (see [The identifier list](#the-identifier-list)). The
+`OVERLAY_SET` &mdash; the internal edition adapter, the internal-only mods and the
+skeleton of the rendered package (`internal/FloofyCrew/`). The
 Forge, the research notes and the desk tooling are overlay content but never
 render inputs. In order:
 
@@ -175,22 +171,6 @@ from the overlay checkout: the overlay holds none of it, and the tooling of the
 pinned tag is what rendered that tag's public release. The composed tree's
 `floofy_core.__version__` must be the pin's `X.Y.Z`, or nothing is rendered.
 
-### The identifier list
-
-The scanner, `scripts/check_no_internal_identifiers.py`, is public; its plain
-denylist, `scripts/internal-identifiers.txt`, lives only in the overlay (a list
-of the names kept out of the public tree is itself such a list). This repository
-carries the list's hashed form, `scripts/internal-identifiers.sha256` &mdash; one
-`<sha256 of the lowercase entry>  <length>` line per entry &mdash; and CI's
-`de-amazon` job scans every file against it with `--hashed` on every push and
-pull request (the required checks are in
-[CONTRIBUTING.md](../CONTRIBUTING.md#the-required-checks)). The overlay's
-`tools/hash-identifiers.py` writes the hashed file, and its `--check` refuses a
-public tree whose copy is stale; the overlay's CI and the internal release
-script run it, so the hashed list is current before anything public is pushed
-next. The plain list is a render input: the rendered internal package may name
-internal systems and is never scanned.
-
 ## The public mod records
 
 Public users install mods from the public registry, whose records point at
@@ -250,7 +230,7 @@ refuses to run unless the public tag it pins exists on the public remote.
 **The public half** runs in this repository. `scripts/cut-release.sh <X.Y.Z |
 next> [--notes FILE] [--remote NAME] [--repo OWNER/NAME] [--check-only]` folds
 the Forge's releases into `CHANGELOG.md`, bumps the version files, runs the gates
-(the hashed identifier scan, `packaging/public/build.sh --check`, the test suite)
+(`packaging/public/build.sh --check`, the test suite)
 and makes one commit plus the annotated tag `vX.Y.Z`; the push is yours, and the
 pushed tag fires `.github/workflows/release.yml`, which builds the assets and
 creates the GitHub release.
@@ -279,9 +259,8 @@ was changed:
    `repo`);
 1. the pin: `pin.py set vX.Y.Z --repo <public repo>` writes `PUBLIC_PIN`;
 2. the gates: `build.sh --compose-only` (a file in both trees fails here with its
-   path named), `tools/hash-identifiers.py --check` against the composed tree's
-   `scripts/internal-identifiers.sha256`, `build.sh --check`, the overlay's test
-   suite (`uv run pytest`), and the registry pre-flight (the key is the
+   path named), `build.sh --check`, the overlay's test suite (`uv run pytest`),
+   and the registry pre-flight (the key is the
    registry's; which shipped mod versions it does not list yet);
 3. the render: `build.sh --out <package clone> --supports <supports.json>`, the
    supports taken from the composed tree's `pyproject.toml`; `RELEASE.md` must
