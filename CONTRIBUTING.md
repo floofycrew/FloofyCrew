@@ -83,8 +83,8 @@ to do:
   only the version files (`pyproject.toml`, `uv.lock`,
   `floofy-core/floofy_core/__init__.py`, `loader-app/floofy_loader/__init__.py`,
   `loader-app/app.json`), the `Current release` line of `README.md` and the
-  `mods/<id>/floofy.json` manifests whose host range it widened (their patch
-  versions bumped), plus the annotated tag `vX.Y.Z`;
+  `mods/<id>/floofy.json` manifests whose disproved host bound it removed (their
+  patch versions bumped), plus the annotated tag `vX.Y.Z`;
 - the tag fires `.github/workflows/release.yml`, which builds the assets and
   creates the GitHub release against that tag with `RELEASE.md` as its notes;
 - one GitHub release `<mod id>-<version>` per bumped first-party mod, with the
@@ -132,37 +132,47 @@ getting it into a registry by [docs/publishing.md](docs/publishing.md).
 What a user can install is decided by the registry record and the compatibility
 matrix together, never by the manifest alone. The rules, each with its reason:
 
-- **`kirocrew.version` is your forecast, not a gate.** With `strict: false` (the
-  default) the client admits a version on a host outside its range once the
-  matrix row for that exact host grades that exact `id@version` `tested` or
-  `expected`; the Loader loads it with a warning, and a host update does not
-  quarantine it. Declare the range you actually ran, do not pre-widen to hosts
-  you have not tested, and set `strict: true` only when an out-of-range host
-  MUST refuse the mod.
+- **`kirocrew.version` is a floor, not a forecast.** Declare `>=<the oldest
+  host you built against>` and no upper bound: `>=0.7.0` for a mod that only
+  uses the seams, since those are the hosts FloofyCrew supports. A mod does not
+  need a new version per host release; its contract is `dependsOn.floofycrew`
+  plus the seams, and the matrix row for each host is the measurement (a
+  `broken` verdict or a missed fingerprint quarantines the mod on that host,
+  whatever the range says). With `strict: false` (the default) an out-of-range
+  host loads the mod with a warning, and the client admits a version there once
+  the row for that exact host grades that exact `id@version` `tested` or
+  `expected`. Add a `<` bound only for a host change you know of: a later host
+  that breaks the mod, or that fixed the thing the mod works around
+  (`mods/custom-themes/patches/theme-reset-guard.json` is bounded with
+  `toBuild` for exactly that reason). Set `strict: true` only when an
+  out-of-range host MUST refuse the mod.
 - **A version users should install needs a record** in the registry index and,
   publicly, the archive release `<id>-<version>`. A tag or a commit alone is
   invisible to `floofy install <id>`. Rows are keyed by exact `id@version`, so a
   tested version without a record helps nobody, and an older record outside its
   range with no verdict is excluded: installs on a new host then answer "no
   version works".
-- **A recorded version is immutable.** Any change, the pin included, is a patch
-  bump plus a new record. A manifest edited in place at a recorded version is
-  never seen by users.
-- **The Forge widens and publishes.** When a mod's current version passes green
-  on a newer host, the Forge raises the upper bound to `<MAJOR.(MINOR+1).0` of
-  the highest tested host, bumps the patch, tags `<id>-<version>`, archives it
-  and writes the records on both editions, with no FloofyCrew release (the
-  `mod-release` step; `python -m forge mod-release --dry-run` shows the plan).
-  It never widens a `strict` range, a `||` set or a `<=`/open bound: those are
-  yours to edit. Do not widen by hand what the Forge will.
+- **A recorded version is immutable.** Any change, the range included, is a
+  patch bump plus a new record. A manifest edited in place at a recorded version
+  is never seen by users.
+- **A mod version changes when its code or its declared dependencies change,
+  and the Forge publishes it.** The `mod-release` step tags `<id>-<version>`,
+  archives it and writes the records on both editions, with no FloofyCrew
+  release (`python -m forge mod-release --dry-run` shows the plan). What moves
+  per new host is FloofyCrew's own `supports` list and the matrix rows, not
+  the mods. The Forge never moves a bound minor by minor: a non-strict `<`
+  bound that a `tested` verdict disproves is removed once (one patch bump, one
+  new record), after which the mod is measured, not forecast. A `strict` range
+  is yours alone to edit.
 - **Hard dependencies go in `dependsOn`, not `recommends`.** The Loader refuses
   a mod whose declared dependency is not installed, and the Forge installs the
   declared dependencies before it grades a mod; a dependency left in
   `recommends` (or undeclared) is outside that install set, and a mod that
   needs it is graded `broken` on a host where it would have worked.
 - **A mod in its own repository with an internal package too:** the Forge lands
-  widenings on the public repository; the internal branch is the maintainer's to
-  move, and each edition's records follow what its branch carries.
+  the bound removal on the public repository; the internal branch is the
+  maintainer's to move, and each edition's records follow what its branch
+  carries.
 - **After publishing by hand,** confirm the record is in the registry index of
   every edition you ship to and that `floofy install <id>` on a current host
   picks the version you expect. A hand-cut FloofyCrew release writes no public

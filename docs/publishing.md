@@ -128,23 +128,30 @@ App show that link beside the available update, falling back to the mod's `repo`
   record helps nobody, and an older record whose range excludes the host and
   that has no verdict there is excluded: installs on a new host then answer
   "no version works".
-- **A recorded version is immutable.** Any change, the `kirocrew.version` pin
+- **A recorded version is immutable.** Any change, the `kirocrew.version` range
   included, is a patch bump and a new record; a manifest edited in place at a
-  recorded version is never seen by users. `kirocrew.version` is the range you
-  tested, not a gate ([manifest.md](manifest.md)): with `strict: false` the
-  client admits the version on a newer host as soon as its row there grades it
-  `tested` or `expected`.
-- **The Forge widens and publishes.** When a mod's current version passes green
-  on a newer host, the Forge raises the upper bound to `<MAJOR.(MINOR+1).0` of
-  the highest tested host, bumps the patch, tags `<id>-<version>`, archives it
-  and writes the records on both editions, with no FloofyCrew release (the
-  `mod-release` step; `python -m forge mod-release --dry-run` shows what it
-  would do). `strict` ranges, `||` sets and `<=`/open bounds are never widened
-  automatically; the author edits those. Do not widen by hand what the Forge
-  will.
+  recorded version is never seen by users. `kirocrew.version` is a floor, not a
+  forecast ([manifest.md](manifest.md)): `>=<the oldest host built against>`,
+  `>=0.7.0` for a mod that only uses the seams, with no upper bound. The matrix
+  row per host is the measurement; with `strict: false` the client admits the
+  version on a host outside its range as soon as its row there grades it
+  `tested` or `expected`, and a `broken` verdict or a missed fingerprint
+  quarantines it there whatever the range says. A `<` bound belongs only where
+  the author knows a later host breaks the mod or fixed what it works around;
+  `strict: true` makes an out-of-range host refuse it.
+- **A mod version changes when its code or its declared dependencies change,
+  and the Forge publishes those.** The `mod-release` step tags
+  `<id>-<version>`, archives it and writes the records on both editions, with
+  no FloofyCrew release (`python -m forge mod-release --dry-run` shows what it
+  would do). What moves per new host is FloofyCrew's own `supports` list and
+  the matrix rows, not the mods. The Forge does not move bounds minor by minor:
+  a non-strict `<` bound that a `tested` verdict disproves is removed once (one
+  patch bump, one new record), after which the mod is measured, not forecast.
+  `strict` ranges are the author's alone to edit.
 - **A mod in its own repository with an internal package too:** the Forge lands
-  widenings on the public repository; the internal branch is the maintainer's to
-  move, and each edition's records follow what its branch carries.
+  the bound removal on the public repository; the internal branch is the
+  maintainer's to move, and each edition's records follow what its branch
+  carries.
 - **Before you call it published**, check the record is in the registry index
   of every edition you ship to and that `floofy install <id>` on a current host
   picks the version you expect. A hand-cut FloofyCrew release writes no public

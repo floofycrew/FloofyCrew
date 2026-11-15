@@ -16,7 +16,7 @@ the reporter is what tells you first.
   "mode": "import-map",
   "find": "mc-custom-theme-",
   "description": "why this patch exists and what it changes",
-  "appliesTo": ">=0.7.0 <0.9.0",
+  "appliesTo": ">=0.7.0",
   "fromBuild": "0.7.0",
   "toBuild": "0.9.0",
   "ops": [
@@ -36,6 +36,11 @@ the reporter is what tells you first.
 - `appliesTo` — a range on the host's `X.Y.Z` base; `fromBuild` (inclusive) /
   `toBuild` (exclusive) gate on the full host version, Vencord-style. Outside
   the gates the descriptor is `NotApplicable` and simply not applied.
+  `appliesTo` is a floor (`>=<the oldest host the patch was built against>`)
+  and the fingerprints decide whether the patch lands on a host; bound it only
+  for a host change you know of, such as a bug the host fixed — the example
+  above is the shape of `custom-themes`' theme-reset guard, which is bounded
+  with `toBuild` at the host build that fixed the reset.
 - `find` — an optional literal that must occur in the target text before any op
   applies: module identification, the way Vencord's `find` names a module.
 - `ops[]` — in order: `insert-before`, `insert-after`, `replace` (literal

@@ -36,7 +36,7 @@ key everywhere: dependency maps, the registry, the data home
 ## Host compatibility: `kirocrew`
 
 ```json
-"kirocrew": {"version": ">=0.7.0 <0.9.0", "editions": ["internal", "external"], "channels": ["stable"], "strict": false}
+"kirocrew": {"version": ">=0.7.0", "editions": ["internal", "external"], "channels": ["stable"], "strict": false}
 ```
 
 `version` is an npm-style range (`>= > < <= =`, hyphen ranges, `^`, `~`, `x`
@@ -46,16 +46,21 @@ wildcards, `||`) matched against the host's `X.Y.Z` **base** version: an interna
 `false` (default) loads the mod with the warning `HostVersionOutOfRange`; `true`
 refuses it with the typed reason `Unsupported`.
 
-The range is the author's forecast, not a gate. For a non-strict mod the
-client admits a version on a host outside its range once the compatibility
-matrix row for that exact host grades that exact `id@version` `tested` or
-`expected` ([publishing.md](publishing.md) §5); the Loader loads it with the
-warning, and a host update does not quarantine it. So declare the range you
-actually tested and do not pre-widen to hosts you have not run: when the mod
-passes on a newer host the Forge raises the upper bound itself, in a new
-patch version with its own record. Keep `strict: false` unless an
-out-of-range host MUST refuse the mod; a `strict` range, a `||` set or a
-`<=`/open bound is never widened automatically.
+The range is a floor, not a forecast: `>=<the oldest host you built against>`
+with no upper bound, `>=0.7.0` for a mod that only uses the seams (the hosts
+FloofyCrew supports). A mod's contract is `dependsOn.floofycrew` plus the seams,
+so it needs no new version per host release; the compatibility matrix row for
+each host is the measurement ([publishing.md](publishing.md) §5): a `broken`
+verdict or a missed fingerprint quarantines the mod on that host whatever the
+range says, and for a non-strict mod the client admits a version on a host
+outside its range once the row for that exact host grades that exact
+`id@version` `tested` or `expected`. Add a `<` bound only for a host change you
+know about, a later host that breaks the mod or that fixed what the mod works
+around, and set `strict: true` only when an out-of-range host MUST refuse the
+mod. The Forge does not move bounds minor by minor: a non-strict bound that a
+`tested` verdict disproves is removed once, in a new patch version with its own
+record, after which the mod is measured, not forecast. A `strict` range is the
+author's alone to edit.
 
 ## Graded dependencies
 

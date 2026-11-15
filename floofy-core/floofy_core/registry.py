@@ -244,8 +244,8 @@ class IndexCache:
         ``tested`` > ``expected`` > unknown; ``broken`` and ``yanked`` versions are
         excluded, as are versions whose ``editions`` do not admit this host. A
         version whose ``kirocrew`` range does not admit this host is excluded
-        unless a verdict on this exact host says it works: the range is the
-        author's forecast, the matrix row is a measurement, and the Loader's own
+        unless a verdict on this exact host says it works: the range is what the
+        author declared, the matrix row is a measurement, and the Loader's own
         rule (Requirement 1.3) already treats a non-strict range as a warning,
         not a gate — a ``tested`` row on 0.9.0.4 must not lose to a manifest
         written when 0.9 did not exist. A ``strict`` range stays a hard
