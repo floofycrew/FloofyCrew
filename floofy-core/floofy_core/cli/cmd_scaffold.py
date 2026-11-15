@@ -27,12 +27,13 @@ def new(ctx: CliContext, args: argparse.Namespace) -> int:
     author = args.author or os.environ.get("USER") or os.environ.get("USERNAME") or "you"
     major = FRAMEWORK_VERSION.split(".")[0]
     framework_range = f"^{major}.0" if major != "0" else ">=0.0.0 <2.0.0"
-    # the declared host range follows the host this is scaffolded on, so a mod made on 0.9 does not
-    # start life declaring `<0.9.0`; without a host the scaffold's own default stands
-    current = ctx.current_payload()
-    host_range = f">=0.7.0 <{current.host_version.base.major}.{current.host_version.base.minor + 1}.0" if current is not None else None
+    # `kirocrew.version` is a floor, not a forecast: `>=0.7.0` (the oldest host the seams support), no
+    # upper bound, whatever host this is scaffolded on; the compatibility matrix measures each host and
+    # an author adds a `<` bound only for a host change they know of. The scaffold's own default is the
+    # same floor, so a desk without a host gets the same manifest.
+    host_range = ">=0.7.0"
     try:
-        root = scaffold(args.kind, Path(args.dir).expanduser(), mod_id=args.mod_id, name=args.name, author=author, framework_range=framework_range, **({"host_range": host_range} if host_range else {}))
+        root = scaffold(args.kind, Path(args.dir).expanduser(), mod_id=args.mod_id, name=args.name, author=author, framework_range=framework_range, host_range=host_range)
     except (ValueError, FileExistsError) as exc:
         raise CliError(str(exc)) from exc
     report = validate_mod(root)

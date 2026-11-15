@@ -226,7 +226,7 @@ def _part_files(kind: str, mod_id: str, name: str) -> tuple[list[dict[str, Any]]
         descriptor = {
             "schema": 1,
             "target": "kiro_crew/static/dist/index.html",
-            "appliesTo": ">=0.7.0 <0.9.0",
+            "appliesTo": ">=0.7.0",
             "description": f"{name}: an example index.html patch (edit the fingerprint and content)",
             "ops": [{"op": "append-head", "content": f'<meta name="floofy-{mod_id}" content="1">', "marker": f'name="floofy-{mod_id}"'}],
         }
@@ -259,7 +259,7 @@ def refresh_files(root: Path) -> list[dict[str, str]]:
     return files
 
 
-def scaffold(kind: str, directory: Path, *, mod_id: str | None = None, name: str | None = None, author: str = "you", host_range: str = ">=0.7.0 <0.9.0", framework_range: str = "^1.0", year: int = 2026) -> Path:
+def scaffold(kind: str, directory: Path, *, mod_id: str | None = None, name: str | None = None, author: str = "you", host_range: str = ">=0.7.0", framework_range: str = "^1.0", year: int = 2026) -> Path:
     """Write the scaffold for ``kind`` under ``directory/<id>/`` and return the mod root."""
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}")
