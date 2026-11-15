@@ -7,7 +7,7 @@
   "authors": ["FloofyCrew examples"],
   "license": "Apache-2.0",
   "tags": ["example", "skill"],
-  "kirocrew": { "version": ">=0.7.0 <0.9.0" },
+  "kirocrew": { "version": ">=0.7.0" },
   "dependsOn": { "floofycrew": "^1.0" },
   "parts": [
     { "kind": "skill", "side": "gateway", "path": "skills/example-skill/SKILL.md" }

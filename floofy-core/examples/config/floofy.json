@@ -7,7 +7,7 @@
   "authors": ["FloofyCrew examples"],
   "license": "Apache-2.0",
   "tags": ["example", "config"],
-  "kirocrew": { "version": ">=0.7.0 <0.9.0" },
+  "kirocrew": { "version": ">=0.7.0" },
   "dependsOn": { "floofycrew": "^1.0" },
   "recommends": { "example-theme": { "range": "^1.0.0", "reason": "the theme_color this mod selects belongs to the example theme" } },
   "parts": [

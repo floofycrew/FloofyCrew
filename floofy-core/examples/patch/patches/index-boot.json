@@ -2,7 +2,7 @@
   "schema": 1,
   "target": "kiro_crew/static/dist/index.html",
   "description": "Inject a first-frame boot script before the host's module entry.",
-  "appliesTo": ">=0.7.0 <0.9.0",
+  "appliesTo": ">=0.7.0",
   "cacheBust": false,
   "ops": [
     {

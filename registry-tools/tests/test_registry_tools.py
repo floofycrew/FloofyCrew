@@ -72,7 +72,7 @@ def test_build_index_from_records_folds_the_matrix_and_passes_the_schema(registr
     v100, v110 = theme["versions"]
     assert v100["compat"] == {"0.7.0": "broken", "0.7.0.5": "tested"}, "the override wins on 0.7.0; the run cell on 0.7.0.5"
     assert v110["compat"] == {"0.7.0.5": "expected"}, "two rows for one host version: the most cautious verdict wins"
-    assert v100["kirocrew"] == ">=0.7.0 <0.9.0" and v100["editions"] == ["internal", "external"] and v100["dependencies"] == {"floofycrew": ">=0.0.0"}
+    assert v100["kirocrew"] == ">=0.7.0" and v100["editions"] == ["internal", "external"] and v100["dependencies"] == {"floofycrew": ">=0.0.0"}
     assert v100["files"][0]["url"].startswith("https://assets.example/") and len(v100["files"][0]["sha256"]) == 64 and v100["files"][0]["size"] > 0
     assert v100["channel"] == "stable" and v100["publishedAt"] == "2026-09-19T00:00:00Z" and v100["kinds"] == ["theme"] and "tag" not in v100
     app = next(m for m in index["mods"] if m["id"] == "example-app")
