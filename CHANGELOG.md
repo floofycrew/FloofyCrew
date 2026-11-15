@@ -11,6 +11,21 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Fixed
+
+- **The Updates card grades for the payload the launcher boots next, like the
+  CLI.** Toolbox (or the host's own updater) installs a new KiroCrew under a
+  running gateway, which keeps running the old payload until it restarts. The
+  Loader graded candidates against that running version, which seldom has a
+  matrix row any more, so every newer ungraded mod version showed as an
+  "untested here" update (`0.2.3 → 0.2.4`, `0.3.6 → 0.3.7`, `1.0.4 → 1.0.5` on a
+  gateway still running 0.12.1.2 after 0.12.2.3 was installed) while
+  `floofy update --check` said "up to date". `GET /registry` now grades for
+  `host-state.json`'s current payload, the one `floofy update --check` grades
+  for, reports both versions under `host`, and the card says "graded for
+  KiroCrew X, which is installed and runs after the next gateway restart; the
+  gateway still runs Y".
+
 ## 1.3.13 — 2026-11-13
 
 ### Supports

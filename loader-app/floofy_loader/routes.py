@@ -17,7 +17,7 @@ the SPA file route is declared once per depth (1–4 segments below the mod id).
 | POST | ``/mods/{id}/fault`` | body ``{message, stack, source: "spa"}``: the SPA host reports a failed module; the mod is disabled with ``Error`` |
 | GET | ``/spa/{id}/{file...}`` | an enabled mod's ``spa`` part files from ``<data home>/spa/<id>/`` (``Cache-Control: no-cache``, typed by extension, path-escape safe) |
 | POST | ``/cli`` | body ``{"argv": [...]}``: run one **read-only** ``floofy`` command in-process (``status``, ``doctor``, ``search``, ``info``, ``list``, ``audit``, ``which``) |
-| GET | ``/registry`` | the registry cache summary, every source's trust settings and last-refresh verdict, the matrix row for this host, the update available for each installed mod (graded like the CLI: ``best_version`` against the matrix) and each installed mod's source tier (``tiers``, Requirement 8.11) |
+| GET | ``/registry`` | the registry cache summary, every source's trust settings and last-refresh verdict, the matrix row for this host, the update available for each installed mod (graded like the CLI: ``best_version`` against the matrix, for the payload the launcher boots next — ``host`` says when that is not the one running) and each installed mod's source tier (``tiers``, Requirement 8.11) |
 | GET | ``/banner`` | the FloofyCrew banner cells (``floofy_core/cli/banner.json``) for the App's About card (Requirement 15.5 mirrored) |
 | GET | ``/ui/mods/{id}/{file...}`` | an **active** mod's ``ui`` part files (Requirement 16.4), read from the installed mod directory, only files the manifest lists (``text/javascript`` for the entry, ``no-cache``, path-escape safe); what the App ``import()``s same-origin |
 | GET | ``/mods/{id}/icon`` | the manifest's ``icon`` (``.svg``/``.png``, ``files[]``-listed) of any installed mod, active or not — the face in the App's mod rows |
@@ -199,6 +199,11 @@ def registry_response(runtime: Any) -> Responder:
     ``selfUpdate`` is the FloofyCrew release notice (Requirement 7.7) from the
     CLI's cached daily check — the App's Updates card shows it; the Loader never
     contacts the release endpoint itself.
+
+    ``host`` names the version the candidates were graded for. That is the
+    payload the launcher boots next (``host-state.json``'s ``current``, what the
+    CLI's ``floofy update --check`` grades against), not necessarily the one this
+    gateway runs: see :func:`_grading_host`.
     """
     if runtime.paths is None or runtime.facts is None:
         return _json(503, {"ok": False, "error": "the Loader has not started"})
@@ -215,13 +220,14 @@ def registry_response(runtime: Any) -> Responder:
     cache = IndexCache.load(paths)
     compat = CompatCache.load(paths.compat_cache)
     facts = runtime.facts
-    row = compat.row_for(facts.edition, facts.channel, facts.version)
+    host_version, base_version, restart_pending = _grading_host(paths, facts)
+    row = compat.row_for(facts.edition, facts.channel, host_version)
     updates: dict[str, Any] = {}
     tiers: dict[str, str] = {}
     for mod in installed_mods(paths, include_broken=False):
         source = read_source(mod.dir)
         key = source.get("registryKey") or mod.id
-        best = cache.best_version(str(key), base_version=facts.base_version, edition=facts.edition, host_version=facts.version, channel=facts.channel, compat=compat)
+        best = cache.best_version(str(key), base_version=base_version, edition=facts.edition, host_version=host_version, channel=facts.channel, compat=compat)
         picked = best.version
         try:
             newer = picked is not None and Version.parse(picked.version) > Version.parse(mod.version)
@@ -255,7 +261,35 @@ def registry_response(runtime: Any) -> Responder:
         except (OSError, ValueError):
             meta = None
         sources.append({**source.to_dict(), "cache": meta})
-    return _json(200, {"ok": True, "cache": cache.to_dict(), "compat": compat.to_dict(row), "sources": sources, "updates": updates, "tiers": tiers, "selfUpdate": runtime.self_update_summary()})
+    host = {"running": facts.version, "graded": host_version, "restartPending": restart_pending}
+    return _json(200, {"ok": True, "cache": cache.to_dict(), "compat": compat.to_dict(row), "sources": sources, "updates": updates, "tiers": tiers, "host": host, "selfUpdate": runtime.self_update_summary()})
+
+
+def _grading_host(paths: Any, facts: Any) -> tuple[str, Any, bool]:
+    """The host version update candidates are graded for: ``(version, base version, restart pending)``.
+
+    Toolbox (or the host's own updater) installs a new payload under a running
+    gateway; the gateway keeps running the old one until it restarts, while the
+    hourly trigger records the new one as ``current`` in ``host-state.json``
+    (Requirement 6.2) and the CLI's ``floofy update --check`` grades against it
+    (``ctx.current_payload()``). The matrix rarely has a row for a version that
+    is no longer current, so grading against the *running* version turned every
+    newer ungraded mod version into a phantom "untested here" update while the
+    terminal said "up to date". Grade for the payload on disk and let the card
+    say the gateway is behind it. A missing or unparsable record, or one naming
+    the running version, grades for the running version as before.
+    """
+    from floofy_core.hostchange import HostState  # noqa: PLC0415
+    from floofy_core.semver import HostVersion, InvalidVersion  # noqa: PLC0415
+
+    pending = HostState.load(paths).current
+    if not pending or pending == facts.version:
+        return facts.version, facts.base_version, False
+    try:
+        base = HostVersion.parse(pending).base
+    except InvalidVersion:
+        return facts.version, facts.base_version, False
+    return pending, base, True
 
 
 def banner_response() -> Responder:

@@ -86,3 +86,34 @@ def test_registry_route_reports_update_availability(tmp_path: Path, monkeypatch)
     (data.mods / "alpha" / ".floofy" / "source.json").write_text(json.dumps({"source": "registry", "ref": "alpha@1.0.0", "tier": "listed", "registryKey": "alpha"}), encoding="utf-8")
     tested = _body(registry_response(runtime))
     assert tested["tiers"] == {"alpha": "tested"} and tested["updates"]["alpha"]["tier"] == "tested"
+    assert tested["host"] == {"running": facts.version, "graded": facts.version, "restartPending": False}
+
+
+def test_registry_route_grades_for_the_payload_the_launcher_boots_next(tmp_path: Path, monkeypatch):
+    """A host update installed under a running gateway: the card grades like the CLI, for the on-disk current payload, and says the gateway is behind it."""
+    from floofy_core.hostchange import HostState
+
+    runtime, data = _runtime(tmp_path, monkeypatch)
+    facts = runtime.facts
+    make_mod(data, "alpha", version="1.0.0")
+    (data.mods / "alpha" / ".floofy").mkdir(parents=True, exist_ok=True)
+    (data.mods / "alpha" / ".floofy" / "source.json").write_text(json.dumps({"source": "registry", "ref": "alpha@1.0.0", "tier": "listed", "registryKey": "alpha"}), encoding="utf-8")
+    # 1.0.0 is `tested` on the NEW host 0.7.0.7; 1.1.0 is ungraded everywhere and admits both hosts
+    data.index_cache.write_text(json.dumps({"schema": 1, "source": "test", "mods": [{"id": "alpha", "name": "Alpha", "repo": "https://forge.example/alpha", "versions": [{"version": "1.0.0", "kirocrew": ">=0.7.0 <0.9.0", "files": [{"url": "https://example.invalid/a.zip", "sha256": "0" * 64}]}, {"version": "1.1.0", "kirocrew": ">=0.7.0 <0.9.0", "files": [{"url": "https://example.invalid/b.zip", "sha256": "0" * 64}]}]}]}), encoding="utf-8")
+    data.compat_cache.write_text(json.dumps({"schema": 1, "rows": [{"edition": facts.edition, "channel": facts.channel or "beta", "hostVersion": "0.7.0.7", "framework": {"loader": "ok"}, "mods": {"alpha@1.0.0": "tested"}}]}), encoding="utf-8")
+    # the gateway runs 0.7.0.5 (no matrix row): graded against it, the ungraded 1.1.0 is a phantom update
+    running = _body(registry_response(runtime))
+    assert running["updates"]["alpha"]["update"] is True and running["updates"]["alpha"]["verdict"] is None
+    assert running["host"] == {"running": "0.7.0.5", "graded": "0.7.0.5", "restartPending": False}
+    # Toolbox installed 0.7.0.7 and the trigger recorded it as current: grade for it, like `floofy update --check`
+    HostState({"toolbox:0.7.0.5": "0.7.0.5", "toolbox:0.7.0.7": "0.7.0.7"}, "0.7.0.7", "2026-01-01T00:00:00Z").save(data)
+    staged = _body(registry_response(runtime))
+    alpha = staged["updates"]["alpha"]
+    assert alpha["update"] is False and alpha["candidate"] == "1.0.0" and alpha["verdict"] == "tested" and alpha["installedVerdict"] == "tested"
+    assert staged["tiers"] == {"alpha": "tested"} and staged["compat"]["row"]["hostVersion"] == "0.7.0.7"
+    assert staged["host"] == {"running": "0.7.0.5", "graded": "0.7.0.7", "restartPending": True}
+    # a record naming the running version, or an unparsable one, grades for the running version as before
+    HostState({"toolbox:0.7.0.5": "0.7.0.5"}, "0.7.0.5", "2026-01-01T00:00:00Z").save(data)
+    assert _body(registry_response(runtime))["host"]["restartPending"] is False
+    HostState({}, "not-a-version", "2026-01-01T00:00:00Z").save(data)
+    assert _body(registry_response(runtime))["host"] == {"running": "0.7.0.5", "graded": "0.7.0.5", "restartPending": False}

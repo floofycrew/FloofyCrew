@@ -224,6 +224,8 @@ export function RegistryPage({ manager, rest }) {
 
   const updates = Object.entries((registry && registry.updates) || {}).filter(([, u]) => u && u.update);
   const selfUpdate = registry && registry.selfUpdate;
+  // the Loader grades for the payload the launcher boots next; when the gateway still runs an older one, say so
+  const gradedHost = registry && registry.host && registry.host.restartPending ? registry.host : null;
 
   return React.createElement(
     React.Fragment,
@@ -232,6 +234,9 @@ export function RegistryPage({ manager, rest }) {
       "div",
       { style: styles.card, "data-testid": "floofycrew-updates" },
       React.createElement("h2", { style: styles.cardTitle }, "Updates"),
+      gradedHost
+        ? React.createElement("div", { style: { ...styles.muted, marginBottom: "0.6rem" }, "data-testid": "floofycrew-updates-graded-for" }, `graded for KiroCrew ${gradedHost.graded}, which is installed and runs after the next gateway restart; the gateway still runs ${gradedHost.running}`)
+        : null,
       selfUpdate && selfUpdate.available
         ? React.createElement(
             "div",

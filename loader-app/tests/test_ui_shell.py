@@ -139,6 +139,13 @@ def test_update_check_shows_progress_and_a_result_line():
     assert '"Checking…"' in registry and "check failed" in registry
 
 
+def test_updates_card_says_which_host_version_it_graded_for():
+    """Registry › Updates: when the gateway runs an older payload than the one installed, the card names both instead of inventing updates."""
+    registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
+    assert "registry.host.restartPending" in registry and "floofycrew-updates-graded-for" in registry
+    assert "runs after the next gateway restart" in registry and "gradedHost.running" in registry
+
+
 def test_registry_refresh_buttons_show_progress_and_a_verdict():
     """Registry › Refresh (per source and every source): a busy label while the fetch runs, then what was fetched or refused."""
     registry = (UI / "app" / "pages" / "registry.mjs").read_text(encoding="utf-8")
