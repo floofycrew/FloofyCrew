@@ -26,6 +26,40 @@ KiroCrew; it never ships a rebuilt host.
   KiroCrew X, which is installed and runs after the next gateway restart; the
   gateway still runs Y".
 
+### Mods
+
+- **The seven first-party mods declare a floor, not a forecast**:
+  `kirocrew.version` is `>=0.7.0` with no upper bound, since each only uses
+  the seams and the matrix row per host is the measurement. One patch bump
+  each, a recorded version being immutable: `agent-backend-doctor` 0.2.5,
+  `agent-orchestrator` 0.2.8, `custom-themes` 1.0.6, `display-comfort` 1.0.4,
+  `model-retry-policy` 0.2.4, `os-notify-bridge` 1.0.4, `settings-demo` 1.0.4.
+  The `theme-reset-guard` patch descriptor keeps its bound: the host fixed the
+  reset it works around.
+
+### Changed
+
+- **`floofy new` writes a floor-only host range.** It derived
+  `>=0.7.0 <MAJOR.(MINOR+1).0` from the host it ran on, and the scaffold's own
+  default and the patch descriptor's `appliesTo` said `>=0.7.0 <0.9.0`, so a
+  patch scaffolded today was `NotApplicable` on today's host. Both now write
+  `>=0.7.0`; every example manifest under `floofy-core/examples/` follows.
+- **The contributor docs state the host-range and record rules.**
+  `CONTRIBUTING.md`, `docs/manifest.md`, `docs/patching.md` and
+  `docs/publishing.md`: the range is a floor, a `<` bound is only for a host
+  change the author knows of (`strict: true` to refuse), a mod version changes
+  when its code or dependencies change, and what users can install is the
+  registry record, never a tag or commit alone.
+
+### Removed
+
+- **The identifier gate is gone from the public tree.** The `de-amazon` CI job,
+  the hashed denylist, the allowlists, the two scanner steps of `release.yml`
+  and the `identifiers` gate of `scripts/cut-release.sh` were leftovers of the
+  export-with-scrubbing model that the 2026-11-13 public-first cut-over ended;
+  the internal overlay cannot carry a copy of a public file by construction.
+  `pytest` stays the required check.
+
 ## 1.3.13 — 2026-11-13
 
 ### Supports
