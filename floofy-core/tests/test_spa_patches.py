@@ -149,6 +149,17 @@ def test_import_map_patch_writes_a_copy_and_remaps_the_shell_idempotently(tmp_pa
     after_second = snapshot(payload.root) | {f"ui/{k}": v for k, v in snapshot(ui_root).items() if not k.endswith("index.json")}
     assert after_first == after_second
 
+    # ... and still when the clock moved between the two passes: the sidecar's ``ts`` is when its content was last written,
+    # not when it was last compared (the v1.3.14 CI run straddled a second boundary and the two sidecars came out rewritten)
+    later = "2099-01-01T00:00:00Z"
+    with pytest.MonkeyPatch.context() as clock:
+        clock.setattr("floofy_core.spa_patches.utc_now", lambda: later)
+        third = patcher.apply(plan, verify=False).payloads[0]
+    assert third.ok and third.written == [] and third.restored == []
+    after_third = snapshot(payload.root) | {f"ui/{k}": v for k, v in snapshot(ui_root).items() if not k.endswith("index.json")}
+    assert after_third == after_first, "a no-op apply across a clock tick rewrites no sidecar"
+    assert json.loads(sidecar_for(copy).read_text(encoding="utf-8"))["ts"] != later
+
     # dropping a mod from the set retires its copy; restore --all returns everything
     third = patcher.apply([PlannedPatch("qr-mod", "0", qr_descriptor())], verify=False).payloads[0]
     assert third.ok and not (ui_root / PATCHED_DIR / PRELOADED).exists() and copy.exists()

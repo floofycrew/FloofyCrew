@@ -90,6 +90,25 @@ def sidecar_for(copy_path: Path) -> Path:
     return copy_path.with_name(copy_path.name + ".floofy.json")
 
 
+def _sidecar_bytes(sidecar: Path, document: dict[str, Any]) -> bytes:
+    """``document`` serialised for ``sidecar``, carrying the existing file's ``ts`` when nothing but the stamp differs.
+
+    ``ts`` records when the sidecar's content was last written. Comparing the fresh document
+    against the file with the stamp included would make every apply that straddles a second
+    boundary a rewrite of an unchanged sidecar (``utc_now`` has one-second resolution), which
+    broke the idempotency a no-op apply promises. So the stamp is the one field read back from
+    the file: equal otherwise, the old stamp stays and the bytes come out identical.
+    """
+    if sidecar.is_file():
+        try:
+            existing = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            existing = None
+        if isinstance(existing, dict) and isinstance(existing.get("ts"), str) and {k: v for k, v in existing.items() if k != "ts"} == {k: v for k, v in document.items() if k != "ts"}:
+            document = {**document, "ts": existing["ts"]}
+    return (json.dumps(document, indent=2) + "\n").encode("utf-8")
+
+
 def resolve_chunk_target(payload: Payload, target: str) -> tuple[Path | None, Skip | None]:
     """Exactly one existing file for ``target`` (literal or glob) relative to the directory holding ``kiro_crew``."""
     base = payload.package_dir.parent
@@ -204,7 +223,10 @@ def apply_import_map_patch(
         "applied": [a.op_index for a in result.applied],
         "ts": utc_now(),
     }
-    sidecar_bytes = (json.dumps(sidecar_doc, indent=2) + "\n").encode("utf-8")
+    # ``ts`` is when this sidecar's content was last written, not when it was last compared: an apply that changes
+    # nothing keeps the existing stamp, so a no-op pass rewrites no byte (the idempotency the manifest and the
+    # tests rely on; with a one-second ``utc_now`` two passes straddling a second boundary used to differ in ``ts`` alone)
+    sidecar_bytes = _sidecar_bytes(sidecar, sidecar_doc)
     if not sidecar.is_file() or sidecar.read_bytes() != sidecar_bytes:
         atomic_write_bytes(sidecar, sidecar_bytes)
     manifest.record_added(sidecar, sha256_bytes(sidecar_bytes), mod)
