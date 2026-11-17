@@ -11,6 +11,23 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Mods
+
+- **`model-retry-policy` is deprecated and merged into `agent-backend-router`
+  0.4.0.** Load balancing and fallback now live in one mod and work in that
+  order: the routing policy picks a new session's backend, and when a turn on it
+  fails the configured fallback rule applies — the retry count / retry-forever /
+  fallback-profile mechanisms, the mid-turn recovery budget and the backend
+  failover, byte for byte the former mod's code (`hook/retry.py`,
+  `hook/fallback.py`) under the router config's `retry` key. The router imports
+  the old mod's `config.json` once and calls straight through on every retry
+  seam while the old mod is still enabled, so disabling it changes nothing a
+  user had configured. The directory is removed from `mods/`, the row from the
+  mod tables and the screenshot script, and the records from both registries
+  (public and internal); installed copies keep working without updates. The
+  router is an internal-edition mod for now, so the public edition loses the
+  retry policy until the router's move here.
+
 ### Fixed
 
 - **spa-host / core**: the bundle fingerprints resolve again on public 0.13.0rc2 and

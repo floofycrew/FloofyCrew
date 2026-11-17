@@ -163,7 +163,6 @@ directory, and are published to the registry. Among them:
 |---|---|
 | [KiroCrew IDE](https://github.com/floofycrew/kirocrew-ide) | a full VS Code workbench inside the dashboard, same-origin, with KiroCrew chat and the Kiro spec workflow in the editor |
 | [`custom-themes/`](mods/custom-themes/) | a theme editor with live preview, export/import, and the layer every custom theme builds on |
-| [`model-retry-policy/`](mods/model-retry-policy/) | what KiroCrew does when the model fails: retries, backoff, fallback chains |
 | [`agent-orchestrator/`](mods/agent-orchestrator/) | real parallel multi-agent runs over a typed message bus, with a live graph |
 | [`agent-backend-doctor/`](mods/agent-backend-doctor/) | finds and repairs the Claude Code / Codex backends behind your agents |
 | [`display-comfort/`](mods/display-comfort/) | font size, density and contrast controls for the dashboard |

@@ -57,13 +57,12 @@ DEMO_MODS = (
     "custom-themes",
     "settings-demo",
     "display-comfort",
-    "model-retry-policy",
     "agent-backend-doctor",
     "agent-orchestrator",
     "os-notify-bridge",
 )
 #: Mod pages to try for the "a mod page" shot, in order of preference.
-MOD_PAGE_CANDIDATES = ("model-retry-policy", "agent-backend-doctor", "agent-orchestrator", "settings-demo")
+MOD_PAGE_CANDIDATES = ("agent-backend-doctor", "agent-orchestrator", "settings-demo")
 
 #: The KiroCrew IDE mod checkout: FLOOFY_IDE_SRC, else a sibling of this repository.
 IDE_SRC = Path(os.environ.get("FLOOFY_IDE_SRC", str(REPO_ROOT.parent / "KirocrewIdeMod")))
@@ -293,7 +292,7 @@ def capture_manager(browser, gw) -> None:
     context, page = new_page(browser)
     try:
         open_manager(page, gw)
-        page.wait_for_selector('[data-testid="floofycrew-mod-row-model-retry-policy"]', timeout=60000)
+        page.wait_for_selector('[data-testid="floofycrew-mod-row-agent-backend-doctor"]', timeout=60000)
         shot(page, "floofycrew-mods")
     finally:
         context.close()
