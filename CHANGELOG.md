@@ -28,6 +28,18 @@ KiroCrew; it never ships a rebuilt host.
   router is an internal-edition mod for now, so the public edition loses the
   retry policy until the router's move here.
 
+### Fixed
+
+- **spa-host / core**: the bundle fingerprints resolve again on public 0.13.0rc2 and
+  later. Those builds split the first load into `main` plus hyphenated
+  `first-load-shared` / `first-load-<n>` chunks and no longer emit an `App` or a
+  `useTheme` chunk; `CHUNK_RE` (Python and JS alike) now accepts hyphens in a
+  stem, and the moved rows in `surfaces.json` list the new stem before the old
+  one (`["main", "App"]`, `["first-load-1", "App"]` for the logo,
+  `["first-load-shared", "useTheme", "terminal"]` for the theme rows). Older
+  hosts resolve exactly as before; verified offline from public 0.6.0 to the
+  0.14.0 nightlies.
+
 ## 1.3.14 — 2026-11-15
 
 The Updates card stops inventing updates after a host upgrade the gateway has not restarted into, first-party mods declare a floor-only host range, and the public tree sheds the identifier gate.

@@ -58,7 +58,11 @@ MOUNT_SELECTOR = "#root > *"
 #: Settle time after the mount before the report (the surfaces observer debounces mutations by 150 ms).
 MOUNT_SETTLE_MS = 500
 #: ``<stem>-<hash>.js`` references, as ``/assets/<name>`` URLs or ``./<name>`` module specifiers (mirrors ``surfaces.mjs``).
-CHUNK_RE = re.compile(r"(?:/assets/|\./)([A-Za-z][A-Za-z0-9_.]*?)-([A-Za-z0-9_-]{8})\.js\b")
+#: The stem may itself contain hyphens (public 0.13.0rc2+ splits the first load into
+#: ``first-load-shared-<hash>.js``, ``first-load-1-<hash>.js``, …); the non-greedy stem takes the
+#: shortest prefix whose remainder is exactly ``-<8 chars>.js``, so a hash that starts with ``-``
+#: (``App--yR5jXwa.js``, ``first-load-1--p9KNKuj.js``) still yields the right stem.
+CHUNK_RE = re.compile(r"(?:/assets/|\./)([A-Za-z][A-Za-z0-9_.-]*?)-([A-Za-z0-9_-]{8})\.js\b")
 _SHELL_REF_RE = re.compile(r'(?:<script[^>]*\bsrc=|<link[^>]*\bhref=)(["\'])(/assets/[^"\']+\.js)\1', re.I)
 
 PLAYWRIGHT_HINT = (
