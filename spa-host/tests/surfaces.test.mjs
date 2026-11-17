@@ -36,7 +36,10 @@ test("the shipped registry is well-formed: unique names, fromBuild, dom and/or b
     if (surface.bundle) {
       const stems = bundleStems(surface.bundle);
       assert.ok(stems.length >= 1, `${surface.name}: at least one chunk stem`);
-      for (const stem of stems) assert.match(stem, /^[A-Za-z][A-Za-z0-9_.]*$/, `${surface.name}: a chunk is named by its stem, never by hash`);
+      for (const stem of stems) {
+        assert.match(stem, /^[A-Za-z][A-Za-z0-9_.-]*$/, `${surface.name}: a stem is a chunk name without its hash`);
+        assert.doesNotMatch(stem, /-[A-Za-z0-9_-]{8}$/, `${surface.name}: a chunk is named by its stem, never by hash`);
+      }
       assert.ok(surface.bundle.contains || surface.bundle.regex, surface.name);
       if (surface.bundle.regex) assert.doesNotThrow(() => new RegExp(surface.bundle.regex));
     }
@@ -55,6 +58,46 @@ test("chunk discovery reads stems from the shell and from ./stem-hash.js referen
   assert.equal(chunks.get("App"), "App-B7YcgeIc.js");
   assert.equal(chunks.get("useIsMobile"), "useIsMobile-CVmE8oC-.js");
   assert.deepEqual([...chunksFromDocument(null)], []);
+});
+
+test("chunk discovery accepts hyphenated stems (public 0.13.0rc2+ first-load split) and keeps the old ones", () => {
+  // public-insider 0.13.0rc3 (Forge repair, round 1): the shell preloads first-load-shared / first-load-<n>; one hash starts with `-`
+  const doc = fakeDocument({}, [
+    "/assets/main-C0ugv8Dr.js",
+    "/assets/rolldown-runtime-BCiCTKAo.js",
+    "/assets/first-load-shared-BbpJsaUU.js",
+    "/assets/first-load-0-BIRf0g0-.js",
+    "/assets/first-load-1--p9KNKuj.js",
+    "/assets/first-load-vendor-kHJ-D0s7.css",
+    "/vendor/react.mjs",
+  ]);
+  const chunks = chunksFromDocument(doc);
+  assert.deepEqual(
+    [...chunks],
+    [
+      ["main", "main-C0ugv8Dr.js"],
+      ["rolldown-runtime", "rolldown-runtime-BCiCTKAo.js"],
+      ["first-load-shared", "first-load-shared-BbpJsaUU.js"],
+      ["first-load-0", "first-load-0-BIRf0g0-.js"],
+      ["first-load-1", "first-load-1--p9KNKuj.js"],
+    ],
+  );
+  assert.equal(chunks.has("App"), false);
+  // the shortest stem whose remainder is exactly -<8 chars>.js: the older names resolve as before
+  addChunks(chunks, 'import("./App--yR5jXwa.js");from"./useTheme-4-BKxom-.js";from"./AppSource-DEk6--Wl.js"');
+  assert.equal(chunks.get("App"), "App--yR5jXwa.js");
+  assert.equal(chunks.get("useTheme"), "useTheme-4-BKxom-.js");
+  assert.equal(chunks.get("AppSource"), "AppSource-DEk6--Wl.js");
+  // the shipped rows that moved list the new stem first and the old one after it
+  const byName = Object.fromEntries(REGISTRY.surfaces.map((s) => [s.name, s]));
+  for (const name of ["dashboard.shell", "topbar", "sidebar.nav", "theme.decor-slot", "page.main", "apps.page", "settings.page"]) {
+    assert.deepEqual(bundleStems(byName[name].bundle), ["main", "App"], name);
+  }
+  assert.deepEqual(bundleStems(byName.logo.bundle), ["first-load-1", "App"]);
+  for (const name of ["favicon", "theme.tokens", "theme.custom-style"]) {
+    assert.deepEqual(bundleStems(byName[name].bundle), ["first-load-shared", "useTheme", "terminal"], name);
+  }
+  assert.deepEqual(bundleStems(byName["theme.reset-site"].bundle), ["useTheme", "terminal"], "gated before the split");
 });
 
 test("matchBundle: contains/regex, some vs once", () => {

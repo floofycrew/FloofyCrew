@@ -123,7 +123,7 @@ reset is fixed upstream from public 0.8.0.dev20260928053132. The ordering is
   status changed.
 * `bundle` — `{chunk, contains | regex, count}`: a literal or regex expected in
   the module text of the hashed chunk named by its **stem** (`App`, `main`,
-  `useTheme`). The file name is discovered from the never-cached shell
+  `useTheme`, `first-load-shared` — a stem may contain hyphens, never the hash). The file name is discovered from the never-cached shell
   (`<script type=module src>`, `<link rel=modulepreload>`) or, for a lazy
   chunk, from a `./<stem>-<hash>.js` reference inside an already-known chunk;
   the text is fetched same-origin from `/assets/*` and cached per document.

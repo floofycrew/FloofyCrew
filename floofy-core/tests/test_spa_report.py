@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,33 @@ def public_0_6_0_dist(root: Path) -> Path:
     return dist
 
 
+def public_0_13_0rc3_dist(root: Path) -> Path:
+    """The public 0.13.0rc2+ shape: no App or useTheme chunk; the shell is in `main`, the theme hook in the
+    preloaded `first-load-shared`, the logo in `first-load-1` — hyphenated stems, one hash starting with `-`."""
+    dist = root / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text(
+        '<html><head><script type="module" crossorigin src="/assets/main-C0ugv8Dr.js"></script>\n'
+        '<link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-BCiCTKAo.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/vendor-react-ZXAqDpSD.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/first-load-shared-BbpJsaUU.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/first-load-0-BIRf0g0-.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/first-load-1--p9KNKuj.js">\n'
+        '<link rel="stylesheet" crossorigin href="/assets/first-load-vendor-kHJ-D0s7.css"></head><body><div id="root"></div></body></html>',
+        encoding="utf-8",
+    )
+    (dist / "assets" / "main-C0ugv8Dr.js").write_text(
+        'import"./first-load-shared-BbpJsaUU.js";import"./first-load-1--p9KNKuj.js";import("./AppDetailRoute-B3vH3ygq.js");'
+        '"data-testid":`dashboard-shell`;"topbar topbar-glass";app.main_navigation;app.main_navigation;'
+        '"data-testid":`theme-decor-slot`;id:`main-content`;path:`/apps`;path:`/apps`;path:`/settings/*`',
+        encoding="utf-8",
+    )
+    (dist / "assets" / "first-load-shared-BbpJsaUU.js").write_text("r.dataset.theme=U(e,t);mc-theme-favicon;mc-custom-theme-", encoding="utf-8")
+    (dist / "assets" / "first-load-1--p9KNKuj.js").write_text("className:n?.logoClass??(o?`a`:`b`);app.main_navigation", encoding="utf-8")
+    (dist / "assets" / "first-load-0-BIRf0g0-.js").write_text("nothing here", encoding="utf-8")
+    return dist
+
+
 def test_default_registry_is_found_and_well_formed():
     registry = load_registry()
     assert spa_report.default_registry_path() == REGISTRY_PATH
@@ -58,19 +86,26 @@ def test_default_registry_is_found_and_well_formed():
             stems = bundle_stems(bundle)
             assert stems, f"{surface['name']}: at least one chunk stem"
             for stem in stems:
-                assert "-" not in stem or not any(ch.isdigit() for ch in stem), f"{surface['name']}: a chunk is named by its stem, never by hash"
-    # the theme hook is its own useTheme chunk on 0.7.0.x and folded into `terminal` on public 0.6.0
-    for name in ("favicon", "theme.tokens", "theme.custom-style", "theme.reset-site"):
+                assert re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", stem), f"{surface['name']}: a stem is a chunk name without its hash"
+                assert not re.search(r"-[A-Za-z0-9_-]{8}$", stem), f"{surface['name']}: a chunk is named by its stem, never by hash"
+    # the theme hook is its own useTheme chunk on 0.7.0.x, folded into `terminal` on public 0.6.0 and into
+    # `first-load-shared` since public 0.13.0rc2 (the App and useTheme chunks are gone there)
+    for name in ("favicon", "theme.tokens", "theme.custom-style"):
         surface = next(s for s in registry["surfaces"] if s["name"] == name)
-        assert bundle_stems(surface["bundle"]) == ["useTheme", "terminal"], name
+        assert bundle_stems(surface["bundle"]) == ["first-load-shared", "useTheme", "terminal"], name
+    reset_site = next(s for s in registry["surfaces"] if s["name"] == "theme.reset-site")
+    assert bundle_stems(reset_site["bundle"]) == ["useTheme", "terminal"], "gated before the first-load split; no new stem needed"
+    # the shell, nav and routes were the lazy App chunk up to 0.13.0rc1 and are in the entry chunk since 0.13.0rc2
+    for name in ("dashboard.shell", "topbar", "sidebar.nav", "theme.decor-slot", "page.main", "apps.page", "settings.page"):
+        surface = next(s for s in registry["surfaces"] if s["name"] == name)
+        assert bundle_stems(surface["bundle"]) == ["main", "App"], name
     # a gated row was written against a build before its toBuild
     for surface in registry["surfaces"]:
         if "toBuild" in surface:
             assert HostVersion.parse(surface["fromBuild"]) < HostVersion.parse(surface["toBuild"]), surface["name"]
-    reset_site = next(s for s in registry["surfaces"] if s["name"] == "theme.reset-site")
     assert reset_site["toBuild"] == "0.8.0.dev20260928053132", "the persisting theme reset is fixed upstream from that public nightly"
     logo = next(s for s in registry["surfaces"] if s["name"] == "logo")
-    assert logo["bundle"] == {"chunk": "App", "contains": "?.logoClass??(", "count": "once"}, "the collapse button's ternary; the mobile rail added on 0.8.0.dev20260928053132 uses the plain fallback"
+    assert logo["bundle"] == {"chunk": ["first-load-1", "App"], "contains": "?.logoClass??(", "count": "once"}, "the collapse button's ternary; the mobile rail added on 0.8.0.dev20260928053132 uses the plain fallback; in a first-load split chunk since 0.13.0rc2"
 
 
 def test_surface_applicability_to_build_is_exclusive_and_never_excludes_an_unknown_version():
@@ -132,6 +167,47 @@ def test_discover_chunks_reads_the_shell_and_expands_lazy_stems(tmp_path: Path):
     assert discover_chunks(dist) == {"main": "main-AAAAAAAA.js", "useTheme": "useTheme-BBBBBBBB.js"}
     assert discover_chunks(dist, wanted={"App"})["App"] == "App-CCCCCCCC.js"
     assert discover_chunks(tmp_path / "nowhere") == {}
+
+
+def test_chunk_re_accepts_hyphenated_stems_and_keeps_the_old_ones():
+    """public 0.13.0rc2+: `first-load-shared-<hash>.js`, `first-load-1--p9KNKuj.js` (a hash starting with `-`)."""
+    pairs = spa_report.CHUNK_RE.findall(
+        '"/assets/main-C0ugv8Dr.js" "/assets/first-load-shared-BbpJsaUU.js" "/assets/first-load-1--p9KNKuj.js" '
+        '"/assets/rolldown-runtime-BCiCTKAo.js" import("./App--yR5jXwa.js");from"./useTheme-4-BKxom-.js";from"./AppSource-DEk6--Wl.js" '
+        '"/assets/first-load-vendor-kHJ-D0s7.css" "/vendor/react.mjs"'
+    )
+    assert pairs == [
+        ("main", "C0ugv8Dr"),
+        ("first-load-shared", "BbpJsaUU"),
+        ("first-load-1", "-p9KNKuj"),
+        ("rolldown-runtime", "BCiCTKAo"),
+        ("App", "-yR5jXwa"),
+        ("useTheme", "4-BKxom-"),
+        ("AppSource", "DEk6--Wl"),
+    ], "the shortest stem whose remainder is exactly -<8 chars>.js; css and vendor files are not chunks"
+
+
+def test_check_bundle_fingerprints_resolves_the_first_load_split(tmp_path: Path):
+    """public-insider 0.13.0rc3 (Forge repair, round 1): the App and useTheme chunks are gone; the shell literals
+    are in the entry chunk `main`, the theme hook in `first-load-shared`, the logo in `first-load-1`."""
+    dist = public_0_13_0rc3_dist(tmp_path)
+    chunks = discover_chunks(dist)
+    assert chunks["main"] == "main-C0ugv8Dr.js" and chunks["first-load-shared"] == "first-load-shared-BbpJsaUU.js"
+    assert chunks["first-load-1"] == "first-load-1--p9KNKuj.js" and chunks["first-load-0"] == "first-load-0-BIRf0g0-.js"
+    assert "App" not in chunks and "useTheme" not in chunks
+    assert discover_chunks(dist, wanted={"AppDetailRoute"})["AppDetailRoute"] == "AppDetailRoute-B3vH3ygq.js", "lazy stems still expand through main"
+    report = check_bundle_fingerprints(dist, load_registry(), host_version="0.13.0rc3")
+    assert report.missed == [], json.dumps(report.missed, indent=2)
+    assert report.matched == ["dashboard.shell#bundle", "topbar#bundle", "sidebar.nav#bundle", "logo#bundle", "favicon#bundle", "theme.tokens#bundle", "theme.custom-style#bundle", "theme.decor-slot#bundle", "page.main#bundle", "apps.page#bundle", "settings.page#bundle"]
+    assert [m["name"] for m in report.not_applicable] == ["theme.reset-site#bundle"]
+    assert report.to_dict()["spaFingerprints"] == {"matched": 11, "total": 11, "missed": []}
+    # the miss reason names every stem tried when none is referenced by the shell
+    legacy_only = {"schema": 1, "surfaces": [{"name": "x", "fromBuild": "0.7.0.5", "bundle": {"chunk": ["useTheme", "terminal"], "contains": ".dataset.theme="}}]}
+    assert check_bundle_fingerprints(dist, legacy_only).missed[0]["reason"] == "no chunk with stem useTheme|terminal is referenced by the shell"
+    # and the 0.7.0.x shape still resolves through the older stems of the same rows
+    older = check_bundle_fingerprints(fake_dist(tmp_path / "older"), load_registry(), host_version="0.7.0.5")
+    assert {"dashboard.shell#bundle", "apps.page#bundle", "favicon#bundle", "theme.tokens#bundle"} <= set(older.matched)
+    assert older.chunks["App"] == "App-CCCCCCCC.js" and older.chunks["useTheme"] == "useTheme-BBBBBBBB.js"
 
 
 def test_match_bundle_counts():

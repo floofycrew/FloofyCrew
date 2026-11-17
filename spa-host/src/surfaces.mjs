@@ -11,7 +11,7 @@
 //   re-resolved on route change and DOM mutation; `surfaces.changed` fires
 //   when a node identity or a match status changed.
 // * `bundle` — a literal (or regex) expected in the module text of a hashed
-//   chunk named by its STEM (`App`, `main`, `useTheme`) — or by a list of
+//   chunk named by its STEM (`App`, `main`, `useTheme`, `first-load-shared`) — or by a list of
 //   fallback stems tried in order, for a module the bundler folds into a
 //   differently named shared chunk on another build. The real file name is
 //   discovered from the never-cached shell (`<script src>`, `modulepreload`
@@ -91,8 +91,14 @@ export function surfaceApplicability(def, hostVersion) {
   return order < 0 ? null : `host ${hostVersion} is not below toBuild ${toBuild}`;
 }
 
-/** Extract `{stem, name}` chunk entries from a list of URLs or module text (`/assets/<stem>-<hash>.js`). */
-export const CHUNK_RE = /(?:\/assets\/|\.\/)([A-Za-z][A-Za-z0-9_.]*?)-([A-Za-z0-9_-]{8})\.js\b/g;
+/**
+ * Extract `{stem, name}` chunk entries from a list of URLs or module text (`/assets/<stem>-<hash>.js`).
+ * The stem may itself contain hyphens (public 0.13.0rc2+ splits the first load into
+ * `first-load-shared-<hash>.js`, `first-load-1-<hash>.js`, …); the non-greedy stem takes the shortest
+ * prefix whose remainder is exactly `-<8 chars>.js`, so a hash that starts with `-` (`App--yR5jXwa.js`,
+ * `first-load-1--p9KNKuj.js`) still yields the right stem. Mirrors `floofy_core.spa_report.CHUNK_RE`.
+ */
+export const CHUNK_RE = /(?:\/assets\/|\.\/)([A-Za-z][A-Za-z0-9_.-]*?)-([A-Za-z0-9_-]{8})\.js\b/g;
 
 /**
  * Discover `stem -> file name` from the shell's script/preload tags.

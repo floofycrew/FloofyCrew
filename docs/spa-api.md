@@ -114,7 +114,8 @@ two fingerprint kinds:
   and re-resolved on route change and DOM mutation; `surfaces.changed` fires
   when a node identity or a match status changed.
 - `bundle` — a literal or regex expected in the module text of a hashed chunk
-  named by its **stem** (`App`, `main`, `useTheme`); the real file name is
+  named by its **stem** (`App`, `main`, `useTheme`, `first-load-shared` — a stem may
+  contain hyphens, never the hash); the real file name is
   discovered from the shell's `<script src>` and `modulepreload` hints or from a
   `./<stem>-<hash>.js` reference inside an already-fetched chunk. Chunk text is
   fetched same-origin from `/assets/*`.
