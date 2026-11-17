@@ -100,6 +100,35 @@ test("chunk discovery accepts hyphenated stems (public 0.13.0rc2+ first-load spl
   assert.deepEqual(bundleStems(byName["theme.reset-site"].bundle), ["useTheme", "terminal"], "gated before the split");
 });
 
+test("chunk discovery on the real public 0.13.0rc2 shell: an underscore in the entry hash, hyphenated preloads, no App", () => {
+  // public-insider 0.13.0rc2 (Forge repair, round 1): the shell's module tag and modulepreload hints of that build, verbatim
+  const doc = fakeDocument({}, [
+    "/assets/main-p_j1hcRA.js",
+    "/assets/rolldown-runtime-BCiCTKAo.js",
+    "/assets/vendor-react-ZXAqDpSD.js",
+    "/assets/first-load-shared-CeuMNKMT.js",
+    "/assets/first-load-vendor-CbjFy9Ou.js",
+    "/assets/first-load-0-Byduoqoa.js",
+    "/assets/first-load-1-BqNCLOwT.js",
+    "/assets/first-load-2-C2fCqQqs.js",
+  ]);
+  const chunks = chunksFromDocument(doc);
+  assert.equal(chunks.get("main"), "main-p_j1hcRA.js");
+  assert.equal(chunks.get("first-load-shared"), "first-load-shared-CeuMNKMT.js");
+  assert.equal(chunks.get("first-load-1"), "first-load-1-BqNCLOwT.js");
+  assert.equal(chunks.has("App"), false);
+  assert.equal(chunks.has("useTheme"), false);
+  // every moved row finds its first stem in that shell; the gated reset-site row is the only one that does not
+  const found = (def) => bundleStems(def.bundle).find((stem) => chunks.has(stem)) ?? null;
+  const byName = Object.fromEntries(REGISTRY.surfaces.filter((s) => s.bundle).map((s) => [s.name, found(s)]));
+  assert.deepEqual(byName, {
+    "dashboard.shell": "main", topbar: "main", "sidebar.nav": "main", logo: "first-load-1",
+    favicon: "first-load-shared", "theme.tokens": "first-load-shared", "theme.custom-style": "first-load-shared",
+    "theme.reset-site": null, "theme.decor-slot": "main", "page.main": "main", "apps.page": "main", "settings.page": "main",
+  });
+  assert.equal(surfaceApplicability(REGISTRY.surfaces.find((s) => s.name === "theme.reset-site"), "0.13.0rc2") !== null, true, "reset-site is gated on 0.13.0rc2");
+});
+
 test("matchBundle: contains/regex, some vs once", () => {
   const text = 'a "data-testid":`dashboard-shell` b path:`/apps` c path:`/apps` d';
   assert.equal(matchBundle({ contains: '"data-testid":`dashboard-shell`', count: "once" }, text).status, "matched");

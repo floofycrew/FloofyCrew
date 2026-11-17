@@ -210,6 +210,45 @@ def test_check_bundle_fingerprints_resolves_the_first_load_split(tmp_path: Path)
     assert older.chunks["App"] == "App-CCCCCCCC.js" and older.chunks["useTheme"] == "useTheme-BBBBBBBB.js"
 
 
+def test_check_bundle_fingerprints_resolves_public_0_13_0rc2(tmp_path: Path):
+    """public-insider 0.13.0rc2 (Forge repair, round 1): the real shell references of that build — the entry
+    hash carries an underscore (`main-p_j1hcRA.js`), the preloads are the hyphenated first-load chunks and
+    no `App` or `useTheme` chunk exists. Pinned so a checker that drops hyphenated stems (the 1.3.13 regex)
+    cannot pass this suite: it reported 0/11 on this very dist."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text(
+        '<html><head><script type="module" crossorigin src="/assets/main-p_j1hcRA.js"></script>\n'
+        '<link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-BCiCTKAo.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/vendor-react-ZXAqDpSD.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/first-load-shared-CeuMNKMT.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/first-load-vendor-CbjFy9Ou.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/first-load-0-Byduoqoa.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/first-load-1-BqNCLOwT.js">\n'
+        '<link rel="modulepreload" crossorigin href="/assets/first-load-2-C2fCqQqs.js">\n'
+        '<link rel="stylesheet" crossorigin href="/assets/first-load-shared-jCkaNMBG.css"></head><body><div id="root"></div></body></html>',
+        encoding="utf-8",
+    )
+    (dist / "assets" / "main-p_j1hcRA.js").write_text(
+        'import"./first-load-shared-CeuMNKMT.js";import"./first-load-1-BqNCLOwT.js";import("./AppDetailRoute-B0MTsP3q.js");'
+        '"data-testid":`dashboard-shell`;"topbar topbar-glass";app.main_navigation;'
+        '"data-testid":`theme-decor-slot`;id:`main-content`;path:`/apps`;path:`/settings/*`',
+        encoding="utf-8",
+    )
+    (dist / "assets" / "first-load-shared-CeuMNKMT.js").write_text("r.dataset.theme=U(e,t);mc-theme-favicon;mc-custom-theme-", encoding="utf-8")
+    (dist / "assets" / "first-load-1-BqNCLOwT.js").write_text("className:n?.logoClass??(o?`a`:`b`)", encoding="utf-8")
+    for stem in ("first-load-0-Byduoqoa", "first-load-2-C2fCqQqs", "first-load-vendor-CbjFy9Ou", "rolldown-runtime-BCiCTKAo", "vendor-react-ZXAqDpSD"):
+        (dist / "assets" / f"{stem}.js").write_text("", encoding="utf-8")
+    chunks = discover_chunks(dist)
+    assert chunks["main"] == "main-p_j1hcRA.js", "an underscore inside the hash is still an 8-char hash"
+    assert chunks["first-load-shared"] == "first-load-shared-CeuMNKMT.js" and chunks["first-load-1"] == "first-load-1-BqNCLOwT.js"
+    assert "App" not in chunks and "useTheme" not in chunks and "first-load-shared-jCkaNMBG" not in chunks
+    report = check_bundle_fingerprints(dist, load_registry(), host_version="0.13.0rc2")
+    assert report.missed == [], json.dumps(report.missed, indent=2)
+    assert report.to_dict()["spaFingerprints"] == {"matched": 11, "total": 11, "missed": []}
+    assert [m["name"] for m in report.not_applicable] == ["theme.reset-site#bundle"]
+
+
 def test_match_bundle_counts():
     assert match_bundle({"contains": "x", "count": "once"}, "axb") == ("matched", "1 occurrence(s)")
     assert match_bundle({"contains": "x", "count": "once"}, "axbx")[0] == "missed"
