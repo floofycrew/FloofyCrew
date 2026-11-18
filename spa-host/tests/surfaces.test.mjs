@@ -129,39 +129,55 @@ test("chunk discovery on the real public 0.13.0rc2 shell: an underscore in the e
   assert.equal(surfaceApplicability(REGISTRY.surfaces.find((s) => s.name === "theme.reset-site"), "0.13.0rc2") !== null, true, "reset-site is gated on 0.13.0rc2");
 });
 
-test("chunk discovery on the real public-nightly 0.14.0.dev20261117060648 shell: more vendor preloads, an underscore in a first-load hash, no App", () => {
-  // public-nightly 0.14.0.dev20261117060648 (Forge repair, round 1): the shell's module tag and modulepreload hints of that
-  // nightly, verbatim. The 1.3.14 Loader (hyphen-less CHUNK_RE, `App`-only registry) reported 0/11 live on this shell.
-  const doc = fakeDocument({}, [
-    "/assets/main-DEIoS2gI.js",
-    "/assets/rolldown-runtime-BCiCTKAo.js",
-    "/assets/vendor-react-ZXAqDpSD.js",
-    "/assets/vendor-icons-B1q05t15.js",
-    "/assets/vendor-dompurify-BXhPiKO5.js",
-    "/assets/vendor-markdown-0cdPmefA.js",
-    "/assets/first-load-shared-Dj24MrF0.js",
-    "/assets/first-load-vendor-CBbWYRlz.js",
-    "/assets/first-load-0-BYnBMT4g.js",
-    "/assets/first-load-1-B_NY8gZE.js",
-    "/assets/first-load-2-gLrAlQrI.js",
-  ]);
-  const chunks = chunksFromDocument(doc);
-  assert.equal(chunks.size, 11, "every shell reference is a chunk");
-  assert.equal(chunks.get("main"), "main-DEIoS2gI.js");
-  assert.equal(chunks.get("first-load-shared"), "first-load-shared-Dj24MrF0.js");
-  assert.equal(chunks.get("first-load-1"), "first-load-1-B_NY8gZE.js", "an underscore inside the hash is still an 8-char hash");
-  assert.equal(chunks.get("vendor-markdown"), "vendor-markdown-0cdPmefA.js");
-  assert.equal(chunks.has("App"), false);
-  assert.equal(chunks.has("useTheme"), false);
-  const found = (def) => bundleStems(def.bundle).find((stem) => chunks.has(stem)) ?? null;
-  const byName = Object.fromEntries(REGISTRY.surfaces.filter((s) => s.bundle).map((s) => [s.name, found(s)]));
-  assert.deepEqual(byName, {
-    "dashboard.shell": "main", topbar: "main", "sidebar.nav": "main", logo: "first-load-1",
-    favicon: "first-load-shared", "theme.tokens": "first-load-shared", "theme.custom-style": "first-load-shared",
-    "theme.reset-site": null, "theme.decor-slot": "main", "page.main": "main", "apps.page": "main", "settings.page": "main",
+// The shells of the public-nightly 0.14.0 builds the Forge repaired (round 1 each): the module tag and modulepreload hints,
+// verbatim. The 1.3.14 Loader (hyphen-less CHUNK_RE, `App`-only registry) reported 0/11 live on every one of them.
+const PUBLIC_NIGHTLY_SHELLS = {
+  // entry `main-DEIoS2gI.js`, an underscore in the `first-load-1` hash
+  "0.14.0.dev20261117060648": {
+    main: "main-DEIoS2gI", shared: "first-load-shared-Dj24MrF0", logo: "first-load-1-B_NY8gZE",
+    others: ["first-load-vendor-CBbWYRlz", "first-load-0-BYnBMT4g", "first-load-2-gLrAlQrI"],
+  },
+  // the nightly before it: same preload set, every first-load hash different, the underscore in `first-load-0`
+  "0.14.0.dev20261116061021": {
+    main: "main-BqTgr0bP", shared: "first-load-shared-Clqd2Boc", logo: "first-load-1-D_Jg0TiY",
+    others: ["first-load-vendor-DH37Pl6O", "first-load-0-BmqjMw_4", "first-load-2-Cdn2xdTx"],
+  },
+};
+
+for (const [hostVersion, shell] of Object.entries(PUBLIC_NIGHTLY_SHELLS)) {
+  test(`chunk discovery on the real public-nightly ${hostVersion} shell: more vendor preloads, an underscore in a first-load hash, no App`, () => {
+    const doc = fakeDocument({}, [
+      `/assets/${shell.main}.js`,
+      "/assets/rolldown-runtime-BCiCTKAo.js",
+      "/assets/vendor-react-ZXAqDpSD.js",
+      "/assets/vendor-icons-B1q05t15.js",
+      "/assets/vendor-dompurify-BXhPiKO5.js",
+      "/assets/vendor-markdown-0cdPmefA.js",
+      `/assets/${shell.shared}.js`,
+      `/assets/${shell.others[0]}.js`,
+      `/assets/${shell.others[1]}.js`,
+      `/assets/${shell.logo}.js`,
+      `/assets/${shell.others[2]}.js`,
+    ]);
+    const chunks = chunksFromDocument(doc);
+    assert.equal(chunks.size, 11, "every shell reference is a chunk");
+    assert.equal(chunks.get("main"), `${shell.main}.js`);
+    assert.equal(chunks.get("first-load-shared"), `${shell.shared}.js`);
+    assert.equal(chunks.get("first-load-1"), `${shell.logo}.js`, "an underscore inside the hash is still an 8-char hash");
+    assert.equal(chunks.get("first-load-0"), `${shell.others[1]}.js`);
+    assert.equal(chunks.get("vendor-markdown"), "vendor-markdown-0cdPmefA.js");
+    assert.equal(chunks.has("App"), false);
+    assert.equal(chunks.has("useTheme"), false);
+    const found = (def) => bundleStems(def.bundle).find((stem) => chunks.has(stem)) ?? null;
+    const byName = Object.fromEntries(REGISTRY.surfaces.filter((s) => s.bundle).map((s) => [s.name, found(s)]));
+    assert.deepEqual(byName, {
+      "dashboard.shell": "main", topbar: "main", "sidebar.nav": "main", logo: "first-load-1",
+      favicon: "first-load-shared", "theme.tokens": "first-load-shared", "theme.custom-style": "first-load-shared",
+      "theme.reset-site": null, "theme.decor-slot": "main", "page.main": "main", "apps.page": "main", "settings.page": "main",
+    });
+    assert.equal(surfaceApplicability(REGISTRY.surfaces.find((s) => s.name === "theme.reset-site"), hostVersion) !== null, true, "reset-site is gated on the 0.14.0 nightlies");
   });
-  assert.equal(surfaceApplicability(REGISTRY.surfaces.find((s) => s.name === "theme.reset-site"), "0.14.0.dev20261117060648") !== null, true, "reset-site is gated on the 0.14.0 nightlies");
-});
+}
 
 test("matchBundle: contains/regex, some vs once", () => {
   const text = 'a "data-testid":`dashboard-shell` b path:`/apps` c path:`/apps` d';

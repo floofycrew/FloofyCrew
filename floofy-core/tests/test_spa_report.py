@@ -249,39 +249,57 @@ def test_check_bundle_fingerprints_resolves_public_0_13_0rc2(tmp_path: Path):
     assert [m["name"] for m in report.not_applicable] == ["theme.reset-site#bundle"]
 
 
-def test_check_bundle_fingerprints_resolves_public_nightly_0_14_0_dev20261117060648(tmp_path: Path):
-    """public-nightly 0.14.0.dev20261117060648 (Forge repair, round 1): the real shell references of that
-    nightly — entry `main-DEIoS2gI.js`, three more vendor preloads than rc2 (`vendor-icons`, `vendor-dompurify`,
-    `vendor-markdown`), an underscore in the `first-load-1` hash, a hyphen in a stylesheet hash, no `App` or
-    `useTheme` chunk. The check that failed ran the 1.3.14 Loader (hyphen-less regex, `App`-only registry) and
-    reported 0/11 on this very dist; the shipped registry resolves it 11/11."""
+PUBLIC_NIGHTLY_SHELLS = {
+    # public-nightly 0.14.0.dev20261117060648 (Forge repair, round 1): entry `main-DEIoS2gI.js`, an underscore in the
+    # `first-load-1` hash
+    "0.14.0.dev20261117060648": {
+        "main": "main-DEIoS2gI", "shared": "first-load-shared-Dj24MrF0", "logo": "first-load-1-B_NY8gZE", "route": "AppDetailRoute-BOJW97LA",
+        "preloads": ("first-load-vendor-CBbWYRlz", "first-load-0-BYnBMT4g", "first-load-2-gLrAlQrI"),
+    },
+    # public-nightly 0.14.0.dev20261116061021 (Forge repair, round 1): the nightly before it, same preload set, every
+    # first-load hash different (`first-load-0-BmqjMw_4` carries the underscore), same `first-load-0-De5gblC6.css`
+    "0.14.0.dev20261116061021": {
+        "main": "main-BqTgr0bP", "shared": "first-load-shared-Clqd2Boc", "logo": "first-load-1-D_Jg0TiY", "route": "AppDetailRoute-UPz6biZ7",
+        "preloads": ("first-load-vendor-DH37Pl6O", "first-load-0-BmqjMw_4", "first-load-2-Cdn2xdTx"),
+    },
+}
+
+
+@pytest.mark.parametrize("host_version", sorted(PUBLIC_NIGHTLY_SHELLS))
+def test_check_bundle_fingerprints_resolves_the_public_0_14_0_nightlies(tmp_path: Path, host_version: str):
+    """The real shell references of the public-nightly 0.14.0 builds — three more vendor preloads than rc2
+    (`vendor-icons`, `vendor-dompurify`, `vendor-markdown`), an underscore in a first-load hash, a hyphen in a
+    stylesheet hash, no `App` or `useTheme` chunk. The checks that failed ran the 1.3.14 Loader (hyphen-less regex,
+    `App`-only registry) and reported 0/11 on these very dists; the shipped registry resolves each 11/11."""
+    shell = PUBLIC_NIGHTLY_SHELLS[host_version]
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
     preloads = ("rolldown-runtime-BCiCTKAo", "vendor-react-ZXAqDpSD", "vendor-icons-B1q05t15", "vendor-dompurify-BXhPiKO5", "vendor-markdown-0cdPmefA",
-                "first-load-shared-Dj24MrF0", "first-load-vendor-CBbWYRlz", "first-load-0-BYnBMT4g", "first-load-1-B_NY8gZE", "first-load-2-gLrAlQrI")
+                shell["shared"], shell["preloads"][0], shell["preloads"][1], shell["logo"], shell["preloads"][2])
     (dist / "index.html").write_text(
-        '<html><head><script type="module" crossorigin src="/assets/main-DEIoS2gI.js"></script>\n'
+        f'<html><head><script type="module" crossorigin src="/assets/{shell["main"]}.js"></script>\n'
         + "".join(f'<link rel="modulepreload" crossorigin href="/assets/{name}.js">\n' for name in preloads)
         + '<link rel="stylesheet" crossorigin href="/assets/vendor-markdown-B-Q3nfDX.css">\n'
         '<link rel="stylesheet" crossorigin href="/assets/first-load-0-De5gblC6.css"></head><body><div id="root"></div></body></html>',
         encoding="utf-8",
     )
-    (dist / "assets" / "main-DEIoS2gI.js").write_text(
-        'import"./first-load-shared-Dj24MrF0.js";import"./first-load-1-B_NY8gZE.js";import("./AppDetailRoute-BOJW97LA.js");'
+    (dist / "assets" / f"{shell['main']}.js").write_text(
+        f'import"./{shell["shared"]}.js";import"./{shell["logo"]}.js";import("./{shell["route"]}.js");'
         '"data-testid":`dashboard-shell`;"topbar topbar-glass";app.main_navigation;app.main_navigation;'
         '"data-testid":`theme-decor-slot`;id:`main-content`;path:`/apps`;path:`/apps`;path:`/settings/*`',
         encoding="utf-8",
     )
-    (dist / "assets" / "first-load-shared-Dj24MrF0.js").write_text("r.dataset.theme=U(e,t);mc-theme-favicon;mc-theme-favicon;mc-custom-theme-;mc-custom-theme-", encoding="utf-8")
-    (dist / "assets" / "first-load-1-B_NY8gZE.js").write_text("className:n?.logoClass??(o?`a`:`b`)", encoding="utf-8")
+    (dist / "assets" / f"{shell['shared']}.js").write_text("r.dataset.theme=U(e,t);mc-theme-favicon;mc-theme-favicon;mc-custom-theme-;mc-custom-theme-", encoding="utf-8")
+    (dist / "assets" / f"{shell['logo']}.js").write_text("className:n?.logoClass??(o?`a`:`b`)", encoding="utf-8")
     for name in preloads:
         (dist / "assets" / f"{name}.js").touch()
     chunks = discover_chunks(dist)
-    assert chunks["main"] == "main-DEIoS2gI.js" and chunks["first-load-shared"] == "first-load-shared-Dj24MrF0.js"
-    assert chunks["first-load-1"] == "first-load-1-B_NY8gZE.js", "an underscore inside the hash is still an 8-char hash"
+    assert chunks["main"] == f"{shell['main']}.js" and chunks["first-load-shared"] == f"{shell['shared']}.js"
+    assert chunks["first-load-1"] == f"{shell['logo']}.js" and chunks["first-load-0"] == f"{shell['preloads'][1]}.js", "an underscore inside the hash is still an 8-char hash"
     assert chunks["vendor-markdown"] == "vendor-markdown-0cdPmefA.js", "the .js preload, never the stylesheet"
     assert "App" not in chunks and "useTheme" not in chunks and "first-load-0-De5gblC6" not in chunks
-    report = check_bundle_fingerprints(dist, load_registry(), host_version="0.14.0.dev20261117060648")
+    assert discover_chunks(dist, wanted={"AppDetailRoute"})["AppDetailRoute"] == f"{shell['route']}.js", "lazy stems still expand through main"
+    report = check_bundle_fingerprints(dist, load_registry(), host_version=host_version)
     assert report.missed == [], json.dumps(report.missed, indent=2)
     assert report.to_dict()["spaFingerprints"] == {"matched": 11, "total": 11, "missed": []}
     assert [m["name"] for m in report.not_applicable] == ["theme.reset-site#bundle"]
