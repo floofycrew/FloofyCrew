@@ -249,6 +249,53 @@ def test_check_bundle_fingerprints_resolves_public_0_13_0rc2(tmp_path: Path):
     assert [m["name"] for m in report.not_applicable] == ["theme.reset-site#bundle"]
 
 
+def test_check_bundle_fingerprints_resolves_public_nightly_0_14_0_dev20261117060648(tmp_path: Path):
+    """public-nightly 0.14.0.dev20261117060648 (Forge repair, round 1): the real shell references of that
+    nightly — entry `main-DEIoS2gI.js`, three more vendor preloads than rc2 (`vendor-icons`, `vendor-dompurify`,
+    `vendor-markdown`), an underscore in the `first-load-1` hash, a hyphen in a stylesheet hash, no `App` or
+    `useTheme` chunk. The check that failed ran the 1.3.14 Loader (hyphen-less regex, `App`-only registry) and
+    reported 0/11 on this very dist; the shipped registry resolves it 11/11."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    preloads = ("rolldown-runtime-BCiCTKAo", "vendor-react-ZXAqDpSD", "vendor-icons-B1q05t15", "vendor-dompurify-BXhPiKO5", "vendor-markdown-0cdPmefA",
+                "first-load-shared-Dj24MrF0", "first-load-vendor-CBbWYRlz", "first-load-0-BYnBMT4g", "first-load-1-B_NY8gZE", "first-load-2-gLrAlQrI")
+    (dist / "index.html").write_text(
+        '<html><head><script type="module" crossorigin src="/assets/main-DEIoS2gI.js"></script>\n'
+        + "".join(f'<link rel="modulepreload" crossorigin href="/assets/{name}.js">\n' for name in preloads)
+        + '<link rel="stylesheet" crossorigin href="/assets/vendor-markdown-B-Q3nfDX.css">\n'
+        '<link rel="stylesheet" crossorigin href="/assets/first-load-0-De5gblC6.css"></head><body><div id="root"></div></body></html>',
+        encoding="utf-8",
+    )
+    (dist / "assets" / "main-DEIoS2gI.js").write_text(
+        'import"./first-load-shared-Dj24MrF0.js";import"./first-load-1-B_NY8gZE.js";import("./AppDetailRoute-BOJW97LA.js");'
+        '"data-testid":`dashboard-shell`;"topbar topbar-glass";app.main_navigation;app.main_navigation;'
+        '"data-testid":`theme-decor-slot`;id:`main-content`;path:`/apps`;path:`/apps`;path:`/settings/*`',
+        encoding="utf-8",
+    )
+    (dist / "assets" / "first-load-shared-Dj24MrF0.js").write_text("r.dataset.theme=U(e,t);mc-theme-favicon;mc-theme-favicon;mc-custom-theme-;mc-custom-theme-", encoding="utf-8")
+    (dist / "assets" / "first-load-1-B_NY8gZE.js").write_text("className:n?.logoClass??(o?`a`:`b`)", encoding="utf-8")
+    for name in preloads:
+        (dist / "assets" / f"{name}.js").touch()
+    chunks = discover_chunks(dist)
+    assert chunks["main"] == "main-DEIoS2gI.js" and chunks["first-load-shared"] == "first-load-shared-Dj24MrF0.js"
+    assert chunks["first-load-1"] == "first-load-1-B_NY8gZE.js", "an underscore inside the hash is still an 8-char hash"
+    assert chunks["vendor-markdown"] == "vendor-markdown-0cdPmefA.js", "the .js preload, never the stylesheet"
+    assert "App" not in chunks and "useTheme" not in chunks and "first-load-0-De5gblC6" not in chunks
+    report = check_bundle_fingerprints(dist, load_registry(), host_version="0.14.0.dev20261117060648")
+    assert report.missed == [], json.dumps(report.missed, indent=2)
+    assert report.to_dict()["spaFingerprints"] == {"matched": 11, "total": 11, "missed": []}
+    assert [m["name"] for m in report.not_applicable] == ["theme.reset-site#bundle"]
+    # the 1.3.14 registry (scalar `App`, `useTheme|terminal`) misses every row on this shell with the recorded reasons
+    legacy = {"schema": 1, "surfaces": [
+        {"name": "dashboard.shell", "fromBuild": "0.7.0.5", "bundle": {"chunk": "App", "contains": "\"data-testid\":`dashboard-shell`"}},
+        {"name": "favicon", "fromBuild": "0.6.0", "bundle": {"chunk": ["useTheme", "terminal"], "contains": "mc-theme-favicon"}},
+    ]}
+    assert [m["reason"] for m in check_bundle_fingerprints(dist, legacy).missed] == [
+        "no chunk with stem App is referenced by the shell",
+        "no chunk with stem useTheme|terminal is referenced by the shell",
+    ]
+
+
 def test_match_bundle_counts():
     assert match_bundle({"contains": "x", "count": "once"}, "axb") == ("matched", "1 occurrence(s)")
     assert match_bundle({"contains": "x", "count": "once"}, "axbx")[0] == "missed"
