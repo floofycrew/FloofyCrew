@@ -11,6 +11,18 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+## 1.3.19 — 2026-11-19
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2, 0.10.0.3, 0.11.0.1, 0.11.0.3, 0.11.1.5, 0.12.0.1, 0.12.0.3, 0.12.0.4, 0.12.0.5, 0.12.0.11, 0.12.2.4 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.9.0.4, 0.10.0.3, 0.11.0.3, 0.11.1.5, 0.11.2.1, 0.12.0.9, 0.12.2.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4, 0.10.0rc5, 0.11.0rc1, 0.11.0rc2, 0.11.0rc3, 0.11.0rc4, 0.11.0rc5, 0.12.0rc4, 0.12.0rc5, 0.12.0rc6, 0.12.0rc7, 0.12.0rc8, 0.12.0rc9, 0.12.0rc10, 0.12.1rc3, 0.12.2rc2 |
+| external (public) | nightly | 0.8.0.dev20260920060902, 0.8.0.dev20260921061338, 0.8.0.dev20260922061137, 0.8.0.dev20260924061032, 0.8.0.dev20260928053132, 0.9.0.dev20260929061324, 0.9.0.dev20260930061058, 0.9.0.dev20261005061801, 0.9.0.dev20261007060958, 0.9.0.dev20261009061050, 0.10.0.dev20261012014346, 0.10.0.dev20261012201303, 0.10.0.dev20261014061000, 0.10.0.dev20261015061203, 0.11.0.dev20261019061302, 0.11.0.dev20261020164600, 0.11.0.dev20261022060953, 0.11.0.dev20261025060904, 0.12.0.dev20261027011344, 0.12.0.dev20261027141113, 0.12.0.dev20261029060748, 0.12.0.dev20261031060601, 0.13.0.dev20261103060710, 0.13.0.dev20261104060801, 0.13.0.dev20261105032008, 0.13.0.dev20261106061507, 0.13.0.dev20261107060532, 0.13.0.dev20261111085733, 0.13.0.dev20261112101633 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0, 0.10.0, 0.11.0, 0.11.1, 0.11.2, 0.12.0, 0.12.1, 0.12.2 |
+
 ### Added
 
 - **The mod-dev agent ships here.** `.kiro/skills/floofy-mod-dev/SKILL.md` is
@@ -82,6 +94,122 @@ KiroCrew; it never ships a rebuilt host.
   `["first-load-shared", "useTheme", "terminal"]` for the theme rows). Older
   hosts resolve exactly as before; verified offline from public 0.6.0 to the
   0.14.0 nightlies.
+
+## 1.3.15 — 2026-11-17
+
+Release tag `v1.3.15` of https://github.com/floofycrew/FloofyCrew.
+
+FloofyCrew is an **unofficial** modding ecosystem for KiroCrew. This release ships the `floofy`
+manager (zipapp and wheel) and the Loader app (a KiroCrew App), built from the shared core plus
+the public edition adapter. It contains no KiroCrew code and never replaces the host (design DR-1).
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2, 0.10.0.3, 0.11.0.1, 0.11.0.3, 0.11.1.5, 0.12.0.1, 0.12.0.3, 0.12.0.4, 0.12.0.5, 0.12.0.11, 0.12.2.4 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.9.0.4, 0.10.0.3, 0.11.0.3, 0.11.1.5, 0.11.2.1, 0.12.0.9, 0.12.2.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4, 0.10.0rc5, 0.11.0rc1, 0.11.0rc2, 0.11.0rc3, 0.11.0rc4, 0.11.0rc5, 0.12.0rc4, 0.12.0rc5, 0.12.0rc6, 0.12.0rc7, 0.12.0rc8, 0.12.0rc9, 0.12.0rc10, 0.12.1rc3, 0.12.2rc2 |
+| external (public) | nightly | 0.8.0.dev20260920060902, 0.8.0.dev20260921061338, 0.8.0.dev20260922061137, 0.8.0.dev20260924061032, 0.8.0.dev20260928053132, 0.9.0.dev20260929061324, 0.9.0.dev20260930061058, 0.9.0.dev20261005061801, 0.9.0.dev20261007060958, 0.9.0.dev20261009061050, 0.10.0.dev20261012014346, 0.10.0.dev20261012201303, 0.10.0.dev20261014061000, 0.10.0.dev20261015061203, 0.11.0.dev20261019061302, 0.11.0.dev20261020164600, 0.11.0.dev20261022060953, 0.11.0.dev20261025060904, 0.12.0.dev20261027011344, 0.12.0.dev20261027141113, 0.12.0.dev20261029060748, 0.12.0.dev20261031060601, 0.13.0.dev20261103060710, 0.13.0.dev20261104060801, 0.13.0.dev20261105032008, 0.13.0.dev20261106061507, 0.13.0.dev20261107060532, 0.13.0.dev20261111085733, 0.13.0.dev20261112101633 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0, 0.10.0, 0.11.0, 0.11.1, 0.11.2, 0.12.0, 0.12.1, 0.12.2 |
+
+### Assets
+
+| File | sha256 |
+|---|---|
+| `dist/floofy.pyz` | `03af2e9d47681bf290c4d48e7be77a57902e928d874ae4e905c58b286e650fec` |
+| `dist/floofycrew-1.3.15-py3-none-any.whl` | `838c9a73ccc86ad5a47ce06c3ac9ccffbbc10985e4c962cf90e6d2681eae147c` |
+| `dist/floofycrew-loader-app-1.3.15.zip` | `48dd7173dbf79baafd2bb7ede2770cbebb58527967a11e4f26600fba71311763` |
+| `dist/supports.json` | `fb75bd97c4efb91a085fdb774c97d11bf85d25a025a26933f1d0fc2407b6b3fb` |
+
+Verify a download: `sha256sum -c SHA256SUMS --ignore-missing` (Linux) or `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS).
+
+## 1.3.16 — 2026-11-17
+
+Release tag `v1.3.16` of https://github.com/floofycrew/FloofyCrew.
+
+FloofyCrew is an **unofficial** modding ecosystem for KiroCrew. This release ships the `floofy`
+manager (zipapp and wheel) and the Loader app (a KiroCrew App), built from the shared core plus
+the public edition adapter. It contains no KiroCrew code and never replaces the host (design DR-1).
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2, 0.10.0.3, 0.11.0.1, 0.11.0.3, 0.11.1.5, 0.12.0.1, 0.12.0.3, 0.12.0.4, 0.12.0.5, 0.12.0.11, 0.12.2.4 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.9.0.4, 0.10.0.3, 0.11.0.3, 0.11.1.5, 0.11.2.1, 0.12.0.9, 0.12.2.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4, 0.10.0rc5, 0.11.0rc1, 0.11.0rc2, 0.11.0rc3, 0.11.0rc4, 0.11.0rc5, 0.12.0rc4, 0.12.0rc5, 0.12.0rc6, 0.12.0rc7, 0.12.0rc8, 0.12.0rc9, 0.12.0rc10, 0.12.1rc3, 0.12.2rc2 |
+| external (public) | nightly | 0.8.0.dev20260920060902, 0.8.0.dev20260921061338, 0.8.0.dev20260922061137, 0.8.0.dev20260924061032, 0.8.0.dev20260928053132, 0.9.0.dev20260929061324, 0.9.0.dev20260930061058, 0.9.0.dev20261005061801, 0.9.0.dev20261007060958, 0.9.0.dev20261009061050, 0.10.0.dev20261012014346, 0.10.0.dev20261012201303, 0.10.0.dev20261014061000, 0.10.0.dev20261015061203, 0.11.0.dev20261019061302, 0.11.0.dev20261020164600, 0.11.0.dev20261022060953, 0.11.0.dev20261025060904, 0.12.0.dev20261027011344, 0.12.0.dev20261027141113, 0.12.0.dev20261029060748, 0.12.0.dev20261031060601, 0.13.0.dev20261103060710, 0.13.0.dev20261104060801, 0.13.0.dev20261105032008, 0.13.0.dev20261106061507, 0.13.0.dev20261107060532, 0.13.0.dev20261111085733, 0.13.0.dev20261112101633 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0, 0.10.0, 0.11.0, 0.11.1, 0.11.2, 0.12.0, 0.12.1, 0.12.2 |
+
+### Assets
+
+| File | sha256 |
+|---|---|
+| `dist/floofy.pyz` | `075450d42dadec8b831b2c2790874149a8a8b966f1f135733303ca310198b97e` |
+| `dist/floofycrew-1.3.16-py3-none-any.whl` | `ed74e6a32174245cfc791cd59132c4b0120198f70de85493ce51a3568de8f866` |
+| `dist/floofycrew-loader-app-1.3.16.zip` | `1f27eb1670a1227f6ed0fbd8ea58167b18973ffea16fd8efdaa059e7eac65805` |
+| `dist/supports.json` | `b9ebb12d0274e6e04738064a13556318d14c9276706cbc9b750a0e7f3d39e0c4` |
+
+Verify a download: `sha256sum -c SHA256SUMS --ignore-missing` (Linux) or `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS).
+
+## 1.3.17 — 2026-11-18
+
+Release tag `v1.3.17` of https://github.com/floofycrew/FloofyCrew.
+
+FloofyCrew is an **unofficial** modding ecosystem for KiroCrew. This release ships the `floofy`
+manager (zipapp and wheel) and the Loader app (a KiroCrew App), built from the shared core plus
+the public edition adapter. It contains no KiroCrew code and never replaces the host (design DR-1).
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2, 0.10.0.3, 0.11.0.1, 0.11.0.3, 0.11.1.5, 0.12.0.1, 0.12.0.3, 0.12.0.4, 0.12.0.5, 0.12.0.11, 0.12.2.4 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.9.0.4, 0.10.0.3, 0.11.0.3, 0.11.1.5, 0.11.2.1, 0.12.0.9, 0.12.2.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4, 0.10.0rc5, 0.11.0rc1, 0.11.0rc2, 0.11.0rc3, 0.11.0rc4, 0.11.0rc5, 0.12.0rc4, 0.12.0rc5, 0.12.0rc6, 0.12.0rc7, 0.12.0rc8, 0.12.0rc9, 0.12.0rc10, 0.12.1rc3, 0.12.2rc2, 0.13.0rc5, 0.13.0rc6, 0.13.0rc7 |
+| external (public) | nightly | 0.8.0.dev20260920060902, 0.8.0.dev20260921061338, 0.8.0.dev20260922061137, 0.8.0.dev20260924061032, 0.8.0.dev20260928053132, 0.9.0.dev20260929061324, 0.9.0.dev20260930061058, 0.9.0.dev20261005061801, 0.9.0.dev20261007060958, 0.9.0.dev20261009061050, 0.10.0.dev20261012014346, 0.10.0.dev20261012201303, 0.10.0.dev20261014061000, 0.10.0.dev20261015061203, 0.11.0.dev20261019061302, 0.11.0.dev20261020164600, 0.11.0.dev20261022060953, 0.11.0.dev20261025060904, 0.12.0.dev20261027011344, 0.12.0.dev20261027141113, 0.12.0.dev20261029060748, 0.12.0.dev20261031060601, 0.13.0.dev20261103060710, 0.13.0.dev20261104060801, 0.13.0.dev20261105032008, 0.13.0.dev20261106061507, 0.13.0.dev20261107060532, 0.13.0.dev20261111085733, 0.13.0.dev20261112101633 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0, 0.10.0, 0.11.0, 0.11.1, 0.11.2, 0.12.0, 0.12.1, 0.12.2 |
+
+### Assets
+
+| File | sha256 |
+|---|---|
+| `dist/floofy.pyz` | `c6e12ae174d605e1031c9fc075b1780c8f38115bce1030d7e7a72b5de8bbfabf` |
+| `dist/floofycrew-1.3.17-py3-none-any.whl` | `a809914aed95dca47ae7d2a716d3f596ee77c095bef194fe2d5daa35df5ca556` |
+| `dist/floofycrew-loader-app-1.3.17.zip` | `659491dd7cb20a118d538596626bc80baca3b8995bc10b73021bb23534441dc5` |
+| `dist/supports.json` | `113c96d82bde4a8749af33e17e3ac1e4db6267b5bdcd99963c187e8f124c9575` |
+
+Verify a download: `sha256sum -c SHA256SUMS --ignore-missing` (Linux) or `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS).
+
+## 1.3.18 — 2026-11-19
+
+Release tag `v1.3.18` of https://github.com/floofycrew/FloofyCrew.
+
+FloofyCrew is an **unofficial** modding ecosystem for KiroCrew. This release ships the `floofy`
+manager (zipapp and wheel) and the Loader app (a KiroCrew App), built from the shared core plus
+the public edition adapter. It contains no KiroCrew code and never replaces the host (design DR-1).
+
+### Supports
+
+| Edition | Channel | Host versions |
+|---|---|---|
+| internal | beta | 0.7.0.5, 0.7.0.7, 0.7.0.8, 0.8.0.6, 0.10.0.2, 0.10.0.3, 0.11.0.1, 0.11.0.3, 0.11.1.5, 0.12.0.1, 0.12.0.3, 0.12.0.4, 0.12.0.5, 0.12.0.11, 0.12.2.4 |
+| internal | stable | 0.7.0.5, 0.7.0.8, 0.8.0.6, 0.9.0.4, 0.10.0.3, 0.11.0.3, 0.11.1.5, 0.11.2.1, 0.12.0.9, 0.12.2.4 |
+| external (public) | insider | 0.7.0rc5, 0.7.0rc6, 0.7.0rc7, 0.7.0rc8, 0.7.0rc9, 0.8.0rc1, 0.8.0rc2, 0.8.0rc3, 0.8.0rc4, 0.8.0rc10, 0.10.0rc4, 0.10.0rc5, 0.11.0rc1, 0.11.0rc2, 0.11.0rc3, 0.11.0rc4, 0.11.0rc5, 0.12.0rc4, 0.12.0rc5, 0.12.0rc6, 0.12.0rc7, 0.12.0rc8, 0.12.0rc9, 0.12.0rc10, 0.12.1rc3, 0.12.2rc2, 0.13.0 |
+| external (public) | nightly | 0.8.0.dev20260920060902, 0.8.0.dev20260921061338, 0.8.0.dev20260922061137, 0.8.0.dev20260924061032, 0.8.0.dev20260928053132, 0.9.0.dev20260929061324, 0.9.0.dev20260930061058, 0.9.0.dev20261005061801, 0.9.0.dev20261007060958, 0.9.0.dev20261009061050, 0.10.0.dev20261012014346, 0.10.0.dev20261012201303, 0.10.0.dev20261014061000, 0.10.0.dev20261015061203, 0.11.0.dev20261019061302, 0.11.0.dev20261020164600, 0.11.0.dev20261022060953, 0.11.0.dev20261025060904, 0.12.0.dev20261027011344, 0.12.0.dev20261027141113, 0.12.0.dev20261029060748, 0.12.0.dev20261031060601, 0.13.0.dev20261103060710, 0.13.0.dev20261104060801, 0.13.0.dev20261105032008, 0.13.0.dev20261106061507, 0.13.0.dev20261107060532, 0.13.0.dev20261111085733, 0.13.0.dev20261112101633 |
+| external (public) | stable | 0.6.0, 0.7.0, 0.7.1, 0.7.2, 0.9.0, 0.10.0, 0.11.0, 0.11.1, 0.11.2, 0.12.0, 0.12.1, 0.12.2, 0.13.0 |
+
+### Assets
+
+| File | sha256 |
+|---|---|
+| `dist/floofy.pyz` | `87fbbbc0e8955e80bb268ec80b1813d32089e49e9b4172560b0a51a9319e6e4d` |
+| `dist/floofycrew-1.3.18-py3-none-any.whl` | `343c1fc028ae3f7dc78d9d0feacf7068c4b152cadc3495e1b480f004f1d97e23` |
+| `dist/floofycrew-loader-app-1.3.18.zip` | `28b7e0111fd5d15e382a08401da67cd4fba4e07aef29076b0a39518ec56cff00` |
+| `dist/supports.json` | `2cd42a443a17d69c4cf0aed3e0046f988cfd1150d5ccba0dfdcc4bf9658cca66` |
+
+Verify a download: `sha256sum -c SHA256SUMS --ignore-missing` (Linux) or `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS).
 
 ## 1.3.14 — 2026-11-15
 
