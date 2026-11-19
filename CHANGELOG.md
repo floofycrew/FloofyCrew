@@ -13,6 +13,17 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Added
 
+- **The mod-dev agent ships here.** `.kiro/skills/floofy-mod-dev/SKILL.md` is
+  the contributor assistant's method — the interview, the part kind, `floofy
+  new`, the dev loop, both publish paths the public way (a git reference to the
+  developer's own repository; a record in `floofycrew-registry`) — and
+  `editions/public/kiro/agents/floofy-mod-dev.json` the kiro-cli agent that
+  carries it; `scripts/kiro-workspace-sync.sh` puts the agent under the
+  untracked `.kiro/agents/`. The skill is the one copy on both editions: an
+  edition that publishes differently ships an `INTERNAL.md` beside it, which
+  the agent reads after the skill. The README, the docs index, the mods index,
+  `docs/publishing.md` and CONTRIBUTING's new *Mods › The mod-dev agent*
+  section lead a would-be mod author to it.
 - **An update reminder in the dashboard itself.** A user who never opens the
   FloofyCrew App page never saw the release notice or the mod update buttons.
   The SPA host now shows, once per dashboard document and a moment after it

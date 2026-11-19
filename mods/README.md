@@ -40,8 +40,9 @@ first-frame CSS into a boot part regenerates it with
 
 
 Want to build one of your own? You do not need to read the API docs first:
-if your edition ships a contributor assistant (the internal edition does —
-see its contributing guide under `editions/`), start there; otherwise
-[docs/publishing.md](../docs/publishing.md) and the author pages in
+the `floofy-mod-dev` agent in this checkout (`scripts/kiro-workspace-sync.sh`,
+then `kiro-cli chat` and `/agent → floofy-mod-dev`; the *Mods* section of
+[CONTRIBUTING.md](../CONTRIBUTING.md)) scaffolds, develops and publishes the mod
+with you; [docs/publishing.md](../docs/publishing.md) and the author pages in
 [docs/README.md](../docs/README.md) are the by-hand path, with these mods as
 the working examples.

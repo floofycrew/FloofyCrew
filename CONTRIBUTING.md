@@ -125,7 +125,43 @@ First-party mods live in-tree under `mods/<id>` (the index is
 [mods/README.md](mods/README.md)); a mod's archive is a GitHub release
 `<id>-<version>` of this repository, and the Forge publishes it. Writing one is
 covered by the "For mod authors" pages in [docs/README.md](docs/README.md);
-getting it into a registry by [docs/publishing.md](docs/publishing.md).
+getting it into a registry by [docs/publishing.md](docs/publishing.md). You do
+not have to read either first:
+
+### The mod-dev agent
+
+The checkout ships a kiro-cli agent and skill that carry the whole mod-author
+path — the interview about what the mod should do, the part kind, `floofy new`,
+the `floofy dev` loop, `floofy validate`, and the publish step (your own
+repository installed by git reference, or a record in
+[floofycrew-registry](https://github.com/floofycrew/floofycrew-registry)):
+
+```bash
+git clone https://github.com/floofycrew/FloofyCrew && cd FloofyCrew
+scripts/kiro-workspace-sync.sh   # once: puts the agent under .kiro/agents/ (untracked, see below)
+kiro-cli chat                    # then pick the agent: /agent → floofy-mod-dev
+```
+
+Tell it what the mod should do. It scaffolds, iterates on your own gateway,
+keeps the manifest valid, and walks the publish path with you; the push, the
+release and the pull request stay yours — the agent never pushes, releases or
+opens one. It also works without a checkout, against the installed `floofy`
+alone.
+
+- The **skill** is `.kiro/skills/floofy-mod-dev/SKILL.md` (tracked; the method,
+  edition-neutral: it names the public registry and public hosting and nothing
+  else). It is the one copy: an edition that needs more ships an `INTERNAL.md`
+  *beside* it — the internal edition's overlay does — which replaces the
+  skill's Prerequisites and Publish sections and adds that edition's guardrails,
+  and the agent reads both. So a change to how mods are built goes here, once;
+  a change to how one edition publishes goes to that edition's addendum.
+  Keep this file free of edition specifics.
+- The **agent**'s source is `editions/public/kiro/agents/floofy-mod-dev.json`;
+  `.kiro/agents/` is deliberately untracked (KiroCrew rewrites those files in
+  place whenever a session opens on the checkout), so
+  `scripts/kiro-workspace-sync.sh` materialises it from the source; re-run it
+  after pulling a change to the source (`--check` tells you). Edit the source,
+  never the copy. The internal edition keeps its own agent beside its addendum.
 
 ### Pins and records
 

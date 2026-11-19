@@ -148,7 +148,10 @@ floofy validate my-theme      # schema, hashes, targets, network scan
 ```
 
 The manifest, the seams, the Python and SPA APIs and the publishing flow are in
-the [docs](docs/README.md).
+the [docs](docs/README.md) &mdash; or skip them: `scripts/kiro-workspace-sync.sh`,
+then `kiro-cli chat` and `/agent → floofy-mod-dev` gives you an assistant that
+scaffolds, develops and publishes the mod with you
+([CONTRIBUTING.md](CONTRIBUTING.md#mods)).
 
 <div align="right">[<a href="#readme-top">back to top</a>]</div>
 
@@ -205,9 +208,10 @@ own README.
 
 ## Documentation
 
-Want to contribute a mod without reading any of this? Each edition can ship a
-contributor assistant that scaffolds, develops and publishes the mod with you;
-the docs below are the reference it works from.
+Want to contribute a mod without reading any of this? The checkout ships a
+contributor assistant, the `floofy-mod-dev` agent, that scaffolds, develops and
+publishes the mod with you ([CONTRIBUTING.md](CONTRIBUTING.md#mods)); the docs
+below are the reference it works from.
 
 [docs/README.md](docs/README.md) is the index: writing a mod (manifest, seams,
 the Python and SPA APIs, patches and fingerprints), publishing to a registry,
