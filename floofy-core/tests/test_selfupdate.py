@@ -878,6 +878,41 @@ def test_a_refused_enable_after_the_stage_install_is_reported_as_disabled_not_up
     assert rows[-1]["phase"] == "loader-app" and rows[-1]["result"] == "disabled" and "enable" in rows[-1]["detail"]
 
 
+def test_self_update_now_fails_when_the_loader_app_step_does_not_complete(cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Found on a public host through the App's "Update & restart": the gateway's ``PATH`` had no ``kirocrew``, the
+    Loader step ended "manual" with the archive staged, and the command still exited 0 — so the App restarted the
+    gateway into the unchanged Loader and the update notice came straight back. ``--now`` that leaves the stage pending
+    is now exit 1, the reason is in the output and the audit row, and the swap it did make stands."""
+    release = FakeRelease(newer())
+    target, _pending = scratch_prefix(tmp_path)
+    install_fake_loader_app(cli.host_home)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))  # no kirocrew anywhere: no --kirocrew, nothing on PATH, no payload bin
+    (tmp_path / "empty-bin").mkdir()
+    with FakeReleaseServer(release) as server:
+        cli.feed(server)
+        result = cli.run("--yes", "self-update", "--target", str(target), "--now")
+        assert result.exit == 1, result.stdout + result.stderr
+        assert target.read_bytes() == release.pyz, "the zipapp swap stands"
+        assert "is NOT installed" in result.stderr and "no kirocrew launcher found" in result.stderr
+        install = result.json["selfUpdate"]["installed"]["loaderApp"]["install"]
+        assert install["ok"] is False and "no kirocrew launcher found" in install["reason"]
+    stage = read_stage(cli.paths.pending)
+    assert stage["applied"] is False and stage["present"] is True and stage["outcome"] == "manual"
+    rows = [r for r in read_audit(cli.paths.audit) if r["op"] == "self-update" and r["phase"] == "loader-app"]
+    assert rows[-1]["result"] == "manual" and "no kirocrew launcher found" in rows[-1]["detail"], "the audit row says why, not 'see above'"
+    # a failing host CLI is reported in its own words, and without --now the same state is not a failure
+    launcher = tmp_path / "bin" / "kirocrew"
+    launcher.parent.mkdir()
+    launcher.write_text("#!/bin/sh\ncase \"$1 $2\" in\n  \"app install\") echo 'app floofycrew is running; stop the gateway first' >&2; exit 2 ;;\n  *) : ;;\nesac\n", encoding="utf-8")
+    launcher.chmod(0o755)
+    with FakeReleaseServer(FakeRelease(FRAMEWORK_VERSION)) as server:  # the zipapp is current now; only the stage is left
+        cli.feed(server)
+        again = cli.run("--kirocrew", str(launcher), "self-update", "--now")
+        assert again.exit == 1 and "`kirocrew app install` failed (exit 2): app floofycrew is running" in again.stderr, again.stdout + again.stderr
+        described = cli.run("--kirocrew", str(launcher), "self-update")
+        assert described.exit == 0 and "staged" in described.stdout, "without --now a pending stage is described, not failed"
+
+
 def test_tui_home_summary_and_actions_carry_the_notice(cli, monkeypatch: pytest.MonkeyPatch) -> None:
     from floofy_core.cli.console import Console
     from floofy_core.cli.context import build_context

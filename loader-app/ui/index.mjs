@@ -30,7 +30,7 @@ import React from "react";
 import { ensureStarted } from "./host.mjs";
 import { RestartButton } from "./app/actions.mjs";
 import { isRunning } from "./app/activity.mjs";
-import { API, callRoute, getRegistry, getState, getStatus, reload as reloadLoader, transcriptOf, waitForGateway } from "./app/api.mjs";
+import { API, callRoute, getRegistry, getState, getStatus, loaderAppUpdateVerdict, reload as reloadLoader, transcriptOf, waitForGateway } from "./app/api.mjs";
 import { ActivityLine } from "./app/busy.mjs";
 import { ConfirmationHost, useAsker } from "./app/confirm.mjs";
 import { UNOFFICIAL, mastheadFeather, styles } from "./app/palette.mjs";
@@ -93,6 +93,7 @@ export function pageFromHash(hash) {
   const key = match ? match[1] : "mods";
   return { key: PAGES.some((p) => p.key === key) ? key : "mods", rest: match && match[2] ? decodeURIComponent(match[2]) : "" };
 }
+
 
 /**
  * The App's shared controller: the Loader state, the status rows, the registry document, the output pane
@@ -205,9 +206,17 @@ export function useManager({ ask } = {}) {
   }, [ask]);
 
   // "Update & restart": the CLI's own install question first (yes-no 409), then the restart's; nothing is answered for the user.
+  // The restart follows only when the Loader app was really reinstalled: a run that swapped the zipapp but left the Loader
+  // archive staged (no launcher in the gateway's PATH, the host App Kit refused) exits 1 and says why; before this guard the
+  // App restarted the gateway into the unchanged Loader and the update notice came straight back.
   const selfUpdateAndRestart = React.useCallback(async () => {
     const updated = await act("/self-update", { now: true });
     if (!updated || !updated.ok) return updated;
+    const verdict = loaderAppUpdateVerdict(updated);
+    if (!verdict.ok) {
+      setError(verdict.error);
+      return { ...updated, ok: false, error: verdict.error };
+    }
     return restartHost();
   }, [act, restartHost]);
 

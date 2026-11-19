@@ -154,3 +154,53 @@ def test_deprecated_names_warn_naming_the_caller(monkeypatch: pytest.MonkeyPatch
     assert __name__ in messages[0], "the warning names the calling module"
     with pytest.raises(AttributeError):
         api.no_such_name  # noqa: B018
+
+
+# --- the launcher the in-process CLI drives ---------------------------------------------------------------------------
+
+
+def _fake_launcher(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def test_the_in_process_cli_names_the_running_hosts_launcher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The App's ``self-update --now`` reinstalls the Loader app through ``kirocrew app …``; inside the gateway that
+    launcher must be the running host's, not whatever ``PATH`` holds (a service-started gateway often has none — the
+    step then ended "manual", the archive stayed staged and the App restarted an unchanged Loader)."""
+    from floofy_loader.app_routes import _global_argv, running_launcher
+
+    facts = read_host_facts(host=fake_host(tmp_path, "0.12.2"), env={}, adapters=[])
+    monkeypatch.setenv("PATH", str(tmp_path / "elsewhere-bin"))
+    (tmp_path / "elsewhere-bin").mkdir()
+    _fake_launcher(tmp_path / "elsewhere-bin" / "kirocrew")  # another install on PATH: never the one to drive
+    runtime = types.SimpleNamespace(facts=facts)
+    assert running_launcher(facts) is None and "--kirocrew" not in _global_argv(runtime), "no launcher under the running payload: PATH resolution as before"
+    venv_launcher = _fake_launcher(tmp_path / "venv" / "bin" / "kirocrew")
+    assert running_launcher(facts) == venv_launcher
+    argv = _global_argv(runtime)
+    assert argv[argv.index("--kirocrew") + 1] == str(venv_launcher) and argv[argv.index("--root") + 1] == str(facts.package_dir.parent)
+    # without a payload bin, the launcher beside the gateway's interpreter (pipx / uv tool layouts)
+    venv_launcher.unlink()
+    beside = _fake_launcher(tmp_path / "interp" / "kirocrew")
+    facts_beside = facts.__class__(**{**facts.__dict__, "interpreter": tmp_path / "interp" / "python3"})
+    assert running_launcher(facts_beside) == beside
+    assert running_launcher(None) is None
+
+
+def test_find_launcher_falls_back_to_the_launcher_beside_the_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from floofy_core import hostcli
+
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    (tmp_path / "empty-bin").mkdir()
+    assert hostcli.find_launcher() is None
+    beside = _fake_launcher(tmp_path / "py" / "bin" / "kirocrew")
+    monkeypatch.setattr(hostcli.sys, "executable", str(tmp_path / "py" / "bin" / "python3"))
+    assert hostcli.find_launcher() == beside, "last resort: the console script next to this interpreter"
+    assert hostcli.launcher_beside(None) is None and hostcli.launcher_beside(tmp_path / "nowhere" / "python") is None
+    on_path = _fake_launcher(tmp_path / "empty-bin" / "kirocrew")
+    assert hostcli.find_launcher() == on_path, "PATH still wins over the interpreter's neighbour"
+    explicit = _fake_launcher(tmp_path / "explicit" / "kirocrew")
+    assert hostcli.find_launcher(explicit) == explicit and hostcli.find_launcher(tmp_path / "missing") is None

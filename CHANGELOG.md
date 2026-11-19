@@ -30,6 +30,22 @@ KiroCrew; it never ships a rebuilt host.
 
 ### Fixed
 
+- **App "Update & restart" updates again.** On a public host the button swapped
+  the zipapp, then the Loader app step inside the gateway ended "manual" — the
+  gateway's `PATH` (a service-started one) had no `kirocrew`, and the in-process
+  CLI resolved the launcher through `PATH` — the archive stayed staged, the route
+  still answered ok, and the App restarted the gateway into the unchanged Loader:
+  the update notice came straight back. Three changes, each verified on a
+  scratch public 0.12.2 gateway started with `PATH=/usr/bin:/bin`: the Loader
+  now names the running host's launcher to the in-process CLI (`--kirocrew
+  <payload root>/bin/kirocrew`, else the one beside the gateway's interpreter —
+  `running_launcher` in `app_routes.py`), `find_launcher` gained that same
+  last-resort fallback for terminal runs (`hostcli.launcher_beside`), and
+  `self-update --now` that leaves the stage pending exits 1 with the reason
+  (no launcher; the host CLI's own words) in the output, the result document
+  and the audit row (no more "see above" in a JSON run). The App restarts only
+  when the result says the Loader app was installed (`loaderAppUpdateVerdict`);
+  otherwise the red line says what to run.
 - **spa-host / core**: the bundle fingerprints resolve again on public 0.13.0rc2 and
   later. Those builds split the first load into `main` plus hyphenated
   `first-load-shared` / `first-load-<n>` chunks and no longer emit an `App` or a

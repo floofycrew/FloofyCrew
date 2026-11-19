@@ -92,6 +92,7 @@ import io
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from floofy_core.cli.console import EXIT_CONFIRMATION_NEEDED, ConfirmationNeeded, Console
@@ -498,10 +499,34 @@ def _resolve_source_url(runtime: Any, argv: list[str]) -> list[str]:
     return out
 
 
+def running_launcher(facts: Any) -> Path | None:
+    """The launcher of the host this gateway IS: ``<payload root>/bin/kirocrew``, else the one beside the gateway's interpreter.
+
+    The in-process CLI drives ``kirocrew app install|enable|uninstall`` when it reinstalls the Loader app
+    (``self-update --now``); resolving that launcher through ``PATH`` inside the gateway is wrong twice over —
+    a gateway started by a service manager may have no ``kirocrew`` on its ``PATH`` (then the step ended
+    "manual" with the archive left staged, and the App restarted an unchanged Loader), and a ``PATH`` that
+    does have one may name another install. The running host is the one to drive.
+    """
+    from floofy_core.hostcli import launcher_beside  # noqa: PLC0415
+
+    if facts is None:
+        return None
+    root = getattr(facts, "payload_root", None)
+    if root is not None:
+        for candidate in (Path(root) / "bin" / "kirocrew", Path(root) / "Scripts" / "kirocrew.exe"):
+            if candidate.is_file():
+                return candidate
+    return launcher_beside(getattr(facts, "interpreter", None))
+
+
 def _global_argv(runtime: Any) -> list[str]:
     prefix: list[str] = []
     if runtime.facts is not None and runtime.facts.package_dir is not None:
         prefix = ["--root", str(runtime.facts.package_dir.parent)]  # the running payload, whatever else discovery finds
+    launcher = running_launcher(runtime.facts)
+    if launcher is not None:
+        prefix += ["--kirocrew", str(launcher)]  # the running host's launcher, whatever PATH says (see running_launcher)
     return prefix
 
 

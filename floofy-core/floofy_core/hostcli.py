@@ -5,7 +5,9 @@ Two things the manager needs from the host without importing it:
 * **the ``kirocrew`` launcher** — for ``app install|enable|disable|uninstall|dev``
   (``kiro_crew/cli.py`` L2769–L2835) and ``config set`` (``cli_config.py`` L41).
   :func:`find_launcher` looks at an explicit path, then ``PATH``, then the
-  payload's own ``bin/kirocrew``; :func:`run_host_cli` runs it with
+  payload's own ``bin/kirocrew``, then the launcher beside this interpreter
+  (:func:`launcher_beside`: inside the gateway that is the running host's);
+  :func:`run_host_cli` runs it with
   ``KIROCREW_HOME`` pointing at the managed host home so ``--home`` is honoured
   by the host too, plus whatever environment the edition adapters ask for
   (``host_cli_env()``).
@@ -46,6 +48,7 @@ __all__ = [
     "config_set_many",
     "find_launcher",
     "grant_app_trust",
+    "launcher_beside",
     "parse_config_value",
     "run_host_cli",
 ]
@@ -72,8 +75,24 @@ class HostCliResult:
         return {"argv": list(self.argv), "returncode": self.returncode, "stdout": self.stdout[-4000:], "stderr": self.stderr[-4000:]}
 
 
+def launcher_beside(interpreter: Path | str | None) -> Path | None:
+    """The ``kirocrew`` console script installed next to ``interpreter`` (a venv, pipx or ``uv tool`` layout), when there is one.
+
+    Inside the gateway ``sys.executable`` is the host's own interpreter, so the launcher beside it is the
+    launcher of the running host: the one the Loader app must be reinstalled through, whatever ``PATH``
+    says (a gateway started by a service manager often has a ``PATH`` without ``kirocrew`` on it at all).
+    """
+    if not interpreter:
+        return None
+    bin_dir = Path(interpreter).expanduser().parent
+    for candidate in (bin_dir / "kirocrew", bin_dir / "kirocrew.exe"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def find_launcher(explicit: Path | str | None = None, payload: Payload | None = None) -> Path | None:
-    """The ``kirocrew`` launcher to drive: ``--kirocrew``, then ``PATH``, then the payload's ``bin/kirocrew``."""
+    """The ``kirocrew`` launcher to drive: ``--kirocrew``, then ``PATH``, then the payload's ``bin/kirocrew``, then the one beside this interpreter."""
     if explicit:
         candidate = Path(explicit).expanduser()
         return candidate if candidate.is_file() else None
@@ -84,7 +103,7 @@ def find_launcher(explicit: Path | str | None = None, payload: Payload | None = 
         for candidate in (payload.root / "bin" / "kirocrew", payload.root / "Scripts" / "kirocrew.exe"):
             if candidate.is_file():
                 return candidate
-    return None
+    return launcher_beside(sys.executable)
 
 
 def run_host_cli(launcher: Path, args: Iterable[str], *, host_home: Path, extra_env: dict[str, str] | None = None, timeout: float = 300.0, cwd: Path | None = None) -> HostCliResult:

@@ -13,7 +13,12 @@
   runs), the Loader app archive staged under ``pending/self-update/`` and
   installed through the host App Kit when no gateway runs (or with ``--now``),
   ``op: self-update`` audit rows. The CLI is not the gateway, so the zipapp
-  swap is safe at any time; the Loader app waits for an idle gateway.
+  swap is safe at any time; the Loader app waits for an idle gateway. With
+  ``--now`` a Loader app step that did not complete (no launcher, the host App
+  Kit refused) is a failure: exit 1, the reason on stderr and in the audit row,
+  the archive left staged — so the App never restarts an unchanged Loader
+  believing it updated (found on a public host: the gateway's ``PATH`` had no
+  ``kirocrew``, the step ended "manual", the route still said ok).
 * ``config get [KEY]`` / ``config set KEY VALUE`` — FloofyCrew's own settings
   (:mod:`floofy_core.settings`): today ``updates.check``.
 * :func:`apply_staged` — the trigger path (``floofy apply``) installs a staged
@@ -172,7 +177,7 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
             installed = install_stage_now(ctx, args)
             if installed is not None:
                 ctx.set_result(selfUpdate={**document, "installed": {"loaderApp": {"install": installed}}})
-            return 0
+            return _now_exit(ctx, args, installed)
         raise CliError(f"FloofyCrew {release.version} does not list your host {outcome.host_version} ({outcome.edition}/{outcome.channel or 'any channel'}) as supported; `floofy self-update --force` installs it anyway, at your own risk")
     target = Path(args.target).expanduser() if args.target else default_target()
     if target is None:
@@ -218,7 +223,26 @@ def self_update(ctx: CliContext, args: argparse.Namespace) -> int:
     else:
         say_stage(ctx)
     ctx.set_result(selfUpdate={**document, "installed": result})
-    return 0
+    return _now_exit(ctx, args, result["loaderApp"].get("install") if meta["installed"] else None)
+
+
+def _now_exit(ctx: CliContext, args: argparse.Namespace, install: dict[str, Any] | None) -> int:
+    """``--now`` asked for the Loader app to be installed: when a stage is still pending afterwards, that did not happen — exit 1.
+
+    The zipapp swap (if any) stands; the archive stays staged for ``floofy apply`` or another ``--now``. The
+    App reads the exit code: ``ok: false`` keeps it from restarting the gateway into the old Loader.
+    """
+    if not getattr(args, "now", False):
+        return 0
+    stage = read_stage(ctx.home.pending)
+    pending = bool(stage) and not stage.get("applied") and bool(stage.get("present"))
+    if not pending:
+        return 0
+    reason = (install or {}).get("reason") or "the host App Kit install did not complete"
+    message = f"self-update --now: the Loader app update to FloofyCrew {stage.get('version')} is NOT installed — {reason}; the archive stays staged (`floofy self-update --now` from a terminal retries it, `floofy apply` installs it when no gateway runs)"
+    ctx.console.error(message)
+    ctx.set_result(error=message)  # the App's route relays `error` as the red line under the button
+    return 1
 
 
 def install_stage_with_new_release(ctx: CliContext, args: argparse.Namespace, swapped: Path) -> dict[str, Any] | None:
@@ -269,7 +293,7 @@ def install_stage_with_new_release(ctx: CliContext, args: argparse.Namespace, sw
     elif install.get("ok"):
         ctx.say(f"Loader app {version} is installed but DISABLED: the host refused to enable it. Run `floofy init` to record the grant and enable it, then restart the gateway", tone="warn")
     else:
-        ctx.say("Loader app update: the host App Kit install did not complete; the archive stays staged (details in the audit log)", tone="warn")
+        ctx.say(f"Loader app update: {install.get('reason') or 'the host App Kit install did not complete'}; the archive stays staged", tone="warn")
     return {**install, "via": "new-release"}
 
 
@@ -324,6 +348,7 @@ def apply_staged(ctx: CliContext, *, force: bool = False) -> dict[str, Any] | No
     # say what is true and what to run.
     enabled_ok = bool(outcome.get("after", {}).get("enabled")) if installed_ok else False
     ok = installed_ok
+    reason = None if ok else _manual_reason(outcome)
     marker = ctx.home.pending / "self-update.json"
     record = {**{k: v for k, v in stage.items() if k != "present"}, "applied": ok, "appliedAt": utc_now() if ok else None, "outcome": "ok" if ok and enabled_ok else ("disabled" if ok else "manual"), "enabled": enabled_ok}
     try:
@@ -340,10 +365,24 @@ def apply_staged(ctx: CliContext, *, force: bool = False) -> dict[str, Any] | No
     elif ok:
         detail, line, tone, result = "Loader app installed through the host App Kit but `kirocrew app enable` was refused (agent.apps_trusted grant missing)", f"Loader app {stage.get('version')} is installed but DISABLED: the host refused to enable it (the grant is missing). Run `floofy init` to record the grant and enable it, then restart the gateway", "warn", "disabled"
     else:
-        detail, line, tone, result = "Loader app install needs the manual steps (see above)", "Loader app update: the host App Kit install did not complete; the archive stays staged", "warn", "manual"
+        detail, line, tone, result = f"Loader app install did not complete: {reason}", f"Loader app update: {reason}; the archive stays staged", "warn", "manual"
     ctx.audit.record("self-update", result=result, version=stage.get("version"), phase="loader-app", files=[str(archive)], detail=detail)
     ctx.say(line, tone=tone)
-    return {"ok": ok, "enabled": enabled_ok, "version": stage.get("version"), "archive": str(archive), "outcome": outcome}
+    return {"ok": ok, "enabled": enabled_ok, "version": stage.get("version"), "archive": str(archive), "outcome": outcome, "reason": reason}
+
+
+def _manual_reason(outcome: dict[str, Any]) -> str:
+    """One line saying why ``_loader_app_step`` ended manual: no launcher, no build, or the host CLI's own words."""
+    if not outcome.get("launcher"):
+        return "no kirocrew launcher found (not on PATH; name it with --kirocrew)"
+    if not outcome.get("build"):
+        return f"no Loader app build ({outcome.get('buildSource') or 'the archive could not be read'})"
+    for step in ("install", "uninstall"):
+        host = outcome.get(step)
+        if isinstance(host, dict) and host.get("returncode") not in (None, 0):
+            output = " ".join(str(host.get("stderr") or host.get("stdout") or "").split())
+            return f"`kirocrew app {step}` failed (exit {host.get('returncode')}): {output[-300:] or 'no output'}"
+    return "the host App Kit install did not complete"
 
 
 # --- config ----------------------------------------------------------------------------------------------------------

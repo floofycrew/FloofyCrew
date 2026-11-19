@@ -85,6 +85,24 @@ export function transcriptOf(result, path) {
   return [argv.length ? `$ floofy ${argv.join(" ")}` : `→ ${path}`, ...(result.transcript || []), result.error && !result.declined ? `error: ${result.error}` : "", result.declined && result.needs ? `not confirmed (${result.needs.kind}); nothing was changed` : "", result.reloaded ? "(Loader reloaded)" : ""].filter(Boolean).join("\n");
 }
 
+/**
+ * Did `self-update --now` leave a Loader app ready for the next gateway start? Reads the route's result document:
+ * `{ok: true}` when nothing was staged for this host (no Loader app installed) or the staged archive was installed
+ * (`installed.loaderApp.install.ok`); otherwise `{ok: false, error}` with the CLI's reason — the restart must not run
+ * then, since it would boot the Loader that is already running and bring the update notice straight back.
+ */
+export function loaderAppUpdateVerdict(result) {
+  const selfUpdate = (result && result.json && result.json.selfUpdate) || {};
+  const installed = selfUpdate.installed || {};
+  const loaderApp = installed.loaderApp || {};
+  const install = loaderApp.install;
+  const staged = selfUpdate.staged || loaderApp.stage || null;
+  const pending = !!(staged && staged.present && !staged.applied);
+  if (install && install.ok === false) return { ok: false, error: `the Loader app update was not installed: ${install.reason || "the host App Kit install did not complete"} (the archive stays staged; nothing was restarted)` };
+  if (!install && pending) return { ok: false, error: `the Loader app update to FloofyCrew ${staged.version || ""} is still staged, not installed; nothing was restarted` };
+  return { ok: true };
+}
+
 export const getState = () => apiFetch("/state");
 export const getHealth = () => apiFetch("/health");
 export const getRegistry = () => apiFetch("/registry");

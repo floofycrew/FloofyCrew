@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import * as apiModule from "../../ui/app/api.mjs";
 import { browserAsk, callRoute, mergeConfirmations, transcriptOf, waitForGateway } from "../../ui/app/api.mjs";
 
 function fakeLoader(script) {
@@ -123,4 +124,23 @@ test("waitForGateway resolves false when the same gateway keeps answering until 
   const back = await waitForGateway({ fetchImpl: async () => { polls += 1; return { ok: true, body: { bootedAt: "t0" } }; }, now, sleep, timeoutMs: 10000, intervalMs: 1000 });
   assert.equal(back, false);
   assert.equal(polls, 10);
+});
+
+test("loaderAppUpdateVerdict lets the restart follow only a Loader app that was really installed", () => {
+  const { loaderAppUpdateVerdict } = apiModule;
+  // the public-host failure: zipapp swapped, the Loader step ended manual, the archive stayed staged
+  const manual = { ok: true, json: { selfUpdate: { staged: null, installed: { version: "1.3.17", loaderApp: { stage: { version: "1.3.17", applied: false }, install: { ok: false, enabled: false, reason: "no kirocrew launcher found (not on PATH; name it with --kirocrew)", outcome: {} } } } } } };
+  const verdict = loaderAppUpdateVerdict(manual);
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /not installed: no kirocrew launcher found/);
+  assert.match(verdict.error, /nothing was restarted/);
+  // the good path: installed and enabled by the new release
+  assert.deepEqual(loaderAppUpdateVerdict({ ok: true, json: { selfUpdate: { installed: { loaderApp: { install: { ok: true, enabled: true, via: "new-release" } } } } } }), { ok: true });
+  // a stage left pending by an earlier run that this run did not touch
+  const untouched = loaderAppUpdateVerdict({ ok: true, json: { selfUpdate: { staged: { version: "1.3.17", present: true, applied: false }, installed: { loaderApp: {} } } } });
+  assert.equal(untouched.ok, false);
+  assert.match(untouched.error, /still staged/);
+  // nothing staged at all (no Loader app on this host): nothing to object to
+  assert.deepEqual(loaderAppUpdateVerdict({ ok: true, json: { selfUpdate: { staged: null } } }), { ok: true });
+  assert.deepEqual(loaderAppUpdateVerdict({ ok: true }), { ok: true });
 });
