@@ -23,6 +23,7 @@
 import { createBoundary, describeError } from "./boundary.mjs";
 import { createBus, scoped } from "./events.mjs";
 import { createModApi } from "./modapi.mjs";
+import { createUpdateNudge } from "./nudge.mjs";
 import { createPatches } from "./patches.mjs";
 import { createReporter } from "./reporter.mjs";
 import { createSurfaces } from "./surfaces.mjs";
@@ -317,6 +318,11 @@ export function createHost(env = {}) {
       await loadPart(part, floofy, surfaces);
     }
     bus.emit("host.ready", { mods: parts.map((p) => p.modId), loaded: [...loaded.keys()], faulted: boundary.faultedMods() });
+    if (env.nudge !== false && doc && !win.__floofyNoNudge) {
+      // the dashboard-wide update reminder (nudge.mjs): tells, never installs; one per document, after a short delay
+      // (`window.__floofyNoNudge = true` before the host loads keeps it away: the screenshot script, a test harness)
+      createUpdateNudge({ window: win, document: doc, fetch: fetchImpl, console: log, setTimeout: setTimer, bus, state: async () => (await fetchState()) ?? latestState, ...(env.nudgeEnv ?? {}) }).start();
+    }
     return floofy;
   }
 

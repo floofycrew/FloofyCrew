@@ -222,9 +222,11 @@ def new_page(browser, *, color_scheme: str = "light", height: int | None = None)
     )
     # the dashboard keeps its light/dark choice in localStorage (`mc-theme`); seed it so a
     # fresh profile paints the mode we want from the first frame. The manager's unofficial
-    # banner is dismissed the way a user dismisses it: the same localStorage preference.
+    # banner is dismissed the way a user dismisses it: the same localStorage preference. The
+    # SPA host's update reminder (spa-host/src/nudge.mjs) stays away: a scratch gateway's feed
+    # may well announce a release, and the card would sit over every shot.
     context.add_init_script(
-        "try { localStorage.setItem('mc-theme', %s); localStorage.setItem(%s, '1'); } catch (e) {}"
+        "window.__floofyNoNudge = true; try { localStorage.setItem('mc-theme', %s); localStorage.setItem(%s, '1'); } catch (e) {}"
         % (json.dumps(color_scheme), json.dumps(BANNER_PREFERENCE_KEY))
     )
     return context, context.new_page()

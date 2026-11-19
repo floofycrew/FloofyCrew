@@ -11,6 +11,22 @@ KiroCrew; it never ships a rebuilt host.
 
 ## Unreleased
 
+### Added
+
+- **An update reminder in the dashboard itself.** A user who never opens the
+  FloofyCrew App page never saw the release notice or the mod update buttons.
+  The SPA host now shows, once per dashboard document and a moment after it
+  starts, the same kind of reminder the host shows for its own updates — the
+  centred card with the download icon, "FloofyCrew 1.3.19 is available for this
+  host (you run 1.3.18)", the installed mods with a newer version, "Remind me
+  tomorrow", "Skip these versions" and a primary button that opens the App's
+  Mods page, where the existing buttons do the work behind the confirmation
+  protocol (the reminder never installs anything). It waits while another
+  modal is up (the host's own update reminder, the onboarding), stays away on
+  the App page, and keeps its decisions in the browser's `localStorage` like
+  the banner preference (`spa-host/src/nudge.mjs`). Verified in a real browser
+  against a scratch public 0.12.2 gateway in both colour schemes.
+
 ### Mods
 
 - **`model-retry-policy` is deprecated and merged into `agent-backend-router`

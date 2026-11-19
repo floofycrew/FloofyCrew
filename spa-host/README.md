@@ -33,6 +33,7 @@ idempotent; `window.floofy` is installed once, non-writable).
 | `surfaces.mjs` + `surfaces.json` | `window.floofy.surfaces` — stable names for host UI surfaces located by **content fingerprints** (below) |
 | `patches.mjs` | `window.floofy.patches` — inspection of the import-map remaps the Patcher applied (below) |
 | `reporter.mjs` | `window.floofy.report()` — every surface and patch fingerprint evaluated against the live document and bundle (below) |
+| `nudge.mjs` | the dashboard-wide **update nudge**: after `host.ready` (2.5 s later, never over another modal, never on the App page itself) it reads the Loader state's `selfUpdate` and `/registry`'s `updates` and, when a FloofyCrew release or mod updates are due, renders the host's own update-modal shape (same utility classes and theme tokens, `data-testid="floofycrew-update-nudge"`): the versions, "Remind me tomorrow" (also Escape and a click outside), "Skip these versions", and a primary action that opens the App's Mods page — it tells, it never installs. Decisions live in `localStorage` (`floofycrew.update-nudge`, `{<key>: {snoozed_until, skipped}}`, pruned to the versions still announced); `window.__floofyNoNudge = true` before the host loads disables it |
 | `boot.mjs` | the pre-hydration boot script TEMPLATE the Patcher renders into `index.html` for `activation: boot` parts (below) |
 
 ## `window.floofy`
